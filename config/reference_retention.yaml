@@ -1,0 +1,11 @@
+schema: reference-retention/1
+dry_run_only: true
+keep_days: 30
+managed_roots:
+  - outputs/research
+  - state/research_checkpoints
+# This planner has no delete/archive operation and is not installed as a timer.
+# Plan/audit references are permanent protections, including transitive refs.
+max_files: 10000
+max_json_bytes: 1048576
+max_total_read_bytes: 67108864

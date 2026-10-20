@@ -2,7 +2,7 @@
   "schema_version": "claude-team-prompt-bundle/3.0.2",
   "authority": "Original 0323/0315/0308 bundle; A6 bounded contract authorized by 0384; A2 unified ten-stage policy authorized by Tony and 0386 on 2026-10-20",
   "role_semantics_modified": true,
-  "authorized_changes": ["P0-2_A6_SERVER_CLUSTER_CAPACITY", "P0-3_A6_CATALOG_REFS", "P0-17_UNIFIED_TEN_STAGE_POLICY"],
+  "authorized_changes": ["P0-2_A6_SERVER_CLUSTER_CAPACITY", "P0-3_A6_CATALOG_REFS", "P0-17_UNIFIED_TEN_STAGE_POLICY", "P0-12_LOSSLESS_A2_TRANSPORT"],
   "files": {
     "00_shared_system_v3.txt": {
       "sha256": "02417791ffeb2b31e7d70b065cf87b5af0a0ffe25162a2374ad0c8056c4f067c",
@@ -13,8 +13,8 @@
       "bytes": 47965
     },
     "agent_2_theme_sentiment_v3.txt": {
-      "sha256": "20243f3ad61031c5aa259aa80158e05303d219faa5f8b39e14273a3bdbf3b2af",
-      "bytes": 9472
+      "sha256": "7171c3bfed7ce1cb7c9928df1d69e7a4191ea45e5af5851e2f4cde400a8ed6b2",
+      "bytes": 10450
     },
     "agent_3_portfolio_planner_v4.txt": {
       "sha256": "7bfb0e4af1c81a25199a1a9fb91f8c83853355d1bb76727e8e2b9c466513da99",
@@ -33,8 +33,8 @@
       "bytes": 8901
     },
     "README_TEAM_V2_PROMPTS.md": {
-      "sha256": "b95b68c805f8732dc63ac7a33fab52eca09aeddae2676b2405f15f9f56464fd1",
-      "bytes": 11087
+      "sha256": "793a121330866708df1543df1096e5d32e7301837edfee9a136f314c9f47d16c",
+      "bytes": 11293
     },
     "agent_2_intraday_radar_v1.txt": {
       "sha256": "e82b091fa61eedda2b2c2024fb0779c0d0c4d61b295746c4f753729f6d3296a9",

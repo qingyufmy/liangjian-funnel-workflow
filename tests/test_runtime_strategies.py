@@ -718,7 +718,8 @@ def test_live_market_clock_is_separate_from_last_closed_bar_clock() -> None:
     assert result.as_of == closed_at.isoformat()
 
 
-def test_fresh_market_caution_keeps_entry_and_reduces_position() -> None:
+@pytest.mark.parametrize('market_decision',['CAUTION','WATCH_ONLY'])
+def test_fresh_market_caution_keeps_entry_and_reduces_position(market_decision) -> None:
     result = evaluate_strategy(
         _base(
             StrategyProfile.TREND_MA5.value,
@@ -729,7 +730,7 @@ def test_fresh_market_caution_keeps_entry_and_reduces_position() -> None:
         now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
         market_context={
             "live_market_state": {
-                **_live_market_context(decision="CAUTION")["live_market_state"],
+                **_live_market_context(decision=market_decision)["live_market_state"],
                 "suggested_position_cap_pct": 0.5,
             }
         },

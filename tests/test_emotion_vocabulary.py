@@ -42,3 +42,22 @@ def test_pinned_1016_ice_and_1019_latent_actual_input_branch_regression():
         assert len(source['file_sha256'])==64
         observed.append(new['stage'])
     assert observed==['ICE_POINT','LATENT']
+
+
+def test_divergence_watch_still_blocks_new_emotion_relay_publication(tmp_path):
+    from types import SimpleNamespace
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from liangjian_funnel.workflow import WorkflowApplication
+    from liangjian_funnel.runtime.state import RuntimeStore
+    store=RuntimeStore(tmp_path/'state.db')
+    plan=dict(symbol='600001.SH',strategy_profile='LEADER_INTRADAY',stock_behavior_type='EMOTION')
+    lane=SimpleNamespace(lane='lane_1',status='READY',final_output={'core_watch_pool':[plan],
+        'secondary_watch_pool':[]},stages=[])
+    result=WorkflowApplication._publish_plans(SimpleNamespace(store=store),
+        SimpleNamespace(run_id='watch-only-contract',lanes=[lane]),'close',
+        datetime(2026,10,20,17,tzinfo=ZoneInfo('Asia/Shanghai')),
+        snapshot_data={'MARKET_EMOTION_SNAPSHOT':{'available':True,
+            'emotion_cycle_stage':'DIVERGENCE','new_long_permission':'WATCH_ONLY'}})
+    assert result['created']==[]
+    assert result['blocked'][0]['reason']=='A3_EMOTION_RESEARCH_ONLY_NO_ENTRY'
