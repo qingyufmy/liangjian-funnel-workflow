@@ -9,7 +9,8 @@ import hashlib
 import json
 import re
 
-_ANNOTATIONS = {'evidence_ref', 'evidence_role', 'source_fact_sha256'}
+_ANNOTATIONS = {'evidence_ref', 'evidence_role'}
+_RESERVED = _ANNOTATIONS | {'source_fact_sha256'}
 _ROLE = 'FILTERED_NOMINATION_ONLY'
 
 
@@ -38,7 +39,7 @@ def bind_nomination_evidence(sample, catalog):
     seen = set()
     for row in sample:
         if (not isinstance(row, Mapping) or not isinstance(row.get('symbol'), str)
-                or not row['symbol'] or row['symbol'] in seen or _ANNOTATIONS.intersection(row)):
+                or not row['symbol'] or row['symbol'] in seen or _RESERVED.intersection(row)):
             raise ValueError('TEAM_A2_NOMINATION_EVIDENCE_SOURCE_INVALID')
         seen.add(row['symbol'])
         identity = 'A2:NOMINATION:' + row['symbol']
@@ -47,8 +48,7 @@ def bind_nomination_evidence(sample, catalog):
         if (entry is None or entry.get('sha256') != source_hash or entry.get('category') != 'QUANT'
                 or 'A2:QUANT:' + row['symbol'] in known):
             raise ValueError('TEAM_A2_NOMINATION_EVIDENCE_BINDING_MISMATCH')
-        result.append(dict(deepcopy(dict(row)), evidence_ref=identity,
-            evidence_role=_ROLE, source_fact_sha256=source_hash))
+        result.append(dict(deepcopy(dict(row)), evidence_ref=identity, evidence_role=_ROLE))
     return result
 
 
@@ -84,7 +84,8 @@ def prepare_nomination_evidence_values(values):
         metadata_keys=sorted(_ANNOTATIONS), inverse='VERIFY_BINDINGS_THEN_STRIP_ONLY_METADATA_KEYS',
         inverse_original_values_exact=True,
         bindings=[dict(symbol=row['symbol'], evidence_ref=row['evidence_ref'], evidence_role=row['evidence_role'],
-            source_fact_sha256=row['source_fact_sha256'], projected_row_sha256=_sha(row)) for row in annotated])
+            source_fact_sha256=_sha(original), projected_row_sha256=_sha(row))
+            for row, original in zip(annotated, sample, strict=True)])
 
 
 def same_fact_namespace_suggestions(raw, catalog, issues, nomination_sample):
@@ -104,7 +105,8 @@ def same_fact_namespace_suggestions(raw, catalog, issues, nomination_sample):
         known = _catalog(catalog)
     except (TypeError, KeyError, ValueError):
         return []
-    source = {row['symbol']: row for row in annotated}
+    source = {row['symbol']: dict(row, source_fact_sha256=_sha(original))
+        for row, original in zip(annotated, originals, strict=True)}
     suggestions = []
     for issue in issues:
         match = re.fullmatch(r'TEAM_(SUPPORTING|OPPOSING)_REFS_INVALID:([a-z_]+)\[(\d+)\]', issue)

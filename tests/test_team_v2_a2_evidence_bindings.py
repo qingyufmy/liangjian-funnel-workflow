@@ -60,6 +60,7 @@ def test_model_input_sample_has_unique_real_id_with_original_fact_hash_and_no_so
     assert expanded == model_values and binding_audit['original_values_sha256'] == sha(frozen['values'])
     expanded['A2_QUANT_FILTERED_SAMPLE'] = strip_nomination_evidence(expanded['A2_QUANT_FILTERED_SAMPLE'], catalog)
     assert expanded == frozen['values']  # Explicit two-layer inverse, no false original-fact identity.
+    assert 'source_fact_sha256' not in model_values['A2_QUANT_FILTERED_SAMPLE'][0]
     replay = app.team_research_adapter.repository.prepare_messages('A2', compact,
         required_envelope=frozen['envelope'], session='CLOSE_REVIEW')
     assert [dict(message) for message in replay.messages] == seen[0]['messages']
