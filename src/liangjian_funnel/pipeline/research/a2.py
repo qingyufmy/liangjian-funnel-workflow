@@ -1897,7 +1897,8 @@ def _a2_rotation_retry_feedback(output, snapshot_data, upstream_symbols):
         direction = str(contexts.get(symbol, {}).get("rotation_direction_id") or "")
         # Preserve actual focus conflicts even outside the NO_FOCUS domain.
         # Otherwise the empty-domain retry loses every existing focus label.
-        if direction and symbol in upstream_symbols:
+        if (direction and symbol in upstream_symbols
+                and (direction not in scope or symbol in scope[direction])):
             focus_by_direction.setdefault(direction, []).append(symbol)
     return {"allowed_direction_count": len(scope),
         "allowed_rotation_direction_ids": sorted(scope),

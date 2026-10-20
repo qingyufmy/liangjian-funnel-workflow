@@ -17,6 +17,7 @@ from .team_v2_model import team_call_binding
 from .team_v2_a1_research import _hash
 from .team_v2_research_time import research_times
 from .team_v2_a2_recovery import bind_a2_retry_feedback, drop_focused_rotation, validation_feedback
+from .team_v2_a2_normalization import synthesize_final_no_focus
 
 
 def directory_reference_feedback(raw,catalog,issues):
@@ -221,18 +222,35 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             provider_history.append(list(issues))
             # Keep the provider's captured JSON and validation immutable.  The
             # effective research view drops only redundant, otherwise valid
-            # NO_FOCUS rows; missing reviews always remain the model's job.
+            # NO_FOCUS rows. 0384 permits final post-policy explanation-only
+            # coverage filling, never a rewrite of provider FOCUS judgments.
             effective_raw=raw;projection=drop_focused_rotation(raw,values['EVIDENCE_CATALOG'],directions)
             normalization=None
             if projection is not None:
                 effective_raw,audit=projection
                 checked=validate(effective_raw);valid=checked.valid;issues=checked.issues
-            output=None
+            output=None;coverage_normalization=None
             if valid:
                 output,issues=_post_policy(effective_raw,snapshot,upstream_output,symbols,lane_id,model)
                 valid=not issues
                 adapter.store.freeze_control_context('a2-research-postpolicy:'+identity,source_sha256=request.input_hash,
                     body=dict(source_call_id=call_id,output=output,reason_codes=list(issues)))
+                if attempt==2 and issues:
+                    def revalidate_postpolicy(value):
+                        return legacy._validate_output(value,stage='A2',model=model,
+                            snapshot_id=snapshot.snapshot_id,upstream_symbols=symbols,snapshot_data=snapshot.data)
+                    coverage=synthesize_final_no_focus(output,issues=issues,direction_members=directions,
+                        engine_scores={symbol:snapshot.data['A2_BOTTLENECK_CONTEXT'][symbol].get('deterministic_score')
+                            for symbol in symbols},final_attempt=attempt+1,validator=revalidate_postpolicy,provider_raw=raw)
+                    if coverage is not None:
+                        output,coverage_normalization=coverage
+                        key='a2-research-coverage-synthesis:'+identity
+                        coverage_normalization.update(source_call_id=call_id,audit_context_key=key,
+                            original_postpolicy_context_key='a2-research-postpolicy:'+identity,
+                            original_provider_schema_validated=not provider_history[-1])
+                        adapter.store.freeze_control_context(key,source_sha256=request.input_hash,
+                            body=dict(**coverage_normalization,projected_postpolicy_output=output))
+                        issues=();valid=True
             if projection is not None:
                 normalization_key='a2-research-focused-drop:'+identity
                 normalization=dict(**audit,original_issues=provider_history[-1],
@@ -243,6 +261,8 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                 adapter.store.freeze_control_context(normalization_key,source_sha256=request.input_hash,
                     body=dict(**normalization,normalized_raw=effective_raw,postpolicy_output=output))
                 normalizations.append(normalization)
+            if coverage_normalization is not None:
+                normalization=coverage_normalization;normalizations.append(coverage_normalization)
             history.append(list(issues))
             if valid:break
             if attempt==2:break
@@ -258,6 +278,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                 feedback['reference_feedback']=reference_feedback
             if output is not None:
                 feedback['postpolicy_rotation_feedback']=legacy._a2_rotation_retry_feedback(output,snapshot.data,symbols)
+                feedback['rotation_scope_boundary']='raw FOCUS coverage applies before server policy; postpolicy_rotation_feedback uses effective qualified members after policy. These are separate explanatory scopes, not new focus or trading permissions.'
                 feedback['server_demoted_focus_symbols']=sorted(set(r['symbol'] for r in raw['focus_decisions'])-
                     set(r['symbol'] for r in output['focus_pool']))
                 feedback['theme_score_status']={theme:record['status'] for theme,record in frozen['themes'].items()}

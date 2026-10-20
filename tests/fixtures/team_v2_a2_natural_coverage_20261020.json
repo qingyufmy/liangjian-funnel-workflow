@@ -1,0 +1,2506 @@
+{
+  "provenance": {
+    "bytes": 33191,
+    "canonical_body_sha256": "c36ff4cdcc76cf0f30322b19be2505455d3f76b471d0372a97a164e642676bbe",
+    "production_head": "2e95040a98c9daf8b20c8d480dcd3eb885fb8104",
+    "run_id": "2026-10-20-close-ecc3a2d69188",
+    "authority": "0384_BOUNDED_EXISTING_SOURCE_EXTRACTION",
+    "context_export_sha256": "135e180190e00a58271e6e744c2cffb7a431591737e02376d42d28af75d91645",
+    "provider_raw_sha256": "d9f165a56f837937e33ec9240b3b3b24e868b9b95accc1b87cc34801a9bbb7f5",
+    "call_id": "A2:CLOSE_REVIEW:0f15bc403367d96ae2a0491ca45628b36b791e18d4c558fb2d095cc95c0bf486"
+  },
+  "source_context_id": "a2-research-source:0f15bc403367d96ae2a0491ca45628b36b791e18d4c558fb2d095cc95c0bf486",
+  "postpolicy_context_id": "a2-research-postpolicy:0f15bc403367d96ae2a0491ca45628b36b791e18d4c558fb2d095cc95c0bf486",
+  "input_hash": "1176c01538547e0ed9e5dfb24bf211fd983ba51cfbae47d0cca169a170d2b743",
+  "original_postpolicy_output_projection": {
+    "focus_pool": [
+      {
+        "symbol": "601288.SH"
+      },
+      {
+        "symbol": "601988.SH"
+      },
+      {
+        "symbol": "603236.SH"
+      },
+      {
+        "symbol": "002354.SZ"
+      },
+      {
+        "symbol": "300378.SZ"
+      },
+      {
+        "symbol": "688036.SH"
+      },
+      {
+        "symbol": "603893.SH"
+      },
+      {
+        "symbol": "001266.SZ"
+      },
+      {
+        "symbol": "002164.SZ"
+      },
+      {
+        "symbol": "001313.SZ"
+      },
+      {
+        "symbol": "301487.SZ"
+      }
+    ],
+    "rotation_reviews": []
+  },
+  "original_postpolicy_output_bytes": 1470399,
+  "original_postpolicy_output_sha256": "ec620361b47746232cd22ad7e122fcf7e93c501fd14634192a5b6fdf2b2eaf22",
+  "projection_contract": "EXACT_ROTATION_VALIDATOR_REQUIRED_FIELDS_ONLY_NOT_FULL_POSTPOLICY_REVALIDATION",
+  "original_issues": [
+    "A2_ROTATION_FOCUS_COVERAGE_MISSING:SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE",
+    "A2_ROTATION_FOCUS_COVERAGE_MISSING:SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE"
+  ],
+  "direction_members": {
+    "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY": [
+      "002322.SZ",
+      "002425.SZ",
+      "002712.SZ",
+      "002811.SZ",
+      "300226.SZ",
+      "300378.SZ",
+      "300426.SZ",
+      "300957.SZ",
+      "301110.SZ",
+      "301230.SZ",
+      "603171.SH",
+      "603383.SH",
+      "603598.SH",
+      "603602.SH",
+      "688095.SH",
+      "688111.SH",
+      "688365.SH",
+      "688522.SH"
+    ],
+    "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE": [
+      "300556.SZ",
+      "300839.SZ",
+      "600406.SH",
+      "601222.SH"
+    ],
+    "SELECTED_BOARD:CONSUMER_ELECTRONICS": [
+      "688036.SH"
+    ],
+    "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE": [
+      "000423.SZ",
+      "000538.SZ",
+      "000963.SZ",
+      "000989.SZ",
+      "002001.SZ",
+      "002262.SZ",
+      "002294.SZ",
+      "002603.SZ",
+      "300181.SZ",
+      "300199.SZ",
+      "300298.SZ",
+      "300406.SZ",
+      "300453.SZ",
+      "300765.SZ",
+      "300832.SZ",
+      "301122.SZ",
+      "301239.SZ",
+      "600285.SH",
+      "600351.SH",
+      "600521.SH",
+      "600557.SH",
+      "600771.SH",
+      "600993.SH",
+      "603127.SH",
+      "603301.SH",
+      "603669.SH",
+      "603883.SH",
+      "603939.SH",
+      "603998.SH",
+      "688235.SH",
+      "688575.SH",
+      "688617.SH"
+    ],
+    "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING": [
+      "000333.SZ",
+      "000682.SZ",
+      "001266.SZ",
+      "002270.SZ",
+      "002354.SZ",
+      "002439.SZ",
+      "002530.SZ",
+      "002541.SZ",
+      "002590.SZ",
+      "002833.SZ",
+      "002990.SZ",
+      "300012.SZ",
+      "300031.SZ",
+      "300143.SZ",
+      "300299.SZ",
+      "300432.SZ",
+      "300678.SZ",
+      "300733.SZ",
+      "300756.SZ",
+      "300771.SZ",
+      "300852.SZ",
+      "301002.SZ",
+      "301282.SZ",
+      "301310.SZ",
+      "301487.SZ",
+      "600196.SH",
+      "600968.SH",
+      "601766.SH",
+      "601877.SH",
+      "601965.SH",
+      "603025.SH",
+      "603337.SH",
+      "603418.SH",
+      "603656.SH",
+      "603728.SH",
+      "603809.SH",
+      "603992.SH",
+      "605189.SH",
+      "688018.SH",
+      "688071.SH",
+      "688097.SH",
+      "688099.SH",
+      "688151.SH",
+      "688187.SH",
+      "688188.SH",
+      "688213.SH",
+      "688475.SH",
+      "688499.SH",
+      "688615.SH",
+      "688626.SH"
+    ]
+  },
+  "engine_rows": [
+    {
+      "symbol": "000333.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 49.5998,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "000423.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 54.1242,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "000538.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 55.0448,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "000682.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 37.8889,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "000963.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 45.9162,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "000989.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 50.7336,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "001266.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 57.7969,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002001.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 45.5801,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002262.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 42.5846,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002270.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 41.128,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002294.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 47.6466,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002322.SZ",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 52.1657,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002354.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 55.4375,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002425.SZ",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 49.7455,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002439.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 52.4788,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002530.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 45.4848,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002541.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 51.7692,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002590.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 43.7875,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002603.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 51.1214,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002712.SZ",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 52.0238,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002811.SZ",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 52.2424,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002833.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 47.8005,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "002990.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 53.9015,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300012.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 52.3721,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300031.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 52.4243,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300143.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 44.9616,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300181.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 48.379,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300199.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 53.0512,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300226.SZ",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 52.536,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300298.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 58.9466,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300299.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 50.7243,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300378.SZ",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 53.9479,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300406.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 50.3485,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300426.SZ",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 62.4634,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300432.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 48.2493,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300453.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 55.7148,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300556.SZ",
+      "direction": "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE",
+      "quant_score": 52.3634,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300678.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 46.4913,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300733.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 44.6603,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300756.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 47.5724,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300765.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 48.5755,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300771.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 44.8691,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300832.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 54.7817,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300839.SZ",
+      "direction": "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE",
+      "quant_score": 44.2987,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300852.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 45.8965,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "300957.SZ",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 49.42,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "301002.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 51.8955,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "301110.SZ",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 54.0625,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "301122.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 52.3777,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "301230.SZ",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 52.1805,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "301239.SZ",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 48.8546,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "301282.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 46.5753,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "301310.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 49.3259,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "301487.SZ",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 47.6895,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "600196.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 46.2698,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "600285.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 52.729,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "600351.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 50.8185,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "600406.SH",
+      "direction": "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE",
+      "quant_score": 43.0339,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "600521.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 47.3308,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "600557.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 49.198,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "600771.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 50.174,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "600968.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 47.7206,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "600993.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 53.1426,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "601222.SH",
+      "direction": "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE",
+      "quant_score": 39.2906,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "601766.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 40.3407,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "601877.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 39.5501,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "601965.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 45.0105,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603025.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 52.9196,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603127.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 52.2775,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603171.SH",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 52.9106,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603301.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 55.7065,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603337.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 48.2529,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603383.SH",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 46.6301,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603418.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 44.66,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603598.SH",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 55.8484,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603602.SH",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 52.4153,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603656.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 48.3712,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603669.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 47.051,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603728.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 50.727,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603809.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 44.6093,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603883.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 48.5603,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603939.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 48.5081,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603992.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 50.557,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "603998.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 51.1703,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "605189.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 52.7306,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688018.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 47.2931,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688036.SH",
+      "direction": "SELECTED_BOARD:CONSUMER_ELECTRONICS",
+      "quant_score": 55.2477,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688071.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 51.0101,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688095.SH",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 49.0171,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688097.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 48.6957,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688099.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 46.6661,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688111.SH",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 52.2923,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688151.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 56.7896,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688187.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 38.8163,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688188.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 53.7331,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688213.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 46.5128,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688235.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 46.7952,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688365.SH",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 52.0574,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688475.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 48.5607,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688499.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 46.5491,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688522.SH",
+      "direction": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "quant_score": 42.4566,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688575.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 50.7788,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688615.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 52.0882,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688617.SH",
+      "direction": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE",
+      "quant_score": 60.0778,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    },
+    {
+      "symbol": "688626.SH",
+      "direction": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+      "quant_score": 62.6309,
+      "deterministic_status": "REVIEW_CANDIDATE",
+      "trend_eligible": 1,
+      "top_rotation_theme": 1,
+      "selected_for_rotation": 1
+    }
+  ],
+  "catalog": {
+    "categories": [
+      "MARKET",
+      "NEWS",
+      "QUANT"
+    ],
+    "items": [
+      {
+        "id": "A2:MARKET",
+        "category": "MARKET"
+      },
+      {
+        "id": "A2:NEWS",
+        "category": "NEWS"
+      },
+      {
+        "id": "A2:QUANT:000333.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:000423.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:000538.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:000682.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:000729.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:000848.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:000858.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:000963.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:000989.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:001266.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:001313.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:001965.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002001.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002164.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002262.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002270.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002292.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002294.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002322.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002354.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002425.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002439.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002530.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002541.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002590.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002603.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002712.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002811.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002833.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002946.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:002990.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300012.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300031.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300143.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300181.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300199.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300226.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300298.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300299.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300378.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300406.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300426.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300432.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300453.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300556.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300678.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300733.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300756.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300765.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300771.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300832.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300839.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300852.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300957.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:300999.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:301002.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:301025.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:301108.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:301110.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:301122.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:301230.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:301239.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:301282.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:301310.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:301487.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:600189.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:600196.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:600201.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:600285.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:600351.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:600406.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:600521.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:600557.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:600573.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:600771.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:600968.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:600993.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:601006.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:601222.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:601288.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:601328.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:601398.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:601658.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:601766.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:601816.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:601877.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:601939.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:601965.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:601988.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603025.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603068.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603127.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603171.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603198.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603236.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603301.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603337.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603383.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603418.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603598.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603602.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603630.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603656.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603669.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603728.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603809.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603883.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603893.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603939.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603992.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:603998.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:605189.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:605488.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688018.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688036.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688071.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688095.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688097.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688099.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688111.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688151.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688156.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688187.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688188.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688213.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688235.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688365.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688475.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688499.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688522.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688575.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688615.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688617.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:QUANT:688626.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:301190.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:301608.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:300984.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:001326.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:605100.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:001368.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:002956.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:301529.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:603276.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:603978.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:301286.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:600641.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:002674.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:603155.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:300990.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:688787.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:601857.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:300821.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:300107.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:603500.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:301210.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:601579.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:688199.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:688112.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:600316.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:603980.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:002780.SZ",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:603188.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:603373.SH",
+        "category": "QUANT"
+      },
+      {
+        "id": "A2:NOMINATION:301069.SZ",
+        "category": "QUANT"
+      }
+    ]
+  },
+  "provider_raw": {
+    "envelope": {
+      "as_of": "2026-10-20T16:10:11.491874+08:00",
+      "config_hash": "45a66a942beef43983ea5a4db485f043533c61b45fd6d8e4b04913d861b6e55e",
+      "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+      "execution_trade_date": "2026-10-21",
+      "input_snapshot_ids": [
+        "snapshot-20261020T160539+0800-ecc3a2d69188:a2:66fce111b1eb:rotation-policy:a2-bottleneck:ec2ea6162f9b"
+      ],
+      "knowledge_cutoff": "2026-10-20T16:10:11.491874+08:00",
+      "market_regime": "ROTATION_NO_MAINLINE",
+      "model_name": "deepseek-v4-pro",
+      "prompt_version": "agent-2/3.0.5",
+      "reason_codes": [],
+      "run_id": "2026-10-20-close-ecc3a2d69188",
+      "schema_version": "team-research-envelope/1",
+      "source_trade_date": "2026-10-20",
+      "stage_id": "A2",
+      "status": "OK"
+    },
+    "focus_decisions": [
+      {
+        "opposing_refs": [
+          "A2:QUANT:000729.SZ"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:000858.SZ"
+        ],
+        "symbol": "000858.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:002164.SZ"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:001266.SZ"
+        ],
+        "symbol": "001266.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:300999.SZ"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:001313.SZ"
+        ],
+        "symbol": "001313.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:601006.SH"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:001965.SZ"
+        ],
+        "symbol": "001965.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:001266.SZ"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "EMOTION_LADDER_LEADER_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:002164.SZ"
+        ],
+        "symbol": "002164.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:000729.SZ"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:002292.SZ"
+        ],
+        "symbol": "002292.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:002712.SZ"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:002354.SZ"
+        ],
+        "symbol": "002354.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:000423.SZ"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:300199.SZ"
+        ],
+        "symbol": "300199.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:002712.SZ"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:300378.SZ"
+        ],
+        "symbol": "300378.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:688522.SH"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:300733.SZ"
+        ],
+        "symbol": "300733.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:600968.SH"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:300839.SZ"
+        ],
+        "symbol": "300839.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:000682.SZ"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:301487.SZ"
+        ],
+        "symbol": "301487.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:601328.SH"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:601288.SH"
+        ],
+        "symbol": "601288.SH"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:601006.SH"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:601816.SH"
+        ],
+        "symbol": "601816.SH"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:601328.SH"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:601988.SH"
+        ],
+        "symbol": "601988.SH"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:000423.SZ"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:603127.SH"
+        ],
+        "symbol": "603127.SH"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:300852.SZ"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "EMOTION_FIRST_BOARD_OBSERVED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:603236.SH"
+        ],
+        "symbol": "603236.SH"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:603068.SH"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "EMOTION_FIRST_BOARD_OBSERVED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:603893.SH"
+        ],
+        "symbol": "603893.SH"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:605189.SH"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:605189.SH"
+        ],
+        "symbol": "605189.SH"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:605488.SH"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "EMOTION_LADDER_LEADER_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:605488.SH"
+        ],
+        "symbol": "605488.SH"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:301002.SZ"
+        ],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:688036.SH"
+        ],
+        "symbol": "688036.SH"
+      }
+    ],
+    "handoff_notes": {
+      "to_a3": [
+        "机器人、AI应用、消费电子三个方向已聚焦，明日重点盯板块主力净流入是否转负及核心股是否跌破MA20",
+        "所有聚焦股均缺资金流数据，A3需在技术研究阶段用价格结构二次确认，不可仅凭趋势资格直接开仓",
+        "情绪周期为STARTUP，新开仓政策整体偏试探，A3应控制单方向仓位集中度"
+      ]
+    },
+    "market_read": {
+      "dominant_themes": [
+        "ROBOTICS_ADVANCED_MANUFACTURING",
+        "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "CONSUMER_ELECTRONICS"
+      ],
+      "emotion_cycle": "STARTUP",
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "MARKET",
+        "NEWS"
+      ],
+      "regime": "ROTATION_NO_MAINLINE",
+      "supporting_refs": [
+        "A2:MARKET"
+      ]
+    },
+    "model_nominations": [],
+    "reason_codes": [
+      "CAPITAL_FLOW_UNAVAILABLE",
+      "OPTIONAL_FACTS_DEGRADED",
+      "ROTATION_NO_MAINLINE"
+    ],
+    "reject_decisions": [],
+    "rotation_reviews": [],
+    "theme_reviews": [
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:300999.SZ"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "REPAIR",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:001313.SZ"
+        ],
+        "theme_id": "AGRICULTURE_FOOD_SECURITY",
+        "what_would_change_my_mind": [
+          "农业板块主力净流入转负",
+          "001313.SZ跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:002712.SZ"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "CONFIRMATION",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:300378.SZ"
+        ],
+        "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "what_would_change_my_mind": [
+          "AI应用板块主力净流入转负",
+          "300378.SZ跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:300852.SZ"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "CONFIRMATION",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:603236.SH"
+        ],
+        "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+        "what_would_change_my_mind": [
+          "AI算力板块主力净流入转负",
+          "603236.SH跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:605488.SH"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "REPAIR",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:605488.SH"
+        ],
+        "theme_id": "CHEMICAL_NEW_MATERIALS",
+        "what_would_change_my_mind": [
+          "化工新材料板块主力净流入转负",
+          "605488.SH跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:301002.SZ"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "CONFIRMATION",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:688036.SH"
+        ],
+        "theme_id": "CONSUMER_ELECTRONICS",
+        "what_would_change_my_mind": [
+          "消费电子板块主力净流入转负",
+          "688036.SH跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:000729.SZ"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "REPAIR",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:000858.SZ"
+        ],
+        "theme_id": "CONSUMER_SERVICES",
+        "what_would_change_my_mind": [
+          "消费服务板块主力净流入转负",
+          "000858.SZ跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:601328.SH"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "REPAIR",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:601288.SH"
+        ],
+        "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+        "what_would_change_my_mind": [
+          "金融高股息板块主力净流入转负",
+          "601288.SH跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:601006.SH"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "REPAIR",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:001965.SZ"
+        ],
+        "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "what_would_change_my_mind": [
+          "基建内需板块主力净流入转负",
+          "001965.SZ跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:000423.SZ"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "CONFIRMATION",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:300199.SZ"
+        ],
+        "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "what_would_change_my_mind": [
+          "医药生物板块主力净流入转负",
+          "300199.SZ跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:605189.SH"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "REPAIR",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:605189.SH"
+        ],
+        "theme_id": "LIGHT_TEXTILE_CONSUMER_MANUFACTURING",
+        "what_would_change_my_mind": [
+          "轻纺板块主力净流入转负",
+          "605189.SH跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:688522.SH"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "REPAIR",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:300733.SZ"
+        ],
+        "theme_id": "NATIONAL_DEFENSE",
+        "what_would_change_my_mind": [
+          "国防板块主力净流入转负",
+          "300733.SZ跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:000682.SZ"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "REPAIR",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:301487.SZ"
+        ],
+        "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+        "what_would_change_my_mind": [
+          "电力设备新能源板块主力净流入转负",
+          "301487.SZ跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:600968.SH"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "REPAIR",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:300839.SZ"
+        ],
+        "theme_id": "RESOURCES_ENERGY",
+        "what_would_change_my_mind": [
+          "资源能源板块主力净流入转负",
+          "300839.SZ跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:001266.SZ"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "CONFIRMATION",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:002164.SZ"
+        ],
+        "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "what_would_change_my_mind": [
+          "机器人板块主力净流入转负",
+          "002164.SZ跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:603068.SH"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "CONFIRMATION",
+        "support_codes": [
+          "MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:603893.SH"
+        ],
+        "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+        "what_would_change_my_mind": [
+          "半导体板块主力净流入转负",
+          "603893.SH跌破MA20"
+        ]
+      }
+    ],
+    "unresolved_questions": [],
+    "what_would_change_my_mind": [
+      "任一聚焦主题主力净流入转负且核心股跌破MA20",
+      "市场情绪周期从STARTUP转入RETREAT或FADE"
+    ]
+  }
+}
