@@ -18,6 +18,7 @@ from .team_v2_a1_research import _hash
 from .team_v2_research_time import research_times
 from .team_v2_a2_recovery import bind_a2_retry_feedback, drop_focused_rotation, validation_feedback
 from .team_v2_a2_normalization import synthesize_final_no_focus
+from .team_v2_prompts import _VERSIONS as PROMPT_VERSIONS
 
 
 def directory_reference_feedback(raw,catalog,issues):
@@ -72,7 +73,7 @@ def _post_policy(raw,snapshot,upstream_output,symbols,lane_id,model):
     for theme,review in zip(output['active_themes'],raw['theme_reviews'],strict=True):
         theme.update(team_penalty_codes=list(review['penalty_codes']),supporting_evidence=list(review['supporting_refs']),
             contradicting_evidence=list(review['opposing_refs']),what_would_change_my_mind=list(review['what_would_change_my_mind']))
-    output['envelope']={**legacy._required_envelope(snapshot,lane_id,model,'A2'),'prompt_version':'agent-2/3.0.5','status':'OK'}
+    output['envelope']={**legacy._required_envelope(snapshot,lane_id,model,'A2'),'prompt_version':PROMPT_VERSIONS['A2'],'status':'OK'}
     output.update(handoff_notes=deepcopy(raw['handoff_notes']),what_would_change_my_mind=raw['what_would_change_my_mind'],
         model_nominations=deepcopy(raw['model_nominations']),market_read=deepcopy(raw['market_read']))
     output,_=legacy._canonicalize_stage_lineage(output,'A2',upstream_output,snapshot.data)
@@ -142,7 +143,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         envelope=dict(schema_version='team-research-envelope/1',run_id=run_id,stage_id='A2',
             source_trade_date=market_source.date().isoformat(),execution_trade_date=adapter.calendar.next_trading_day(market_source.date()).isoformat(),
             as_of=source.isoformat(),knowledge_cutoff=source.isoformat(),input_snapshot_ids=[snapshot.snapshot_id],
-            config_version=adapter.config_version,config_hash=adapter.config_hash,prompt_version='agent-2/3.0.5',
+            config_version=adapter.config_version,config_hash=adapter.config_hash,prompt_version=PROMPT_VERSIONS['A2'],
             model_name=model,market_regime=market.get('regime','UNKNOWN'),status='OK',reason_codes=[])
         domain={s:snapshot.data['A2_BOTTLENECK_CONTEXT'][s]['theme_id'] for s in symbols}
         directions={d:set(ss) for d,ss in projected['_rotation_review_scope'].items()}
@@ -169,12 +170,19 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             return TeamValidation(not issues,tuple(dict.fromkeys(issues)),result.judgments,result.sentinel_count)
         history=[];provider_history=[];ids=[];output=None;reference_feedback_rounds=0
         normalization=None;normalizations=[];budget_stop=None
+        input_projections=[]
         for attempt in range(3):
-            request=adapter.repository.prepare_messages('A2',values,required_envelope=envelope,session='CLOSE_REVIEW')
+            from .team_v2_a2_projection import prepare_a2_transport_values
+            transport_values,input_projection=prepare_a2_transport_values(values)
+            request=adapter.repository.prepare_messages('A2',transport_values,required_envelope=envelope,session='CLOSE_REVIEW')
             if attempt:
                 request=bind_a2_retry_feedback(request,projected['_rotation_review_contract'].get('retry_feedback'),
                     correction_attempt=attempt+1,engine_emotion_cycle=engine_emotion)
             tokens=legacy._estimate_message_tokens(request.messages)
+            input_projection.update(semantic_attempt=attempt+1,input_hash=request.input_hash,
+                actual_message_characters=sum(len(message['content']) for message in request.messages),
+                actual_estimated_tokens=tokens)
+            input_projections.append(input_projection)
             if tokens>pipeline.settings.model_max_input_tokens:return blocked('MODEL_PROMPT_TOO_LARGE')
             # Each semantic answer has its own bounded timeout; the original
             # research deadline remains the absolute, shared budget.
@@ -215,7 +223,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                 body=dict(values=legacy._jsonable(values),envelope=envelope,score_freeze=frozen,
                     request_transport_projection=dict(schema='a2-retry-user-feedback/1',semantic_attempt=attempt+1,
                         input_hash=request.input_hash,prompt_sha256=request.prompt.sha256,
-                        user_message=request.messages[1]['content'])))
+                        user_message=request.messages[1]['content'],input_projection=input_projection)))
             raw,valid,issues=_response(request=request,client=pipeline.model_client,journal=adapter.journal,call_id=call_id,
                 run_id=run_id,model=model,source_trade_date=envelope['source_trade_date'],trade_date=envelope['execution_trade_date'],
                 catalog=values['EVIDENCE_CATALOG'],clock=pipeline.now,session='CLOSE_REVIEW',validator=validate,**budget)
@@ -294,6 +302,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             reference_retry_authority='0361_REPLY_B_ALL_VALIDATION_FEEDBACK_MAX_THREE',
             server_normalization=normalization,
             server_normalizations=normalizations,
+            input_projections=input_projections,
             budget_stop=budget_stop,
             original_rotation_domain={d:sorted(ss) for d,ss in sorted(directions.items())},
             original_theme_review_domain=sorted(projected['_theme_review_scope']),

@@ -108,7 +108,7 @@ def test_fallback_uses_actual_a3_adapter_without_bypassing_geometry_or_engine(tm
     args['upstream_output']=upstream
     before=deepcopy(dict(args['snapshot'].data))
     audit=app._run_stage(**args)
-    assert len(seen)==1
+    assert len(seen)==(3 if invalid else 1)
     if invalid or eligibility=='DATA_GAP':
         assert not (audit.output or {}).get('core_watch_pool')
     else:

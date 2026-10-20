@@ -148,7 +148,11 @@ def test_actual_mock_transport_receives_last_user_correction_and_journal_binds_e
     assert len(contexts) == 2
     for context in contexts:
         projected = context['request_transport_projection']
-        original = prepare('A2', context['values'], required_envelope=context['envelope'], session='CLOSE_REVIEW')
+        from liangjian_funnel.pipeline.team_v2_a2_projection import prepare_a2_transport_values
+        compact,audit=prepare_a2_transport_values(context['values'])
+        assert audit['source_values_sha256']==projected['input_projection']['source_values_sha256']
+        assert audit['transport_values_sha256']==projected['input_projection']['transport_values_sha256']
+        original = prepare('A2', compact, required_envelope=context['envelope'], session='CLOSE_REVIEW')
         messages = [dict(original.messages[0]), {'role': 'user', 'content': projected['user_message']}]
         assert message_hash(messages) == projected['input_hash']
         assert hashlib.sha256(messages[0]['content'].encode()).hexdigest() == projected['prompt_sha256']
