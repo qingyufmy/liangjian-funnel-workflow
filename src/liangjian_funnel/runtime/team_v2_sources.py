@@ -14,7 +14,7 @@ import sqlite3
 from zoneinfo import ZoneInfo
 
 from ..review.observability import _cluster
-from .risk_engine import PlanRisk
+from .risk_engine import PlanRisk, plan_risk_fields
 from .team_v2_store import canonical
 
 TZ = ZoneInfo('Asia/Shanghai')
@@ -80,7 +80,8 @@ def read_planning_scope(settings, *, now, calendar):
             if regime not in REGIMES: raise ValueError('TEAM_PLAN_MARKET_PRIOR_UNPROVEN')
             # PLANNING deliberately does not claim today's actual tradability.
             plan = PlanRisk(row['plan_id'],row['symbol'],label,row['status'],start,end,
-                price,stop,low,high,chase,invalidation_price=stop,tradable=True,data_ready=True)
+                price,stop,low,high,chase,invalidation_price=stop,tradable=True,data_ready=True,
+                **plan_risk_fields(raw))
             value=asdict(plan)
             value.update(valid_from=start.isoformat() if start is not None else None,expires_at=end.isoformat())
             plans.append(value); regimes.add(regime)
@@ -120,6 +121,7 @@ def meeting_plan_facts(rows):
         'invalidation_level','daily_invalidation','no_chase','no_chase_price','first_resistance',
         'pressure_reduce_price','reference_price','reference_price_as_of','plan_expiry',
         'market_regime','market_environment','risk_unit','max_batches','plan_priority',
+        'A2_UNAVAILABLE','A2_REVIEW_DEGRADED','PATTERN_B','SERVER_FALLBACK','degradation_tags',
         'plan_priority_rank','priority_reasons','trading_plan_brief','trade_plan_brief','trade_brief',
         'handoff_notes','what_would_change_my_mind','supporting_refs','opposing_refs',
         'opposing_search_scope','confirmation_conditions','a4_required_entry_rules',
@@ -247,7 +249,8 @@ def read_execution_scope(settings, *, now, calendar, morning_source, positions):
                     or not geometry['stop_price']<geometry['entry_low']<=geometry['entry_high']<=geometry['no_chase']):
                 raise ValueError
             plan=PlanRisk(pid,row['symbol'],label,row['status'],start,expiry,**geometry,
-                invalidation_price=geometry['stop_price'],tradable=False,data_ready=False)
+                invalidation_price=geometry['stop_price'],tradable=False,data_ready=False,
+                **plan_risk_fields(raw))
             plans.append(asdict(plan))
             if (old is not None and row['status']=='ACTIVE_TODAY' and start is not None
                     and start.date()==now.date() and expiry.date()==now.date() and start<=now<expiry):

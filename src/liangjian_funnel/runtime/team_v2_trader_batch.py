@@ -9,6 +9,7 @@ import hashlib,time,json
 
 from liangjian_paper_broker.ledger import dump
 from .team_v2_execution import admit_trader_signal
+from .risk_engine import cap_risk_envelope
 from .team_v2_trader_inputs import transition_model_scope,shard_model_scope
 from .team_v2_trader_session import run_trader_session
 
@@ -93,8 +94,7 @@ def run_trader_batch(**args):
         risk=args['envelopes'][pid]
         if row['action'] in {'BUY_SIGNAL','ADD_SIGNAL'} and kind=='plan':
             hint=row['handoff_to_a6'];risk=replace(risk,max_batches=min(risk.max_batches,hint['batches_hint']))
-            if hint['risk_unit_hint']=='PROBE' and risk.risk_unit=='STANDARD':
-                risk=replace(risk,risk_unit='PROBE',risk_budget=risk.risk_budget*args['limits'].probe_multiplier)
+            risk=cap_risk_envelope(risk,plan=args['all_plans'][pid],a4=hint['risk_unit_hint'],limits=args['limits'])
         sid='A4:'+hashlib.sha256(dump([args['account_id'],args['decision_id'],kind,pid]).encode()).hexdigest()
         admission=admit_trader_signal(broker=args['broker'],signal_id=sid,action=row['action'],
             plan=args['all_plans'][pid],envelope=risk,limits=args['limits'],all_plans=args['all_plans'],now=args['decision_at'],

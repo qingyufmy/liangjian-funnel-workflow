@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass,replace
 from decimal import Decimal
 
-from .risk_engine import conservative_envelope
+from .risk_engine import cap_risk_envelope
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,7 @@ def compile_pm_allocation(result,*,account_id,trade_date,meeting_id,input_sha256
         tuple((pid,*value) for pid,value in sorted(bindings.items())),tuple(alloc))
 
 
-def enforce_pm_allocation(policy,*,plan,envelope,trade_date,snapshot):
+def enforce_pm_allocation(policy,*,plan,envelope,trade_date,snapshot,limits=None):
     """Return a tighter envelope and reason, without modifying any source row."""
     if not isinstance(policy,PMAllocation):return envelope,'PM_ALLOCATION_UNAVAILABLE'
     bindings={pid:(symbol,cluster) for pid,symbol,cluster in policy.plan_bindings}
@@ -63,7 +63,6 @@ def enforce_pm_allocation(policy,*,plan,envelope,trade_date,snapshot):
     occupied={row['plan_id'] for row in snapshot['positions'] if row['qty']>0}
     occupied.update(row['plan_id'] for row in snapshot['open_orders'] if row['side']=='BUY' and row['remaining_qty']>0)
     if (set(slot[1:])-{plan.plan_id,''}) & occupied:return envelope,'PM_SLOT_OCCUPIED'
-    changed=envelope
-    if allocation[1]=='PROBE' and envelope.risk_unit=='STANDARD':
-        changed=conservative_envelope(envelope,consecutive_failures=1)
+    changed=cap_risk_envelope(envelope,plan=plan,pm=allocation[1],limits=limits,
+        conservative_quantity=True)
     return replace(changed,max_batches=min(changed.max_batches,allocation[2])),None

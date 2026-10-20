@@ -12,7 +12,7 @@ import time
 from zoneinfo import ZoneInfo
 
 from liangjian_paper_broker.ledger import dump
-from .risk_engine import AccountRisk, PositionRisk
+from .risk_engine import AccountRisk, PositionRisk, cap_risk_envelope
 from .trader_guardrails import guard_trader_signal
 from .team_v2_allocation import enforce_pm_allocation
 
@@ -67,6 +67,8 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
         utilization_cap_pct=number(utilization_cap_pct)
         if utilization_cap_pct is None or not 0<=utilization_cap_pct<=100:raise ValueError('TRADER_UTILIZATION_CAP_INVALID')
     current=now.astimezone(TZ)
+    if action in ENTRY:
+        envelope=cap_risk_envelope(envelope,plan=plan,limits=limits)
     if entry_pattern_binding is not None:
         from .entry_pattern_binding import probe_envelope,validate_team_intent
         envelope=probe_envelope(envelope)
@@ -111,7 +113,7 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
         permitted=envelope;pm_reason=None
         if action in ENTRY:
             permitted,pm_reason=enforce_pm_allocation(pm_allocation,plan=plan,envelope=envelope,
-                trade_date=current.date().isoformat(),snapshot=snapshot)
+                trade_date=current.date().isoformat(),snapshot=snapshot,limits=limits)
             if utilization_cap_pct is not None:
                 # Inside the same reservation transaction: open buys already
                 # count as exposure, so two plans cannot spend the same room.

@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from .risk_engine import RiskEnvelope, conservative_envelope
+from .risk_engine import RiskEnvelope, conservative_envelope, cap_risk_envelope
 
 _ADJUSTMENTS = frozenset({"KEEP", "TIGHTEN_TO_PROBE", "REDUCE_BATCHES", "SUSPEND"})
 _ADJUSTMENT_KEYS = frozenset({"plan_id", "adjustment", "reason_code", "supporting_refs",
@@ -48,6 +48,7 @@ def apply_premarket_review(envelopes: tuple[RiskEnvelope, ...], output: Any, *,
     if type(previous_failures) is not int or previous_failures < 0 or type(validated) is not bool:
         raise ValueError("A6_MEETING_STATE_INVALID")
     cap = _cap(engine_utilization_cap)
+    envelopes = tuple(cap_risk_envelope(e) for e in envelopes)
     by_id = {e.plan_id: e for e in envelopes}
     if len(by_id) != len(envelopes) or len({e.trade_date for e in envelopes}) > 1:
         raise ValueError("A6_ENGINE_DOMAIN_INVALID")
@@ -96,7 +97,7 @@ def apply_premarket_review(envelopes: tuple[RiskEnvelope, ...], output: Any, *,
                 or changed.max_batches > original.max_batches or (changed.eligible and not original.eligible)
                 or not set(original.blocked_reasons).issubset(changed.blocked_reasons)):
             raise ValueError("A6_MONOTONICITY_VIOLATION")
-        result.append(changed)
+        result.append(cap_risk_envelope(changed))
     return RiskMeetingResult("READY", tuple(result), model_cap, 0, ())
 
 

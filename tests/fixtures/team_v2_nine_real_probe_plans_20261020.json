@@ -1,0 +1,388 @@
+{
+  "schema_version": "team-real-nine-plan-projection-fixture/1",
+  "source_evidence": "NINE_REAL_PLAN_RISK_PROJECTION_RO_0418.json",
+  "source_evidence_sha256": "6d2dff1f9d0e6726f8fdda97e97dc75c680bd84c62f1ad910c030b00dc73969d",
+  "observed_at": "2026-10-20T23:49:54.405821+08:00",
+  "production_head": "5308adea7d87e1e67364ea9ebb779bf79be0ee1c",
+  "source_run_id": "postinstall-close-5308ade-20261020T225716702499",
+  "projection_only_not_original_full_payload": true,
+  "rows": [
+    {
+      "plan_id": "postinstall-close-5308ade-20261020T225716702499:lane_1:76cd12944056521c",
+      "symbol": "000333.SZ",
+      "lane_id": "lane_1",
+      "status": "PENDING_MORNING_REVIEW",
+      "valid_from": null,
+      "expires_at": "2026-10-21T15:00:00+08:00",
+      "original_payload_sha256": "6d4c2f47a409bb842a403b7e9c04be41f95ee03f78276c8bc4f257dc9594734c",
+      "payload_projection": {
+        "symbol": "000333.SZ",
+        "source_run_id": "postinstall-close-5308ade-20261020T225716702499",
+        "strategy_profile": "TREND_MA5",
+        "primary_theme": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "reference_price": 85.28,
+        "reference_price_as_of": "2026-10-20T15:00:00+08:00",
+        "trigger_low": 84.966,
+        "trigger_high": 85.07428571428571,
+        "stop_level": 84.3,
+        "no_chase": 87.01,
+        "market_regime": "ROTATION_NO_MAINLINE",
+        "market_environment": "ROTATION_MIXED",
+        "risk_unit": "PROBE",
+        "A2_UNAVAILABLE": true,
+        "A2_REVIEW_DEGRADED": true,
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ]
+      },
+      "fields_absent": [
+        "cluster_label",
+        "industry_name",
+        "industry",
+        "theme_name",
+        "primary_theme_name",
+        "max_batches",
+        "PATTERN_B",
+        "SERVER_FALLBACK",
+        "degradation_tags"
+      ]
+    },
+    {
+      "plan_id": "postinstall-close-5308ade-20261020T225716702499:lane_1:7a17420a36211035",
+      "symbol": "002270.SZ",
+      "lane_id": "lane_1",
+      "status": "PENDING_MORNING_REVIEW",
+      "valid_from": null,
+      "expires_at": "2026-10-21T15:00:00+08:00",
+      "original_payload_sha256": "b49b157130213b565f9108018641396cdbe30030d8865f9ccbae3bd019a6a9b3",
+      "payload_projection": {
+        "symbol": "002270.SZ",
+        "source_run_id": "postinstall-close-5308ade-20261020T225716702499",
+        "strategy_profile": "TREND_MA5",
+        "primary_theme": "POWER_EQUIPMENT_NEW_ENERGY",
+        "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+        "reference_price": 19,
+        "reference_price_as_of": "2026-10-20T15:00:00+08:00",
+        "trigger_low": 18.664,
+        "trigger_high": 18.81142857142857,
+        "stop_level": 18.66,
+        "no_chase": 19.19,
+        "market_regime": "ROTATION_NO_MAINLINE",
+        "market_environment": "ROTATION_MIXED",
+        "risk_unit": "PROBE",
+        "A2_UNAVAILABLE": true,
+        "A2_REVIEW_DEGRADED": true,
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ]
+      },
+      "fields_absent": [
+        "cluster_label",
+        "industry_name",
+        "industry",
+        "theme_name",
+        "primary_theme_name",
+        "max_batches",
+        "PATTERN_B",
+        "SERVER_FALLBACK",
+        "degradation_tags"
+      ]
+    },
+    {
+      "plan_id": "postinstall-close-5308ade-20261020T225716702499:lane_1:ef71164caa5a53b1",
+      "symbol": "002322.SZ",
+      "lane_id": "lane_1",
+      "status": "PENDING_MORNING_REVIEW",
+      "valid_from": null,
+      "expires_at": "2026-10-21T15:00:00+08:00",
+      "original_payload_sha256": "dfb76f7986565e5ffa300c198a81166095ea91d98ba7c1c47b7398e95f64ea1d",
+      "payload_projection": {
+        "symbol": "002322.SZ",
+        "source_run_id": "postinstall-close-5308ade-20261020T225716702499",
+        "strategy_profile": "TREND_MA5",
+        "primary_theme": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "reference_price": 13.02,
+        "reference_price_as_of": "2026-10-20T15:00:00+08:00",
+        "trigger_low": 12.852,
+        "trigger_high": 12.957142857142857,
+        "stop_level": 12.82,
+        "no_chase": 13.3,
+        "market_regime": "ROTATION_NO_MAINLINE",
+        "market_environment": "ROTATION_MIXED",
+        "risk_unit": "PROBE",
+        "A2_UNAVAILABLE": true,
+        "A2_REVIEW_DEGRADED": true,
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ]
+      },
+      "fields_absent": [
+        "cluster_label",
+        "industry_name",
+        "industry",
+        "theme_name",
+        "primary_theme_name",
+        "max_batches",
+        "PATTERN_B",
+        "SERVER_FALLBACK",
+        "degradation_tags"
+      ]
+    },
+    {
+      "plan_id": "postinstall-close-5308ade-20261020T225716702499:lane_1:4a6a047ed49b1c75",
+      "symbol": "301230.SZ",
+      "lane_id": "lane_1",
+      "status": "PENDING_MORNING_REVIEW",
+      "valid_from": null,
+      "expires_at": "2026-10-21T15:00:00+08:00",
+      "original_payload_sha256": "c6efbc8810715b064ab0676b833fc8c397832cba5e3da651e841d77458b1ae96",
+      "payload_projection": {
+        "symbol": "301230.SZ",
+        "source_run_id": "postinstall-close-5308ade-20261020T225716702499",
+        "strategy_profile": "TREND_MA5",
+        "primary_theme": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "reference_price": 35.78,
+        "reference_price_as_of": "2026-10-20T15:00:00+08:00",
+        "trigger_low": 35.5965,
+        "trigger_high": 35.78,
+        "stop_level": 33.73,
+        "no_chase": 36.8534,
+        "market_regime": "ROTATION_NO_MAINLINE",
+        "market_environment": "ROTATION_MIXED",
+        "risk_unit": "PROBE",
+        "A2_UNAVAILABLE": true,
+        "A2_REVIEW_DEGRADED": true,
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE"
+        ]
+      },
+      "fields_absent": [
+        "cluster_label",
+        "industry_name",
+        "industry",
+        "theme_name",
+        "primary_theme_name",
+        "max_batches",
+        "PATTERN_B",
+        "SERVER_FALLBACK",
+        "degradation_tags"
+      ]
+    },
+    {
+      "plan_id": "postinstall-close-5308ade-20261020T225716702499:lane_1:149e365ce5f24866",
+      "symbol": "301487.SZ",
+      "lane_id": "lane_1",
+      "status": "PENDING_MORNING_REVIEW",
+      "valid_from": null,
+      "expires_at": "2026-10-21T15:00:00+08:00",
+      "original_payload_sha256": "53d656d4824c4158e2dd494a86b6625775a51d6ffd97ad91975b6943aab24788",
+      "payload_projection": {
+        "symbol": "301487.SZ",
+        "source_run_id": "postinstall-close-5308ade-20261020T225716702499",
+        "strategy_profile": "TREND_MA5",
+        "primary_theme": "POWER_EQUIPMENT_NEW_ENERGY",
+        "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+        "reference_price": 19.24,
+        "reference_price_as_of": "2026-10-20T15:00:00+08:00",
+        "trigger_low": 18.348,
+        "trigger_high": 18.474285714285713,
+        "stop_level": 18.1,
+        "no_chase": 19.41,
+        "market_regime": "ROTATION_NO_MAINLINE",
+        "market_environment": "ROTATION_MIXED",
+        "risk_unit": "PROBE",
+        "A2_UNAVAILABLE": true,
+        "A2_REVIEW_DEGRADED": true,
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ]
+      },
+      "fields_absent": [
+        "cluster_label",
+        "industry_name",
+        "industry",
+        "theme_name",
+        "primary_theme_name",
+        "max_batches",
+        "PATTERN_B",
+        "SERVER_FALLBACK",
+        "degradation_tags"
+      ]
+    },
+    {
+      "plan_id": "postinstall-close-5308ade-20261020T225716702499:lane_1:3aa188ada7459153",
+      "symbol": "600406.SH",
+      "lane_id": "lane_1",
+      "status": "PENDING_MORNING_REVIEW",
+      "valid_from": null,
+      "expires_at": "2026-10-21T15:00:00+08:00",
+      "original_payload_sha256": "686ae823b8e7af9013a760e30ab86408aa1a6de64fb5ff8eb8564cd46a039113",
+      "payload_projection": {
+        "symbol": "600406.SH",
+        "source_run_id": "postinstall-close-5308ade-20261020T225716702499",
+        "strategy_profile": "TREND_MA5",
+        "primary_theme": "POWER_EQUIPMENT_NEW_ENERGY",
+        "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+        "reference_price": 23,
+        "reference_price_as_of": "2026-10-20T15:00:00+08:00",
+        "trigger_low": 22.678,
+        "trigger_high": 22.694285714285712,
+        "stop_level": 22.54,
+        "no_chase": 23.08,
+        "market_regime": "ROTATION_NO_MAINLINE",
+        "market_environment": "ROTATION_MIXED",
+        "risk_unit": "PROBE",
+        "A2_UNAVAILABLE": true,
+        "A2_REVIEW_DEGRADED": true,
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ]
+      },
+      "fields_absent": [
+        "cluster_label",
+        "industry_name",
+        "industry",
+        "theme_name",
+        "primary_theme_name",
+        "max_batches",
+        "PATTERN_B",
+        "SERVER_FALLBACK",
+        "degradation_tags"
+      ]
+    },
+    {
+      "plan_id": "postinstall-close-5308ade-20261020T225716702499:lane_1:63ac9a9afc8c273b",
+      "symbol": "600968.SH",
+      "lane_id": "lane_1",
+      "status": "PENDING_MORNING_REVIEW",
+      "valid_from": null,
+      "expires_at": "2026-10-21T15:00:00+08:00",
+      "original_payload_sha256": "5d4be18566562e545153f5dc2712bc33d4e42297f69870b9bc369a5e072b179c",
+      "payload_projection": {
+        "symbol": "600968.SH",
+        "source_run_id": "postinstall-close-5308ade-20261020T225716702499",
+        "strategy_profile": "TREND_MA5",
+        "primary_theme": "RESOURCES_ENERGY",
+        "theme_id": "RESOURCES_ENERGY",
+        "reference_price": 4.05,
+        "reference_price_as_of": "2026-10-20T15:00:00+08:00",
+        "trigger_low": 4.036,
+        "trigger_high": 4.038571428571428,
+        "stop_level": 4.01,
+        "no_chase": 4.11,
+        "market_regime": "ROTATION_NO_MAINLINE",
+        "market_environment": "ROTATION_MIXED",
+        "risk_unit": "PROBE",
+        "A2_UNAVAILABLE": true,
+        "A2_REVIEW_DEGRADED": true,
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ]
+      },
+      "fields_absent": [
+        "cluster_label",
+        "industry_name",
+        "industry",
+        "theme_name",
+        "primary_theme_name",
+        "max_batches",
+        "PATTERN_B",
+        "SERVER_FALLBACK",
+        "degradation_tags"
+      ]
+    },
+    {
+      "plan_id": "postinstall-close-5308ade-20261020T225716702499:lane_1:d7f3554ba8c2d6a0",
+      "symbol": "688151.SH",
+      "lane_id": "lane_1",
+      "status": "PENDING_MORNING_REVIEW",
+      "valid_from": null,
+      "expires_at": "2026-10-21T15:00:00+08:00",
+      "original_payload_sha256": "c6eb1c0d6c39d81c81b5f0d3fc126e5f1c53c5e50845d44fddb4722a87559143",
+      "payload_projection": {
+        "symbol": "688151.SH",
+        "source_run_id": "postinstall-close-5308ade-20261020T225716702499",
+        "strategy_profile": "TREND_MA5",
+        "primary_theme": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "reference_price": 17.04,
+        "reference_price_as_of": "2026-10-20T15:00:00+08:00",
+        "trigger_low": 16.596,
+        "trigger_high": 16.67142857142857,
+        "stop_level": 16.4,
+        "no_chase": 17.35,
+        "market_regime": "ROTATION_NO_MAINLINE",
+        "market_environment": "ROTATION_MIXED",
+        "risk_unit": "PROBE",
+        "A2_UNAVAILABLE": true,
+        "A2_REVIEW_DEGRADED": true,
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ]
+      },
+      "fields_absent": [
+        "cluster_label",
+        "industry_name",
+        "industry",
+        "theme_name",
+        "primary_theme_name",
+        "max_batches",
+        "PATTERN_B",
+        "SERVER_FALLBACK",
+        "degradation_tags"
+      ]
+    },
+    {
+      "plan_id": "postinstall-close-5308ade-20261020T225716702499:lane_1:9494eba025f939bd",
+      "symbol": "688235.SH",
+      "lane_id": "lane_1",
+      "status": "PENDING_MORNING_REVIEW",
+      "valid_from": null,
+      "expires_at": "2026-10-21T15:00:00+08:00",
+      "original_payload_sha256": "9b8b5a8560e88d0f46db401fb0fadb3122bc9c692ef24c0c4895305a48872848",
+      "payload_projection": {
+        "symbol": "688235.SH",
+        "source_run_id": "postinstall-close-5308ade-20261020T225716702499",
+        "strategy_profile": "TREND_MA5",
+        "primary_theme": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "reference_price": 262,
+        "reference_price_as_of": "2026-10-20T15:00:00+08:00",
+        "trigger_low": 255.7595,
+        "trigger_high": 258.3171,
+        "stop_level": 253,
+        "no_chase": 269.86,
+        "market_regime": "ROTATION_NO_MAINLINE",
+        "market_environment": "ROTATION_MIXED",
+        "risk_unit": "PROBE",
+        "A2_UNAVAILABLE": true,
+        "A2_REVIEW_DEGRADED": true,
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE"
+        ]
+      },
+      "fields_absent": [
+        "cluster_label",
+        "industry_name",
+        "industry",
+        "theme_name",
+        "primary_theme_name",
+        "max_batches",
+        "PATTERN_B",
+        "SERVER_FALLBACK",
+        "degradation_tags"
+      ]
+    }
+  ],
+  "synthetic_controls": "Tests construct activation time, price inside original trigger zone, empty account, A6 KEEP, PM STANDARD and A4 STANDARD. These are not archived market observations or real orders."
+}

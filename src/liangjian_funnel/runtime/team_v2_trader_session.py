@@ -16,6 +16,7 @@ from liangjian_paper_broker.ledger import dump
 from ..pipeline.team_v2_model import call_team_model,team_call_binding
 from ..pipeline.team_v2_trader_schema import validate_trader_output
 from .team_v2_execution import admit_trader_signal
+from .risk_engine import cap_risk_envelope
 from .trader_guardrails import is_closed_trader_tick
 
 TZ=ZoneInfo('Asia/Shanghai')
@@ -162,8 +163,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
             if row['action'] in {'BUY_SIGNAL','ADD_SIGNAL'} and kind=='plan':
                 hint=row['handoff_to_a6']
                 risk=replace(risk,max_batches=min(risk.max_batches,hint['batches_hint']))
-                if hint['risk_unit_hint']=='PROBE' and risk.risk_unit=='STANDARD':
-                    risk=replace(risk,risk_unit='PROBE',risk_budget=risk.risk_budget*limits.probe_multiplier)
+                risk=cap_risk_envelope(risk,plan=all_plans[pid],a4=hint['risk_unit_hint'],limits=limits)
             sid='A4:'+hashlib.sha256(dump([account_id,decision_id,kind,pid]).encode()).hexdigest()
             admissions.append(admit_trader_signal(broker=broker,signal_id=sid,action=row['action'],
                 plan=all_plans[pid],envelope=risk,limits=limits,all_plans=all_plans,now=decision_at,
