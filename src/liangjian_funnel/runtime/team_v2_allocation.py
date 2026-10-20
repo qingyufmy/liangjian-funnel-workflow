@@ -65,4 +65,7 @@ def enforce_pm_allocation(policy,*,plan,envelope,trade_date,snapshot,limits=None
     if (set(slot[1:])-{plan.plan_id,''}) & occupied:return envelope,'PM_SLOT_OCCUPIED'
     changed=cap_risk_envelope(envelope,plan=plan,pm=allocation[1],limits=limits,
         conservative_quantity=True)
-    return replace(changed,max_batches=min(changed.max_batches,allocation[2])),None
+    # Preserve the pre-existing conservative PM downgrade: a new PROBE vote
+    # from STANDARD allowed only one batch, even in an older persisted policy.
+    batches=1 if allocation[1]=='PROBE' and envelope.risk_unit=='STANDARD' else changed.max_batches
+    return replace(changed,max_batches=min(changed.max_batches,allocation[2],batches)),None

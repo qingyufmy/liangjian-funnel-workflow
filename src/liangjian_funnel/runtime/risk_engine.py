@@ -28,11 +28,15 @@ def plan_risk_fields(payload):
         if key in payload and type(payload[key]) is not bool:
             raise ValueError('RISK_PLAN_CAP_INVALID')
     given_tags = payload.get('degradation_tags', ())
-    if not isinstance(given_tags, (tuple, list)) or any(not isinstance(tag, str) for tag in given_tags):
+    if not isinstance(given_tags, (tuple, list)) or any(
+            not isinstance(tag,str) or tag not in PROBE_ONLY_TAGS for tag in given_tags):
         raise ValueError('RISK_PLAN_CAP_INVALID')
-    tags = set(given_tags) & PROBE_ONLY_TAGS
+    reasons = payload.get('reason_codes', ())
+    if not isinstance(reasons, (tuple, list)) or any(not isinstance(code, str) for code in reasons):
+        raise ValueError('RISK_PLAN_CAP_INVALID')
+    tags = set(given_tags)
     tags.update(key for key in PROBE_ONLY_TAGS if payload.get(key) is True)
-    tags.update(set(payload.get('reason_codes', ())) & PROBE_ONLY_TAGS)
+    tags.update(set(reasons) & PROBE_ONLY_TAGS)
     return dict(risk_unit=payload.get('risk_unit', 'STANDARD'), degradation_tags=tuple(sorted(tags)))
 
 
@@ -59,9 +63,9 @@ def cap_risk_envelope(envelope, *, plan=None, a6=None, pm=None, a4=None, limits=
         degradation_tags=envelope.degradation_tags), unit)
     if a6 is not None:
         unit = effective_risk_unit(authority, unit, a6)
-    if unit == 'NONE' and envelope.risk_unit != 'NONE':
+    if unit == 'NONE':
         return replace(envelope,eligible=False,risk_unit='NONE',risk_budget=_ZERO,max_shares_cap=0,
-            blocked_reasons=tuple(dict.fromkeys((*envelope.blocked_reasons,'ENVELOPE_INELIGIBLE'))))
+            blocked_reasons=envelope.blocked_reasons or ('ENVELOPE_INELIGIBLE',))
     if unit != 'PROBE' or envelope.risk_unit != 'STANDARD':
         return envelope
     limits = limits or RiskLimits()

@@ -213,6 +213,48 @@ def test_nine_real_publication_projections_reach_final_quantity_only_as_probe(tm
 
 
 @pytest.mark.parametrize('payload', [dict(A2_UNAVAILABLE='true'),dict(SERVER_FALLBACK=1),
-    dict(degradation_tags='A2_UNAVAILABLE')])
+    dict(degradation_tags='A2_UNAVAILABLE'),dict(degradation_tags=['UNKNOWN_CAP']),dict(degradation_tags=[{}]),
+    dict(reason_codes='A2_UNAVAILABLE'),dict(reason_codes=[True]),dict(reason_codes=None)])
 def test_malformed_top_cap_metadata_is_not_silently_dropped(payload):
     with pytest.raises(ValueError,match='CAP_INVALID'):plan_risk_fields(payload)
+
+
+def test_unrelated_reason_codes_are_not_new_risk_errors_or_probe_permissions():
+    assert plan_risk_fields(dict(reason_codes=['A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE',
+        'ANY_UNRELATED_REASON']))==dict(risk_unit='STANDARD',degradation_tags=())
+    assert plan_risk_fields(dict(reason_codes=['A2_UNAVAILABLE']))['degradation_tags']==('A2_UNAVAILABLE',)
+
+
+def test_none_unit_with_malformed_positive_envelope_is_rejected_at_final_quantity_and_admission(tmp_path):
+    forged=replace(envelope(),risk_unit='NONE',eligible=True,risk_budget=D(30000),max_shares_cap=20000)
+    capped=cap_risk_envelope(forged,plan=plan())
+    assert not capped.eligible and capped.risk_unit=='NONE' and capped.risk_budget==0 and capped.max_shares_cap==0
+    assert cap_risk_envelope(capped,plan=plan())==capped
+    decision=adjudicate_signal('none-final','BUY_SIGNAL',plan(),forged,account(),(),RiskLimits(),
+        now=NOW,regime='TREND_MAINLINE')
+    assert decision.status=='REJECTED' and decision.shares==0 and decision.risk_unit=='NONE'
+    broker,args=fixture(tmp_path)
+    args.update(envelope=forged,signal_id='none-admission')
+    admitted=admit_trader_signal(**args)
+    assert not admitted['dispatched'] and admitted['judgment']['shares']==0
+    assert admitted['judgment']['risk_unit']=='NONE' and broker.get_orders('2026-10-19')==()
+    assert admit_trader_signal(**args)==admitted
+
+
+def test_old_persisted_pm_probe_vote_retains_one_batch_and_original_quantity_tightening(tmp_path):
+    from test_team_v2_execution import pm_result
+    from liangjian_funnel.runtime.team_v2_allocation import compile_pm_allocation
+    p=plan(max_batches=2);e=replace(envelope(),max_batches=2)
+    raw=pm_result({'p1':p});raw['plan_allocations'][0].update(intended_risk_unit='PROBE',max_batches=2)
+    allocation=compile_pm_allocation(raw,account_id='paper',trade_date='2026-10-19',
+        meeting_id='old-pm',input_sha256='b'*64)
+    capped,reason=enforce_pm_allocation(allocation,plan=p,envelope=e,trade_date='2026-10-19',
+        snapshot=dict(positions=[],open_orders=[]))
+    assert reason is None and capped.risk_unit=='PROBE' and capped.max_batches==1
+    assert capped.risk_budget==D(15000) and capped.max_shares_cap==10000
+    broker,args=fixture(tmp_path)
+    args.update(plan=p,all_plans={'p1':p},envelope=e,pm_allocation=allocation)
+    assert admit_trader_signal(**args)['dispatched']
+    second=admit_trader_signal(**(args|dict(signal_id='old-pm-second')))
+    assert not second['dispatched'] and 'TRADER_BATCH_CAP' in second['judgment']['reason_codes']
+    assert len(broker.get_orders('2026-10-19'))==1

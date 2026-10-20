@@ -36,7 +36,7 @@ def test_only_authorized_reductions_and_engine_binding_are_preserved(adjustment,
 
 def test_keep_cannot_reopen_engine_blocked_or_enlarge_prior_probe():
     original = envelope(eligible=False, risk_unit="NONE", max_shares_cap=0, blocked_reasons=("DATA_NOT_READY",))
-    assert apply(review(), inputs=[original]).envelopes[0] == original
+    assert apply(review(), inputs=[original]).envelopes[0] == replace(original,risk_budget=Decimal(0))
     probe = envelope(risk_unit="PROBE", max_batches=1, max_shares_cap=900, a6_tightened=True)
     assert apply(review("TIGHTEN_TO_PROBE"), inputs=[probe]).envelopes[0].max_shares_cap == 900
 
