@@ -179,18 +179,22 @@ class TeamResearchAdapter:
                 store=self.store, review_id=identity, call_id='A3:PLAN_REVIEW:' + identity, run_id=run_id, model=model,
                 source_trade_date=envelope['source_trade_date'], trade_date=envelope['execution_trade_date'],
                 clock=pipeline.now, required_envelope=envelope, replacements=values, candidate_domain=domain,
-                engine_decisions=engine, allow_model_call=True, **context)
+                engine_decisions=engine, allow_model_call=True,
+                deadline_monotonic=(parent_start+float(pipeline.settings.research_close_deadline_seconds))
+                    if parent_start is not None else None, **context)
         except ValueError as exc:
             # Only finite local contract codes are exposed; no provider details.
             safe = str(exc) if str(exc).startswith(('TEAM_', 'A3_', 'CONTROL_', 'MODEL_')) else 'TEAM_RESEARCH_INPUT_INVALID'
             return pipeline._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, safe)
         with closing(self.journal._connect()) as db:
-            captured_metrics = db.execute('SELECT latency_ms,provider_attempts FROM model_calls WHERE call_id=?',
-                ('A3:PLAN_REVIEW:' + identity,)).fetchone()
-        model_latency = captured_metrics[0] if captured_metrics is not None else None
-        provider_attempts = captured_metrics[1] if captured_metrics is not None else 0
+            captured_metrics = [db.execute('SELECT latency_ms,provider_attempts FROM model_calls WHERE call_id=?',
+                (call,)).fetchone() for call in result.get('team_call_ids',['A3:PLAN_REVIEW:'+identity])]
+        observed_metrics=[row for row in captured_metrics if row is not None]
+        model_latency = sum(row[0] for row in observed_metrics if row[0] is not None) if observed_metrics else None
+        provider_attempts = sum(row[1] or 0 for row in observed_metrics)
         diagnostics = dict(team_review_id=identity, legacy_checkpoint_reused=False,
-            model_provider_attempts_unknown=captured_metrics is None,
+            model_provider_attempts_unknown=len(observed_metrics)!=len(captured_metrics),
+            team_call_ids=result.get('team_call_ids',[]),validation_history=result.get('validation_history',[]),
             server_projection=result.get('server_projection'),
             stage_processing_ms=int((time.perf_counter() - started) * 1000))
         if result['status'] != 'READY':

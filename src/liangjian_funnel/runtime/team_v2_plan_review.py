@@ -9,10 +9,13 @@ from contextlib import closing
 from datetime import date, datetime
 import hashlib
 import json
+import time
 from zoneinfo import ZoneInfo
 
 from ..pipeline.team_v2_contract import blind_plan_facts
 from ..pipeline.team_v2_plan_review_schema import validate_plan_review
+from ..pipeline.team_v2_a3_retry import a3_validation_feedback,bind_a3_retry_feedback
+from ..pipeline.team_v2_model import team_call_binding
 from .team_v2_eod import _response
 from .team_v2_plan_recovery import recover_plan_review
 from .team_v2_store import canonical
@@ -100,7 +103,7 @@ class PlanReviewRuntime:
 
 def run_plan_review(*, repository, client, journal, store, review_id, call_id, run_id, model,
         source_trade_date, trade_date, clock, required_envelope, replacements, candidate_domain,
-        engine_decisions, timeout_seconds, max_output_tokens, allow_model_call=False):
+        engine_decisions, timeout_seconds, max_output_tokens, allow_model_call=False,deadline_monotonic=None):
     if not allow_model_call:
         raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
     now = clock()
@@ -128,23 +131,57 @@ def run_plan_review(*, repository, client, journal, store, review_id, call_id, r
     runtime = PlanReviewRuntime(store)
     if (previous := runtime.load(review_id, binding)) is not None:
         return previous
-    output, valid, issues = _response(request=request, client=client, journal=journal, call_id=call_id,
-        run_id=run_id, model=model, source_trade_date=source_trade_date, trade_date=trade_date,
-        timeout_seconds=timeout_seconds, max_output_tokens=max_output_tokens, catalog=catalog,
-        clock=clock, session='PLAN_REVIEW', validator=lambda raw: validate_plan_review(raw, catalog,
-            required_envelope=required_envelope, candidate_domain=candidate_domain))
+    original_request=request;source_request=request
+    history=[];call_ids=[];output=None;valid=False;issues=()
+    for attempt in range(1,4):
+        request=original_request if attempt==1 else bind_a3_retry_feedback(original_request,
+            a3_validation_feedback(output,catalog,issues,required_envelope=required_envelope,
+                candidate_domain=candidate_domain),correction_attempt=attempt)
+        current_call=call_id if attempt==1 else call_id+':correction:'+str(attempt)+':'+request.input_hash[:16]
+        expected=dict(run_id=run_id,role='A3',session='PLAN_REVIEW',source_trade_date=source_trade_date,
+            execution_trade_date=trade_date,model=model,prompt_hash=request.prompt.sha256,
+            input_hash=request.input_hash,catalog_hash=request.evidence_catalog_hash)
+        captured=journal.load_captured(current_call,expected=expected)
+        remaining=None if deadline_monotonic is None else deadline_monotonic-time.monotonic()
+        timeout=float(timeout_seconds) if remaining is None else min(float(timeout_seconds),remaining)
+        budget_key='a3-plan-attempt-budget:'+review_id+':'+str(attempt)
+        # Each semantic request has an independent timeout, clipped by the
+        # original absolute research deadline. Captures can be replayed after
+        # a crash without another HTTP; an expired budget cannot start work.
+        if captured is None and timeout<=0:
+            issues=tuple(dict.fromkeys((*issues,'RESEARCH_DEADLINE_EXCEEDED')))
+            break
+        budget=store.freeze_control_context(budget_key,source_sha256=request.input_hash,
+            body=dict(timeout_seconds=timeout if captured is None else float(timeout_seconds),
+                max_output_tokens=max_output_tokens))
+        if captured is None and budget['timeout_seconds']>timeout:
+            failed=journal.load_failed(current_call,request_binding=team_call_binding(request,
+                run_id=run_id,model=model,session='PLAN_REVIEW',**budget))
+            if failed is None:
+                issues=tuple(dict.fromkeys((*issues,'TEAM_RESEARCH_REMAINING_BUDGET_INSUFFICIENT')))
+                break
+        call_ids.append(current_call)
+        source_request=request
+        output,valid,issues=_response(request=request,client=client,journal=journal,call_id=current_call,
+            run_id=run_id,model=model,source_trade_date=source_trade_date,trade_date=trade_date,
+            **budget,catalog=catalog,clock=clock,session='PLAN_REVIEW',validator=lambda raw:validate_plan_review(
+                raw,catalog,required_envelope=required_envelope,candidate_domain=candidate_domain))
+        history.append(dict(attempt=attempt,call_id=current_call,input_hash=request.input_hash,
+            timeout_seconds=budget['timeout_seconds'],valid=bool(valid),reason_codes=list(issues)))
+        if valid or 'TEAM_MODEL_CALL_FAILED' in issues:break
+    source_call_id=call_ids[-1] if call_ids else call_id
     provider_validated = valid
     projection_audit = None
-    projection = recover_plan_review(output, catalog, required_envelope=required_envelope,
+    projection = None if valid else recover_plan_review(output, catalog, required_envelope=required_envelope,
         candidate_domain=candidate_domain)
     if projection is not None:
         effective, audit = projection
         checked = validate_plan_review(effective, catalog, required_envelope=required_envelope,
             candidate_domain=candidate_domain)
         key = 'a3-plan-projection:' + review_id
-        projection_audit = dict(**audit, source_call_id=call_id, audit_context_key=key,
+        projection_audit = dict(**audit, source_call_id=source_call_id, audit_context_key=key,
             provider_raw_sha256=_hash(output), effective_raw_sha256=_hash(effective))
-        store.freeze_control_context(key, source_sha256=request.input_hash,
+        store.freeze_control_context(key, source_sha256=source_request.input_hash,
             body=dict(**projection_audit, effective_raw=effective))
         output, valid, issues = effective, checked.valid, checked.issues
     votes = {row['symbol']: row for name in ('core_watch_pool', 'secondary_watch_pool', 'rejected_candidates')
@@ -153,9 +190,10 @@ def run_plan_review(*, repository, client, journal, store, review_id, call_id, r
         model_review_status=votes[symbol]['review_status'] if valid else 'DATA_GAP',
         engine_and_model_pass=bool(valid and engine_decisions[symbol]['eligible']
             and votes[symbol]['review_status'] == 'PASS')) for symbol in sorted(candidate_domain)]
-    result = dict(status='READY' if valid else 'A3_REVIEW_DATA_GAP', source_call_id=call_id,
+    result = dict(status='READY' if valid else 'A3_REVIEW_DATA_GAP', source_call_id=source_call_id,
         source_trade_date=source_trade_date, execution_trade_date=trade_date, source_sha256=binding,
         report=output if valid else None, reason_codes=list(issues), comparisons=comparisons,
         publication_authorized=False, provider_validated=provider_validated,
-        server_projection=projection_audit)
+        server_projection=projection_audit,team_call_ids=call_ids,validation_history=history,
+        semantic_attempts=len(call_ids))
     return runtime.record(review_id, binding, result)

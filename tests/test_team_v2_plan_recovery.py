@@ -163,7 +163,7 @@ def test_original_invalid_capture_preserved_and_derived_audit_is_bound_and_idemp
     assert result['status'] == 'READY' and result['provider_validated'] is False
     assert result['report']['core_watch_pool'][0]['risk_unit'] == 'PROBE'
     assert not result['comparisons'][0]['engine_and_model_pass']
-    assert run_plan_review(**kwargs) == result and len(seen) == 1
+    assert run_plan_review(**kwargs) == result and len(seen) == 3
     assert raw == original and {key: kwargs[key] for key in source} == source
     with sqlite3.connect(tmp_path / 'models.sqlite3') as db:
         captured = db.execute('SELECT validated,issues_json,output_json FROM model_calls').fetchone()

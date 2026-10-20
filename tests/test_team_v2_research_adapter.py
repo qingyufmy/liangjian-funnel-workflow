@@ -123,7 +123,7 @@ def test_actual_research_stage_team_http_and_original_price_provenance(tmp_path)
 def test_model_or_engine_rejection_never_becomes_executable_core(tmp_path, veto, invalid, eligibility):
     app, args, seen = actual_fixture(tmp_path, veto=veto, invalid=invalid, eligibility=eligibility)
     result = app._run_stage(**args)
-    assert len(seen) == 1
+    assert len(seen) == (3 if invalid else 1)
     assert result.output is None or result.output['core_watch_pool'] == []
     if result.output is not None:
         assert all(row['risk_unit'] == 'NO_ENTRY' for row in result.output['secondary_watch_pool'])
@@ -216,7 +216,7 @@ def test_focus_original_probe_mode_cannot_be_upgraded_to_standard(tmp_path):
     args['snapshot'] = FrozenInputSnapshot('original-probe', data, as_of=NOW)
     args['upstream_output']['focus_pool'] = args['upstream_output'].pop('watch_only_pool')
     audit = app._run_stage(**args)
-    assert audit.status == 'VALIDATED' and audit.output is not None and len(seen) == 1
+    assert audit.status == 'VALIDATED' and audit.output is not None and len(seen) == 3
     assert audit.output['core_watch_pool'][0]['risk_unit'] == 'PROBE'
     projection = audit.diagnostics['server_projection']
     assert projection['status'] == 'VALIDATED'
@@ -243,7 +243,7 @@ def test_quarantined_model_row_stays_non_executable_through_actual_legacy_postpo
     original = deepcopy(dict(args['snapshot'].data))
     audit = app._run_stage(**args)
     assert audit.status == 'VALIDATED', audit.reason_codes
-    assert len(seen) == 1 and audit.output['core_watch_pool'] == []
+    assert len(seen) == 3 and audit.output['core_watch_pool'] == []
     row = audit.output['secondary_watch_pool'][0]
     assert row['symbol'] == '000001.SZ' and row['review_status'] == 'DATA_GAP'
     assert row['risk_unit'] == 'NO_ENTRY' and 'SERVER_QUARANTINED_ROW' in row['reason_codes']

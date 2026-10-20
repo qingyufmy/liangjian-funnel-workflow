@@ -223,18 +223,18 @@ def test_candidate_cap_projection_is_exact_and_changes_prompt_binding(tmp_path):
 
 
 @pytest.mark.parametrize('offline', [False, True])
-def test_failed_review_is_durable_data_gap_not_a_hidden_retry_or_pass(tmp_path, offline):
+def test_failed_review_has_bounded_schema_retries_and_no_hidden_transport_retry(tmp_path, offline):
     from liangjian_funnel.runtime.team_v2_plan_review import run_plan_review
     kwargs, seen = session_fixture(tmp_path, invalid=not offline, offline=offline)
     result = run_plan_review(**kwargs)
     assert result['status'] == 'A3_REVIEW_DATA_GAP' and result['report'] is None
     assert result['comparisons'][0]['model_review_status'] == 'DATA_GAP'
     assert not result['comparisons'][0]['engine_and_model_pass']
-    assert run_plan_review(**kwargs) == result and len(seen) == 1
+    assert run_plan_review(**kwargs) == result and len(seen) == (1 if offline else 3)
     assert b'PRIVATE_PROVIDER_DETAILS' not in (tmp_path / 'team.sqlite3').read_bytes()
     if not offline:
         with sqlite3.connect(tmp_path / 'models.sqlite3') as db:
-            assert db.execute('SELECT validated FROM model_judgments').fetchall() == [(0,)]
+            assert db.execute('SELECT validated FROM model_judgments').fetchall() == [(0,)]*3
 
 
 @pytest.mark.parametrize('offline', [False, True])
