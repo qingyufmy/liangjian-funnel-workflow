@@ -467,6 +467,11 @@ class ReadOnlyPublicationReader:
                 claimed = publication.get("projection_manifest")
             if (not isinstance(claimed, dict) or pin(claimed) != FilePin(Path(ref.projection_manifest.path).resolve(strict=True), ref.projection_manifest.sha256)):
                 raise ExportError("PROJECTION_SUMMARY_REFERENCE_CONFLICT")
+            from ..pipeline.team_v2_plan_geometry import PUBLICATION_CONTRACT,LEGACY_PUBLICATION_CONTRACT
+            contract=manifest.get('publication_contract',LEGACY_PUBLICATION_CONTRACT)
+            if (contract not in {PUBLICATION_CONTRACT,LEGACY_PUBLICATION_CONTRACT}
+                    or claimed.get('publication_contract',LEGACY_PUBLICATION_CONTRACT)!=contract):
+                raise ExportError('PROJECTION_PUBLICATION_CONTRACT_CONFLICT')
             if pin(manifest.get("audit")) != FilePin(Path(ref.audit.path).resolve(strict=True), ref.audit.sha256):
                 raise ExportError("PROJECTION_AUDIT_REFERENCE_CONFLICT")
             base_ref = manifest["base_snapshot"]
@@ -596,6 +601,7 @@ class ReadOnlyPublicationReader:
                     snapshot_chain=a3_chain, target_trade_date=_day(entry["target_trade_date"]),
                     server_expires_at=_time(entry["server_expires_at"]), published_at=_time(entry["published_at"]),
                     publication_mode=entry["publication_mode"], minimum_trade_date=_day(entry["minimum_trade_date"]) if entry.get("minimum_trade_date") else None,
+                    publication_contract=contract,
                     authority_snapshot_chain=authority_chain)
                 result[plan_id] = capture_publication_projection(original_inputs,
                     shadow_projection=original(entry["shadow_projection"]) if entry.get("shadow_projection") is not None else None,

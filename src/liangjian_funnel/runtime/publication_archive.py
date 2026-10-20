@@ -52,7 +52,8 @@ def write_publication_manifest(*, output_dir: Path, run_id: str, lane_id: str,
         base_snapshot_path: Path, base_snapshot_id: str, base_snapshot_hash: str,
         audit_path: Path, originals: Mapping[str, Mapping], published: Sequence[Mapping],
         published_at: datetime | str, publication_mode: str,
-        minimum_trade_date: date | str | None, research_as_of: datetime | str | None = None) -> dict[str, Any]:
+        minimum_trade_date: date | str | None, research_as_of: datetime | str | None = None,
+        publication_contract: str = 'legacy-publication/1') -> dict[str, Any]:
     """Exclusively write new small metadata; errors never overwrite originals.
 
     Byte-pin the existing base without loading it into memory. Reader validates
@@ -60,6 +61,9 @@ def write_publication_manifest(*, output_dir: Path, run_id: str, lane_id: str,
     """
     if not all(re.fullmatch(r"[A-Za-z0-9_.:-]+", value) for value in (run_id, lane_id)):
         raise ValueError("PUBLICATION_ID_INVALID")
+    from ..pipeline.team_v2_plan_geometry import PUBLICATION_CONTRACT,LEGACY_PUBLICATION_CONTRACT
+    if publication_contract not in {PUBLICATION_CONTRACT,LEGACY_PUBLICATION_CONTRACT}:
+        raise ValueError('PUBLICATION_CONTRACT_INVALID')
     base_pin, audit_pin = _file(base_snapshot_path), _file(audit_path)
     audit = json.loads(Path(audit_path).read_text(encoding="utf-8"))
     if _file(audit_path) != audit_pin:
@@ -76,6 +80,8 @@ def write_publication_manifest(*, output_dir: Path, run_id: str, lane_id: str,
         a3 = audits.get(original.get("a3_audit_sha256"))
         if a3 is None or a3.get("stage") != "A3" or a3.get("lane") != lane_id:
             raise ValueError("ORIGINAL_AUDIT_CONFLICT")
+        if publication_contract==PUBLICATION_CONTRACT and a3.get('thinking_variant')!='team_v2':
+            raise ValueError('TEAM_PLAN_GEOMETRY_SOURCE_INVALID')
         pool, index = original["raw_plan_location"]
         try:
             if object_hash(a3["output"][pool][index]) != raw["sha256"]:
@@ -97,6 +103,7 @@ def write_publication_manifest(*, output_dir: Path, run_id: str, lane_id: str,
         entries.append(entry)
     body = {"schema_version": "publication-projection-manifest/1", "run_id": run_id,
         "lane_id": lane_id, "status": "CAPTURED_NOT_VALIDATED",
+        "publication_contract": publication_contract,
         "base_snapshot": {**base_pin, "snapshot_id": base_snapshot_id, "snapshot_hash": base_snapshot_hash},
         "audit": audit_pin, "plans": entries,
         "research_as_of": _iso(research_as_of), "observed_at": _iso(published_at),
@@ -110,4 +117,5 @@ def write_publication_manifest(*, output_dir: Path, run_id: str, lane_id: str,
     with path.open("xb") as handle:
         handle.write(encoded)
     return {"path": str(path.resolve()), "sha256": hashlib.sha256(encoded).hexdigest(),
-        "status": "CAPTURED_NOT_VALIDATED", "plan_ids": [item["plan_id"] for item in entries]}
+        "status": "CAPTURED_NOT_VALIDATED", "plan_ids": [item["plan_id"] for item in entries],
+        "publication_contract": publication_contract}

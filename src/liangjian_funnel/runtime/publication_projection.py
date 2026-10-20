@@ -24,18 +24,21 @@ SCHEMA = "publication-projection-inputs/1"
 
 
 def _changes(before, after, stage, *, authority=None, projection=None):
+    from ..pipeline.team_v2_plan_geometry import GEOMETRY_FIELD,GEOMETRY_FIELDS
     result = []
     for field in sorted(set(before) | set(after)):
         if field in before and field in after and object_hash(before[field]) == object_hash(after[field]):
             continue
         basis = "SERVER_NORMALIZATION" if stage == "NORMALIZE" else (
+            "TEAM_GEOMETRY_TIGHTENING" if field in GEOMETRY_FIELDS and GEOMETRY_FIELD in after else
             "SOURCE_RUN" if field == "source_run_id" else
             "TREND_RULE" if field == "trend_entry_rule_version" else
             "SHADOW_PROJECTION" if field == "strategy_facts" and projection else "A2_AUTHORITY")
         result.append(FieldChange(stage, field, field in before, field in after,
             before.get(field), after.get(field), basis,
             authority.value.sha256 if authority and basis == "A2_AUTHORITY" else None,
-            projection.sha256 if projection and basis == "SHADOW_PROJECTION" else None))
+            projection.sha256 if projection and basis == "SHADOW_PROJECTION" else
+            object_hash(after[GEOMETRY_FIELD]) if basis == 'TEAM_GEOMETRY_TIGHTENING' else None))
     return tuple(result)
 
 
@@ -80,6 +83,7 @@ def validate_projected_payload(
         reasons.add("PROJECTED_READER_BINDING_CONFLICT")
     return {"evidence_complete": not reasons, "reason_codes": sorted(reasons),
             "receipt": receipt, "eligibility_released": False,
+            "plan_geometry_evidence_complete": receipt.get('plan_geometry_evidence_complete',False),
             "acquisition_provenance_authenticated": False}
 
 

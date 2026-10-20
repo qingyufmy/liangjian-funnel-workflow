@@ -6872,6 +6872,11 @@ class WorkflowApplication:
         blocked: list[dict[str, str]] = []
         ready_lanes: list[str] = []
         comparison_lanes: list[dict[str, str]] = []
+        team_geometry_lanes = {lane.lane for lane in result.lanes if any(
+            getattr(audit, 'stage', None) == 'A3' and getattr(audit, 'thinking_variant', None) == 'team_v2'
+            for audit in getattr(lane, 'stages', ()))}
+        geometry_observation_pool: list[dict[str, Any]] = []
+        geometry_audit: list[dict[str, Any]] = []
         settings = getattr(self, "settings", None)
         primary_lane = str(getattr(settings, "research_primary_lane_id", "lane_1"))
         publish_comparisons = bool(getattr(settings, "publish_comparison_lanes", False))
@@ -7089,9 +7094,25 @@ class WorkflowApplication:
         # This projection does not mutate frozen research or feed any prompt.
         from .runtime.shadow_inputs import shadow_inputs_for_publication
         from .runtime.plan_expiry import normalize_publication_expiry
+        geometry_ready = []
         for candidate in batch:
             payload = normalize_publication_expiry(candidate["payload"], candidate["expires_at"])
+            if candidate['lane_id'] in team_geometry_lanes:
+                from .pipeline.team_v2_plan_geometry import project_team_plan_geometry
+                projection = project_team_plan_geometry(payload,
+                    minimum_reward_risk=snapshot_data.get('MIN_REWARD_RISK'))
+                detail = dict(lane=candidate['lane_id'],plan_id=candidate['plan_id'],
+                    symbol=candidate['symbol'],geometry=projection['audit'])
+                geometry_audit.append(detail)
+                if projection['status'] != 'PUBLISHABLE':
+                    geometry_observation_pool.append({**detail,
+                        'scope':'PUBLICATION_ISOLATION_POOL_NOT_MODEL_WATCH_OPINION'})
+                    blocked.append(dict(lane=candidate['lane_id'],symbol=candidate['symbol'],
+                        reason=projection['audit']['reason_code']))
+                    continue
+                payload = projection['payload']
             candidate["payload"] = payload
+            geometry_ready.append(candidate)
             original = original_plans[candidate["plan_id"]]
             normalized_original = normalize_publication_expiry(
                 _plan_payload(original["raw_plan"]["value"]), candidate["expires_at"])
@@ -7133,6 +7154,7 @@ class WorkflowApplication:
             original["shadow_projection"] = {"value": deepcopy(shadow), "sha256": object_hash(shadow)}
             original["submitted_payload"] = {"value": deepcopy(candidate["payload"]),
                 "sha256": object_hash(candidate["payload"])}
+        batch = geometry_ready
         batch.sort(
             key=lambda item: (
                 _plan_priority_rank((item.get("payload") or {}).get("plan_priority")),
@@ -7164,6 +7186,7 @@ class WorkflowApplication:
                     audit_path=lane.audit_path, originals=original_plans, published=published,
                     published_at=datetime.now(SHANGHAI), research_as_of=now,
                     publication_mode="CLOSE" if slot == "close" else slot.upper(),
+                    publication_contract='team-publication/rr-geometry-1' if lane.lane in team_geometry_lanes else 'legacy-publication/1',
                     minimum_trade_date=minimum_trade_date)})
             except Exception as exc:
                 # A proof gap is visible, never a reason to retire valid plans
@@ -7201,6 +7224,8 @@ class WorkflowApplication:
             "created": created,
             "activated": activated,
             "blocked": blocked,
+            "team_plan_geometry": geometry_audit,
+            "observation_pool": geometry_observation_pool,
             "primary_lane": primary_lane,
             "comparison_lanes": comparison_lanes,
             "publication_mode": (
