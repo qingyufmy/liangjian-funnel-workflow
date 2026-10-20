@@ -3,6 +3,9 @@ dry_run_only: true
 keep_days: 30
 managed_roots:
   - outputs/research
+  - outputs/runs
+  - outputs/publication_proofs
+  - outputs/a5
   - state/research_checkpoints
 # This planner has no delete/archive operation and is not installed as a timer.
 # Plan/audit references are permanent protections, including transitive refs.

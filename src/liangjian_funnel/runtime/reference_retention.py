@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 SCHEMA = "reference-retention/1"
-_ALLOWED = frozenset({"outputs/research", "state/research_checkpoints"})
+_ALLOWED = frozenset({"outputs/research", "outputs/runs", "outputs/publication_proofs",
+                      "outputs/a5", "state/research_checkpoints"})
 _AUDIT_KEY = re.compile(r"audit|publication_receipt|evidence_ref", re.I)
 _FILE_KEY = re.compile(r"(?:path|file|manifest|snapshot_ref|archive_ref)$", re.I)
 
@@ -134,6 +135,7 @@ def scan_reference_retention(
                 aliases[str(path)].add(relative_path)
                 aliases[relative_path].add(relative_path)
                 aliases[path.name].add(relative_path)
+                aliases[path.stem].add(relative_path)
                 if path.suffix != ".json" or before.st_size > per_file or consumed + before.st_size > budget:
                     unknowns.append("FORMAT_OR_READ_BUDGET:" + relative_path)
                     continue
@@ -149,28 +151,57 @@ def scan_reference_retention(
                     row.update(understood=True, sha256=hashlib.sha256(data).hexdigest())
                     aliases[row["sha256"]].add(relative_path)
                     bodies[relative_path] = body
-                except (OSError, UnicodeError, ValueError):
+                except (OSError, UnicodeError, ValueError, RecursionError):
                     unknowns.append("UNREADABLE_OR_CHANGED:" + relative_path)
             if len(rows) >= limit:
                 break
+    # A published plan usually references a research run, not every individual
+    # output/checkpoint path. Preserve every file bound to that run as well.
+    def bind_run_ids(value: Any, path: str, depth: int = 0) -> None:
+        if depth > 64:
+            unknowns.append("IDENTITY_TRAVERSAL_LIMIT:" + path)
+            return
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key in {"run_id", "source_run_id", "research_run_id"} and isinstance(child, str) and child:
+                    aliases[child].add(path)
+                elif isinstance(child, (dict, list)):
+                    bind_run_ids(child, path, depth + 1)
+        elif isinstance(value, list):
+            for child in value:
+                bind_run_ids(child, path, depth + 1)
+    for path, body in bodies.items():
+        bind_run_ids(body, path)
     edges, permanent = defaultdict(set), set()
 
-    def walk(value: Any, source: str, *, key: str = "", audit: bool = False) -> None:
+    nodes = 0
+
+    def walk(value: Any, source: str, *, key: str = "", audit: bool = False, depth: int = 0) -> None:
+        nonlocal consumed, nodes
+        nodes += 1
+        if nodes > 100000 or depth > 64:
+            unknowns.append("REFERENCE_TRAVERSAL_LIMIT:" + source)
+            return
         if isinstance(value, dict):
             for k, v in value.items():
                 is_audit = audit or bool(_AUDIT_KEY.search(str(k)))
                 if is_audit and source in bodies:
                     permanent.add(source)
-                walk(v, source, key=str(k), audit=is_audit)
+                walk(v, source, key=str(k), audit=is_audit, depth=depth + 1)
         elif isinstance(value, list):
             for child in value:
-                walk(child, source, key=key, audit=audit)
+                walk(child, source, key=key, audit=audit, depth=depth + 1)
         elif isinstance(value, str):
             # DB payload_json and similar frozen JSON are traversed, not merely
             # searched with substring matching (which loses nested references).
-            if value[:1] in ("{", "[") and len(value.encode()) <= per_file:
+            if value.lstrip()[:1] in ("{", "["):
+                size = len(value.encode())
+                if size > per_file or consumed + size > budget:
+                    unknowns.append("NESTED_RECORD_READ_BUDGET:" + source)
+                    return
+                consumed += size
                 try:
-                    walk(json.loads(value), source, key=key, audit=audit)
+                    walk(json.loads(value), source, key=key, audit=audit, depth=depth + 1)
                 except (ValueError, RecursionError):
                     unknowns.append("UNPARSEABLE_NESTED_RECORD:" + source)
                 return
@@ -185,6 +216,9 @@ def scan_reference_retention(
     for path, body in bodies.items():
         walk(body, path)
     for index, record in enumerate(reference_records):
+        if index >= limit:
+            unknowns.append("REFERENCE_RECORD_LIMIT")
+            break
         source = f"RECORD:{index}"
         permanent.add(source)
         walk(record, source, audit=True)

@@ -78,6 +78,47 @@ def test_unresolved_external_path_is_not_silently_ignored(tmp_path):
     assert not result["reference_census_complete"]
 
 
+def test_leading_whitespace_db_json_is_traversed(tmp_path):
+    folder = setup_root(tmp_path)
+    (folder / "a.json").write_text("{}")
+    result = scan_reference_retention(tmp_path, policy(),
+        reference_records=[{"payload_json": ' \n {"path":"outputs/research/a.json"}'}],
+        reference_census_complete=True, now=NOW)
+    assert result["permanently_protected_count"] == 1
+
+
+def test_expired_plan_run_reference_protects_all_run_outputs_and_checkpoints(tmp_path):
+    folder = setup_root(tmp_path)
+    (folder / "run-old.json").write_text('{"run_id":"run-old"}')
+    (folder / "a2.json").write_text('{"run_id":"run-old","result":{}}')
+    checkpoint = tmp_path / "state/research_checkpoints/checkpoint_abc.json"
+    checkpoint.write_text('{"key":{"run_id":"run-old"}}')
+    result = scan_reference_retention(tmp_path, policy(),
+        reference_records=[{"status":"EXPIRED", "payload_json":'{"source_run_id":"run-old"}'}],
+        reference_census_complete=True, now=NOW)
+    assert result["permanently_protected_count"] == 3
+
+
+def test_large_and_aggregate_nested_records_hold_all(tmp_path):
+    setup_root(tmp_path)
+    for limits, records in [
+        ({"max_json_bytes": 20}, [{"payload_json": '{"path":"outputs/research/a.json"}'}]),
+        ({"max_total_read_bytes": 10}, [{"payload_json": '{}'}, {"payload_json": '[1,2,3,4,5]'}]),
+    ]:
+        result = scan_reference_retention(tmp_path, policy(**limits), reference_records=records,
+            reference_census_complete=True, now=NOW)
+        assert not result["reference_census_complete"]
+        assert result["candidate_count"] == 0
+
+
+def test_cyclic_python_record_cannot_recurse_forever(tmp_path):
+    setup_root(tmp_path)
+    record = {}; record["audit"] = record
+    result = scan_reference_retention(tmp_path, policy(), reference_records=[record],
+        reference_census_complete=True, now=NOW)
+    assert not result["reference_census_complete"]
+
+
 def test_no_archive_or_apply_configuration(tmp_path):
     setup_root(tmp_path)
     with pytest.raises(ValueError, match="DRY_RUN"):
