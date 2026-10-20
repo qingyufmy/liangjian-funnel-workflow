@@ -38,6 +38,8 @@ class FakePublisher:
 
 def _app(tmp_path):
     store = RuntimeStore(tmp_path / "state.sqlite3")
+    store.record_workflow_run(run_id='fixture-prior-close', lane_id='lane_1', trade_date='2026-09-01',
+        slot='close', model='fixture', status='READY', snapshot_hash='fixture')
     publisher = FakePublisher()
     app = SimpleNamespace(
         store=store,
@@ -63,6 +65,8 @@ def _plan(
     priority="P2",
     reference_price_as_of="2026-09-01T15:00:00+08:00",
 ):
+    store.record_workflow_run(run_id=source, lane_id='lane_1', trade_date='2026-09-01',
+        slot='close', model='fixture', status='PUBLISHED', snapshot_hash='fixture')
     return store.create_execution_plan(
         plan_id,
         "lane_1",

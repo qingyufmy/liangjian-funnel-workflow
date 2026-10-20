@@ -5788,20 +5788,26 @@ class WorkflowApplication:
                 status=PlanStatus.PENDING_MORNING_REVIEW,
             )
         )
+        from .runtime.morning_research_contract import morning_research_diagnostic
+        research_contract = morning_research_diagnostic(self, pending, now=current)
         if not pending:
             return {
-                "status": "READY",
+                "status": research_contract["status"],
                 "reviewed_at": current.isoformat(),
                 "activated": [],
-                "reason_code": "NO_PENDING_MORNING_PLANS",
+                "reason_code": research_contract["reason_code"] or "NO_PENDING_MORNING_PLANS",
+                "research_contract": research_contract,
             }
 
         from .runtime.plan_validity import activation_reason
         failures: list[dict[str, str]] = []
         activation_at = max(current, _at_time(current, 9, 32))
         eligible = []
+        source_rejections = {row["plan_id"]: row["reason_code"] for row in research_contract["rejected_plans"]}
         for plan in pending:
             reason = activation_reason(plan, activation_at)
+            if reason is None:
+                reason = source_rejections.get(str(plan["plan_id"]))
             if reason:
                 failures.append({"symbol": str(plan["symbol"]), "reason_code": reason})
                 if reason == "PLAN_EXPIRED":
@@ -5811,7 +5817,8 @@ class WorkflowApplication:
         pending = tuple(eligible)
         if not pending:
             payload = {"status": "BLOCKED", "reason_code": "NO_CURRENT_A3_PLANS",
-                       "reviewed_at": current.isoformat(), "activated": [], "failures": failures}
+                       "reviewed_at": current.isoformat(), "activated": [], "failures": failures,
+                       "research_contract": research_contract}
             atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{current.date()}-morning-review.json", payload)
             return payload
         evidence: dict[str, Any] = {}
@@ -5861,6 +5868,7 @@ class WorkflowApplication:
         if failures and not activation_ids and not invalidation_ids:
             payload = {
                 "status": "BLOCKED",
+                "research_contract": research_contract,
                 "reviewed_at": current.isoformat(),
                 "activated": [],
                 "failures": failures,
@@ -5893,6 +5901,7 @@ class WorkflowApplication:
         payload = {
             "status": "READY",
             "reviewed_at": current.isoformat(),
+            "research_contract": research_contract,
             "atomic": True,
             "activated": [str(plan["plan_id"]) for plan in activated],
             "invalidated": invalidation_ids,
@@ -5952,9 +5961,14 @@ class WorkflowApplication:
             else ()
         )
         available_plans = tuple((*pending, *active))
+        from .runtime.morning_research_contract import morning_research_diagnostic
+        research_contract = morning_research_diagnostic(self, available_plans, now=current)
+        source_rejections = {row["plan_id"] for row in research_contract["rejected_plans"]}
         candidates: dict[str, list[dict[str, Any]]] = {}
         sourceless = 0
         for plan in available_plans:
+            if plan["plan_id"] in source_rejections:
+                continue
             expires_at = plan.get("expires_at")
             try:
                 expiry = datetime.fromisoformat(str(expires_at)) if expires_at else None
@@ -5989,14 +6003,15 @@ class WorkflowApplication:
                 return [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
 
         if not available_plans:
-            reason_code = "NO_CURRENT_A3_PLANS" if recovery_resend else "NO_PENDING_A3_PLANS"
+            reason_code = research_contract["reason_code"] or ("NO_CURRENT_A3_PLANS" if recovery_resend else "NO_PENDING_A3_PLANS")
             payload = {
-                "status": "EMPTY_SCOPE",
+                "status": "BLOCKED" if research_contract["status"] == "BLOCKED" else "EMPTY_SCOPE",
                 "reason_code": reason_code,
                 "analyzed_at": current.isoformat(),
                 "lane_id": primary_lane,
                 "plan_count": 0,
                 "plans": [],
+                "research_contract": research_contract,
                 "notifications": notify_unavailable(reason_code),
             }
             atomic_write_json(output_path, payload)
@@ -6011,6 +6026,7 @@ class WorkflowApplication:
                 "lane_id": primary_lane,
                 "plan_count": 0,
                 "plans": [],
+                "research_contract": research_contract,
                 "notifications": notify_unavailable(reason_code),
             }
             atomic_write_json(output_path, payload)
@@ -6096,6 +6112,7 @@ class WorkflowApplication:
         payload = {
             "status": "READY",
             "reason_code": "A3_PREMARKET_ANALYSIS_READY",
+            "research_contract": research_contract,
             "analyzed_at": current.isoformat(),
             "lane_id": primary_lane,
             "source_run_id": source_run_id,

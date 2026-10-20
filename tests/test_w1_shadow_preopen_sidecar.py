@@ -209,6 +209,10 @@ def test_real_morning_activation_preserves_original_payload_bytes_and_binding(tm
     plan.update(source_run_id='isolated-close',target_trade_date=TARGET.isoformat(),
         trigger_low=11.5,trigger_high=12.0,stop_level=11.0,no_chase=12.5)
     store=RuntimeStore(tmp_path/'fixture-state.sqlite3')
+    from liangjian_funnel.runtime.calendar import ExchangeTradingCalendar
+    previous=ExchangeTradingCalendar().previous_trading_day(GENERATED.date()).isoformat()
+    store.record_workflow_run(run_id='isolated-close',lane_id='lane_1',trade_date=previous,
+        slot='close',model='fixture',status='PUBLISHED',snapshot_hash='fixture')
     monkeypatch.setattr(state_module,'_now',lambda:AT)
     store.create_execution_plan('fixture-p','lane_1',SYMBOL,
         status=PlanStatus.PENDING_MORNING_REVIEW,expires_at=GENERATED.replace(hour=15),payload=plan)

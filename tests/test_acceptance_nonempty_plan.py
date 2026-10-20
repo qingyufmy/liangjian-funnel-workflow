@@ -45,6 +45,8 @@ def test_nonempty_plan_morning_a4_entry_and_next_day_exit(tmp_path) -> None:
         config=SimulationConfig(initial_cash=100_000),
     )
     morning = datetime(2026, 8, 24, 9, 26, tzinfo=TZ)
+    store.record_workflow_run(run_id='fixture-close', lane_id='lane_1', trade_date='2026-08-21',
+        slot='close', model='TEST_ONLY', status='PUBLISHED', snapshot_hash='fixture')
     store.create_execution_plan(
         "test-only-plan",
         "lane_1",
@@ -52,6 +54,7 @@ def test_nonempty_plan_morning_a4_entry_and_next_day_exit(tmp_path) -> None:
         status=PlanStatus.PENDING_MORNING_REVIEW,
         expires_at=morning.replace(hour=15, minute=0),
         payload={
+            "source_run_id": "fixture-close",
             "trigger_low": 10,
             "trigger_high": 11,
             "stop_level": 9,

@@ -40,6 +40,8 @@ def test_morning_failure_isolated_and_explicit_no_chase_respected(tmp_path):
     store = RuntimeStore(tmp_path / "morning.sqlite3")
     now = datetime(2026, 9, 7, 9, 26, tzinfo=TZ)
     symbols = ["600001.SH", "600002.SH", "600003.SH"]
+    store.record_workflow_run(run_id='same-close', lane_id='lane_1', trade_date='2026-09-04',
+        slot='close', model='fixture', status='PUBLISHED', snapshot_hash='fixture')
     for symbol in symbols:
         store.create_execution_plan(symbol, "lane_1", symbol, status=PlanStatus.PENDING_MORNING_REVIEW,
             expires_at=now.replace(hour=15, minute=0),
