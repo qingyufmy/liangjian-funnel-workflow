@@ -341,3 +341,49 @@ def test_runtime_wrapper_discovers_manifest_from_run_summary_and_rejects_tampere
     changed = read_runtime_daily_facts(settings, plan_rows, current_trade_date=TARGET)
     assert changed[outer_id]["status"] == "UNPROVEN"
     assert "PUBLICATION_MANIFEST_INVALID" in changed[outer_id]["reason_codes"]
+
+
+def test_runtime_wrapper_does_not_cross_bind_duplicate_symbol_plan_ids(tmp_path, monkeypatch):
+    manifest_path, _, manifest = write_publication(tmp_path)
+    first = manifest["plans"][0]
+    first_id = first["plan_id"]
+    duplicate = json.loads(json.dumps(first))
+    duplicate_id = "run-20261026-close:lane_1:plan-600001.SH-alt"
+    duplicate["plan_id"] = duplicate_id
+    duplicate_value = duplicate["entry_confirmation_daily_facts"]["value"]
+    duplicate_value["source_pin"]["plan_id"] = duplicate_id
+    duplicate["entry_confirmation_daily_facts"]["sha256"] = object_hash(duplicate_value)
+    manifest["plans"].append(duplicate)
+    manifest["manifest_sha256"] = object_hash({
+        key: value for key, value in manifest.items() if key != "manifest_sha256"
+    })
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+
+    run_dir = tmp_path / "runs"
+    run_dir.mkdir()
+    manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    (run_dir / "run-20261026-close.json").write_text(json.dumps({
+        "run_id": "run-20261026-close",
+        "plan_publication": {"projection_manifests": [{
+            "lane_id": "lane_1", "path": str(manifest_path), "sha256": manifest_sha,
+        }]},
+    }), encoding="utf-8")
+    settings = SimpleNamespace(workflow_output_dir=tmp_path)
+    plan_rows = [
+        {
+            "plan_id": plan_id,
+            "symbol": "600001.SH",
+            "lane_id": "lane_1",
+            "source_run_id": "run-20261026-close",
+        }
+        for plan_id in (first_id, duplicate_id)
+    ]
+
+    from liangjian_funnel.runtime.entry_confirmation_sources import read_runtime_daily_facts
+    monkeypatch.setattr(sources, "_TRADING_CALENDAR", WeekdayCalendar())
+    result = read_runtime_daily_facts(settings, plan_rows, current_trade_date=TARGET)
+
+    assert result[first_id]["status"] == "READY"
+    assert result[duplicate_id]["status"] == "READY"
+    assert result[first_id]["source_pin"]["plan_id"] == first_id
+    assert result[duplicate_id]["source_pin"]["plan_id"] == duplicate_id

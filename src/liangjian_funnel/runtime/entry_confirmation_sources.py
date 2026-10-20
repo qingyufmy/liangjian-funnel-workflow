@@ -840,8 +840,24 @@ def read_runtime_daily_facts(
                 output[item["plan_id"]] = _unproven("PUBLICATION_MANIFEST_DISCOVERY_FAILED")
             continue
         manifest_path, expected_manifest_file_sha = manifest_info
-        symbols = tuple(item["symbol"] for item in items)
-        plan_ids = {item["symbol"]: item["plan_id"] for item in items}
+        # A symbol is not an identity key.  Two plans for the same symbol can
+        # legitimately coexist in one run/lane, and a dict keyed only by
+        # symbol would silently overwrite the first plan id.  Keep the fast
+        # one-pass path for unambiguous symbols; duplicate-symbol plans are
+        # read one at a time so the manifest selector can bind each exact id.
+        by_symbol: dict[str, list[dict[str, str]]] = {}
+        for item in items:
+            by_symbol.setdefault(item["symbol"], []).append(item)
+        ambiguous_items = [
+            item for symbol_items in by_symbol.values()
+            if len({candidate["plan_id"] for candidate in symbol_items}) > 1
+            for item in symbol_items
+        ]
+        batch_items = [
+            item for symbol_items in by_symbol.values()
+            if len({candidate["plan_id"] for candidate in symbol_items}) == 1
+            for item in symbol_items[:1]
+        ]
         cache_key = (
             str(manifest_path), source_run_id, lane_id,
             _trade_date(current_trade_date), tuple(sorted((item["plan_id"], item["symbol"]) for item in items)),
@@ -856,17 +872,44 @@ def read_runtime_daily_facts(
                 facts = {item["symbol"]: _unproven("DAILY_FACTS_DEADLINE_EXCEEDED") for item in items}
             else:
                 facts = read_entry_confirmation_daily_facts_small_batch(
-                    manifest_path, symbols=symbols, current_trade_date=current_trade_date,
-                    source_run_id=source_run_id, lane_id=lane_id, plan_ids=plan_ids,
+                    manifest_path,
+                    symbols=tuple(item["symbol"] for item in batch_items),
+                    current_trade_date=current_trade_date,
+                    source_run_id=source_run_id,
+                    lane_id=lane_id,
+                    plan_ids={item["symbol"]: item["plan_id"] for item in batch_items},
                     expected_manifest_file_sha256=expected_manifest_file_sha,
-                )
+                ) if batch_items else {}
                 _RUNTIME_FACT_CACHE[cache_key] = {
                     "manifest_stat": _stat_fingerprint(manifest_path),
                     "manifest_sha256": expected_manifest_file_sha,
                     "facts": deepcopy(facts),
                 }
-        for item in items:
-            output[item["plan_id"]] = deepcopy(facts.get(item["symbol"], _unproven("DAILY_FACTS_SYMBOL_RESULT_MISSING")))
+        for item in batch_items:
+            output[item["plan_id"]] = deepcopy(
+                facts.get(item["symbol"], _unproven("DAILY_FACTS_SYMBOL_RESULT_MISSING"))
+            )
+
+        # Do not reuse the batch result for duplicate symbols: it is keyed by
+        # symbol and therefore cannot represent two different plan identities.
+        # The single-item call is still bounded by the same manifest pin and
+        # preserves the exact plan-to-source binding.
+        for item in ambiguous_items:
+            if _deadline_expired(deadline_monotonic):
+                output[item["plan_id"]] = _unproven("DAILY_FACTS_DEADLINE_EXCEEDED")
+                continue
+            single = read_entry_confirmation_daily_facts_small_batch(
+                manifest_path,
+                symbols=(item["symbol"],),
+                current_trade_date=current_trade_date,
+                source_run_id=source_run_id,
+                lane_id=lane_id,
+                plan_ids={item["symbol"]: item["plan_id"]},
+                expected_manifest_file_sha256=expected_manifest_file_sha,
+            )
+            output[item["plan_id"]] = deepcopy(
+                single.get(item["symbol"], _unproven("DAILY_FACTS_SYMBOL_RESULT_MISSING"))
+            )
     return output
 
 
