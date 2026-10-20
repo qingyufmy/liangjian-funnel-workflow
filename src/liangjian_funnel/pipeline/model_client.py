@@ -88,8 +88,9 @@ class StrictJSONError(ModelClientError):
 
 
 class ModelNetworkError(ModelClientError):
-    def __init__(self, reason_code: str = "NETWORK_RETRY_EXHAUSTED", *, attempts: int | None = None):
-        super().__init__(reason_code, attempts=attempts)
+    def __init__(self, reason_code: str = "NETWORK_RETRY_EXHAUSTED", *, attempts: int | None = None,
+                 diagnostics: Mapping[str, Any] | None = None):
+        super().__init__(reason_code, attempts=attempts, diagnostics=diagnostics)
 
 
 class ModelHTTPError(ModelClientError):
@@ -110,6 +111,7 @@ class ModelCallResult:
     thinking_variant: str
     reasoning_tokens: int | None = None
     output_hash: str = ""
+    pm_stream_telemetry: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.output_hash:
@@ -193,6 +195,12 @@ class OpenAICompatibleModelClient:
         safe_messages = [dict(message) for message in messages]
         started_all = time.perf_counter()
         overall_deadline = self.monotonic() + call_timeout
+        pm_premarket = str(stage or '').upper() == 'A3' and team_session == 'PM_PREMARKET'
+        pm_metrics = None
+        if pm_premarket:
+            from .pm_stream_metrics import PMStreamMetrics
+            pm_metrics = PMStreamMetrics(clock=self.monotonic, started=overall_deadline-call_timeout)
+        attempt_limit = 1 if pm_premarket else self.max_attempts
         total_attempts = 0
         # A2 receives server-computed ranks, roles, routes and fact coverage.
         # 0290/0327: only Team A3/A4/A6 disable hidden reasoning. A1/A5 retain
@@ -255,11 +263,14 @@ class OpenAICompatibleModelClient:
                         output_budgets.append(bounded_budget)
                 budget_index = 0
                 output_tokens = output_budgets[budget_index]
-                while variant_attempts < self.max_attempts:
+                while variant_attempts < attempt_limit:
                     variant_attempts += 1
                     total_attempts += 1
                     remaining_timeout = overall_deadline - self.monotonic()
                     if remaining_timeout <= 0:
+                        if pm_metrics is not None:
+                            raise ModelNetworkError('PM_FIRST_PACKET_TIMEOUT', attempts=total_attempts-1,
+                                diagnostics={'pm_stream': pm_metrics.snapshot()})
                         raise ModelNetworkError("MODEL_TOTAL_DEADLINE_EXCEEDED", attempts=total_attempts)
                     attempt_deadline = overall_deadline
                     body: dict[str, Any] = {
@@ -286,6 +297,8 @@ class OpenAICompatibleModelClient:
                         "stream": True,
                         **thinking_payload,
                     }
+                    if pm_premarket:
+                        body['stream_options'] = {'include_usage': True}
                     try:
                         # Bound every transport phase by the remaining stage
                         # budget.  A fresh retry must never receive the full
@@ -299,7 +312,7 @@ class OpenAICompatibleModelClient:
                         ) as response:
                             status = response.status_code
                             if status == 429 or status >= 500:
-                                if variant_attempts < self.max_attempts:
+                                if variant_attempts < attempt_limit:
                                     self._backoff(
                                         variant_attempts,
                                         retry_after=response.headers.get("Retry-After"),
@@ -329,7 +342,7 @@ class OpenAICompatibleModelClient:
                                     and variant_id == call_variants[-1][0]
                                 )
                                 if output_budget_rejected or generic_final_variant_fallback:
-                                    if budget_index + 1 < len(output_budgets):
+                                    if not pm_premarket and budget_index + 1 < len(output_budgets):
                                         # Treat each capacity fallback as a new
                                         # budget's retry window.  This ensures a
                                         # capacity error on the last attempt at
@@ -358,11 +371,12 @@ class OpenAICompatibleModelClient:
                                 response,
                                 deadline=attempt_deadline,
                                 clock=self.monotonic,
+                                **({'pm_metrics': pm_metrics} if pm_premarket else {}),
                             )
                             output = _strip_reasoning(strict_json_object(content))
                     except StrictJSONError as exc:
                         last_strict_error = exc
-                        if variant_attempts < self.max_attempts and self.monotonic() < overall_deadline:
+                        if variant_attempts < attempt_limit and self.monotonic() < overall_deadline:
                             # Repeating the identical request often repeats the
                             # identical malformed wrapper/truncation. Ask the
                             # same model to regenerate; never parse or repair
@@ -378,18 +392,27 @@ class OpenAICompatibleModelClient:
                         raise StrictJSONError(
                             exc.reason_code,
                             attempts=total_attempts,
-                            diagnostics=exc.diagnostics,
+                            diagnostics={**exc.diagnostics, **({'pm_stream': pm_metrics.snapshot()} if pm_metrics else {})},
                         ) from exc
+                    except ModelClientError as exc:
+                        if pm_metrics is not None:
+                            exc.diagnostics['pm_stream'] = pm_metrics.snapshot()
+                            if exc.attempts is None:
+                                exc.attempts = total_attempts
+                        raise
                     except httpx.TimeoutException as exc:
                         raise ModelNetworkError(
-                            "MODEL_WALL_CLOCK_TIMEOUT",
+                            ('PM_FIRST_PACKET_TIMEOUT' if pm_metrics.first_packet is None else 'PM_TOTAL_TIMEOUT')
+                            if pm_metrics is not None else "MODEL_WALL_CLOCK_TIMEOUT",
                             attempts=total_attempts,
+                            diagnostics={'pm_stream': pm_metrics.snapshot()} if pm_metrics else None,
                         ) from exc
                     except (httpx.NetworkError, httpx.RemoteProtocolError, httpx.HTTPError) as exc:
-                        if variant_attempts < self.max_attempts:
+                        if variant_attempts < attempt_limit:
                             self._backoff(variant_attempts, deadline=overall_deadline)
                             continue
-                        raise ModelNetworkError(attempts=total_attempts) from exc
+                        raise ModelNetworkError(attempts=total_attempts,
+                            diagnostics={'pm_stream': pm_metrics.snapshot()} if pm_metrics else None) from exc
                     return ModelCallResult(
                         model=model,
                         output=output,
@@ -399,6 +422,7 @@ class OpenAICompatibleModelClient:
                         attempts=total_attempts,
                         thinking_variant=variant_id,
                         reasoning_tokens=reasoning_tokens,
+                        pm_stream_telemetry=pm_metrics.snapshot() if pm_metrics else None,
                     )
 
         if last_strict_error is not None:
@@ -497,6 +521,7 @@ def _decode_model_response(
     *,
     deadline: float | None = None,
     clock: Callable[[], float] = time.monotonic,
+    pm_metrics: Any = None,
 ) -> tuple[str, int | None]:
     """Decode a streamed response, with a compatibility path for JSON bodies.
 
@@ -508,9 +533,15 @@ def _decode_model_response(
     for diagnostics.
     """
 
+    # Observe body chunks before the SSE line decoder buffers them. A heartbeat
+    # or partial line is still a real first packet, not a first-token event.
+    if pm_metrics is not None and not response.is_stream_consumed:
+        response.stream = _PMObservedStream(response.stream, pm_metrics)
     content_type = response.headers.get("content-type", "").lower()
     if "text/event-stream" in content_type:
-        return _decode_sse_response(response, deadline=deadline, clock=clock)
+        if pm_metrics is not None:pm_metrics.streaming()
+        return _decode_sse_response(response, deadline=deadline, clock=clock,
+            **({'pm_metrics': pm_metrics} if pm_metrics is not None else {}))
 
     # Some OpenAI-compatible gateways honor ``stream=true`` but label the
     # chunked body as application/json.  ``response.read()`` would then wait
@@ -523,6 +554,7 @@ def _decode_model_response(
     try:
         for chunk in response.iter_bytes():
             _enforce_stream_deadline(deadline, clock)
+            if pm_metrics is not None and chunk:pm_metrics.packet()
             if not isinstance(chunk, bytes):
                 raise StrictJSONError("RESPONSE_JSON_INVALID")
             raw_size += len(chunk)
@@ -547,7 +579,9 @@ def _decode_model_response(
     # Some gateways omit the SSE content type.  Detect the protocol from the
     # body without treating arbitrary non-JSON text as an SSE response.
     if _looks_like_sse(text):
-        return _decode_sse_lines(text.splitlines(), deadline=deadline, clock=clock)
+        if pm_metrics is not None:pm_metrics.streaming(observable=False)
+        return _decode_sse_lines(text.splitlines(), deadline=deadline, clock=clock,
+            **({'pm_metrics': pm_metrics} if pm_metrics is not None else {}))
 
     try:
         payload = json.loads(text, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
@@ -555,6 +589,8 @@ def _decode_model_response(
         raise StrictJSONError("RESPONSE_JSON_INVALID") from exc
     if not isinstance(payload, dict):
         raise StrictJSONError("RESPONSE_OBJECT_REQUIRED")
+    if pm_metrics is not None:
+        pm_metrics.json_response();pm_metrics.usage(payload)
     choices = payload.get("choices")
     if isinstance(choices, list) and choices and isinstance(choices[0], Mapping):
         if choices[0].get("finish_reason") == "length":
@@ -580,14 +616,29 @@ def _looks_like_sse(text: str) -> bool:
     return stripped.startswith("data:") or stripped.startswith(":")
 
 
+class _PMObservedStream(httpx.SyncByteStream):
+    def __init__(self, stream, metrics):
+        self.stream, self.metrics = stream, metrics
+
+    def __iter__(self):
+        for chunk in self.stream:
+            if chunk:self.metrics.packet()
+            yield chunk
+
+    def close(self):
+        self.stream.close()
+
+
 def _decode_sse_response(
     response: httpx.Response,
     *,
     deadline: float | None = None,
     clock: Callable[[], float] = time.monotonic,
+    pm_metrics: Any = None,
 ) -> tuple[str, int | None]:
     try:
-        return _decode_sse_lines(response.iter_lines(), deadline=deadline, clock=clock)
+        return _decode_sse_lines(response.iter_lines(), deadline=deadline, clock=clock,
+            **({'pm_metrics': pm_metrics} if pm_metrics is not None else {}))
     except StrictJSONError:
         raise
     except (TypeError, ValueError, UnicodeError) as exc:
@@ -599,6 +650,7 @@ def _decode_sse_lines(
     *,
     deadline: float | None = None,
     clock: Callable[[], float] = time.monotonic,
+    pm_metrics: Any = None,
 ) -> tuple[str, int | None]:
     """Parse SSE events without retaining raw response or reasoning text."""
 
@@ -627,6 +679,7 @@ def _decode_sse_lines(
         if not isinstance(payload, dict):
             raise StrictJSONError("STREAM_SSE_INVALID")
         saw_data = True
+        if pm_metrics is not None:pm_metrics.usage(payload)
         event_index += 1
         value = _reasoning_tokens(payload)
         if value is not None:
@@ -682,10 +735,12 @@ def _decode_sse_lines(
         if not isinstance(content, str):
             raise StrictJSONError("STREAM_CONTENT_INVALID")
         content_parts.append(content)
+        if pm_metrics is not None and content:pm_metrics.content()
 
     try:
         for raw_line in lines:
             _enforce_stream_deadline(deadline, clock)
+            if pm_metrics is not None:pm_metrics.packet()
             if not isinstance(raw_line, str):
                 raise StrictJSONError("STREAM_SSE_INVALID")
             line = raw_line.rstrip("\r")

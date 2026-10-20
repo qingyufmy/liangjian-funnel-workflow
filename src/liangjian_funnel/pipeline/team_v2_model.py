@@ -1,9 +1,11 @@
 """Team transport through the existing client, with durable research receipts.
 
-No model defaults, strategy/eligibility changes, retries, broker or customer I/O.
+No model defaults, strategy/eligibility changes, broker or customer I/O.
+PM_PREMARKET alone records the client's single-dispatch streaming measurements.
 Live callers must provide their role/session validator and frozen metadata.
 """
 from dataclasses import dataclass
+from collections.abc import Mapping
 from datetime import date, datetime
 import hashlib
 import json
@@ -28,6 +30,7 @@ _SAFE_MODEL_FAILURE_CODES = frozenset('''
     STREAM_SSE_INVALID STREAM_UPSTREAM_ERROR STREAM_CHOICES_INVALID STREAM_DELTA_INVALID
     STREAM_CONTENT_INVALID STREAM_EMPTY STREAM_DONE_MISSING STREAM_CONTENT_MISSING
     CHOICES_INVALID MESSAGE_INVALID
+    PM_FIRST_PACKET_TIMEOUT PM_TOTAL_TIMEOUT
 '''.split())
 
 
@@ -98,6 +101,12 @@ def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJ
         elapsed_ms=None, output_chars=None, output_bytes=None,
         token_usage_status='NOT_REPORTED', exception_class=None,
         failure_code=None, http_status=None)
+    is_pm = request.prompt.role == 'A3' and session == 'PM_PREMARKET'
+    def pm_observed(value):
+        if not is_pm:return {}
+        from .pm_stream_metrics import safe_pm_measurements
+        observed = safe_pm_measurements(value)
+        return {'pm_stream': observed, 'token_usage_status': observed['token_usage_status'] if observed else 'NOT_REPORTED'}
     def observe(**updates):
         metrics.update(elapsed_ms=max(0,round((time.monotonic()-started)*1000)), **updates)
         journal.record_telemetry(call_id, request_binding=binding, metrics=metrics)
@@ -112,7 +121,9 @@ def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJ
         observe(status='TRANSPORT_FAILED',exception_class=type(exc).__name__,
             failure_code=code if code in _SAFE_MODEL_FAILURE_CODES else 'UNCLASSIFIED_MODEL_FAILURE',
             provider_attempts=attempts if type(attempts) is int and attempts>=0 else None,
-            http_status=status if type(status) is int and 100<=status<=599 else None)
+            http_status=status if type(status) is int and 100<=status<=599 else None,
+            **pm_observed((getattr(exc,'diagnostics',None) or {}).get('pm_stream')
+                if isinstance(getattr(exc,'diagnostics',None),Mapping) else None))
         journal.mark_failed(call_id, "TEAM_MODEL_CALL_FAILED")
         raise ValueError("TEAM_MODEL_CALL_FAILED") from None
     if (not isinstance(response, ModelCallResult) or response.model != model
@@ -132,7 +143,8 @@ def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJ
     observe(status='VALIDATED' if validation.valid else 'VALIDATION_FAILED',
         provider_attempts=response.attempts,provider_latency_ms=response.latency_ms,
         output_chars=len(output_text),output_bytes=len(output_text.encode('utf-8')),
-        validation_issues=list(validation.issues),reasoning_tokens=response.reasoning_tokens)
+        validation_issues=list(validation.issues),reasoning_tokens=response.reasoning_tokens,
+        **pm_observed(response.pm_stream_telemetry))
     receipt = journal.capture(call_id=call_id, run_id=run_id, role=request.prompt.role, session=session,
         source_trade_date=source_trade_date, execution_trade_date=execution_trade_date, captured_at=clock(),
         catalog_hash=catalog_hash, response=response, validation=validation,catalog=catalog)
