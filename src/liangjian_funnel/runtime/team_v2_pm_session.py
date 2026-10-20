@@ -21,11 +21,13 @@ from .team_v2_pm_policy import project_pm_values, derive_pm_fallback
 def _notify_fallback(store,decision,*,account_id,trade_date):
     if decision.get('decision_authority')!='SERVER_FALLBACK_NOT_MODEL_VALIDATED':return
     from .team_v2_internal import InternalOutbox
+    envelope_basis=('仅服务端 A6 首次失败保守信封' if decision.get('fallback_envelope_authority')==
+        'SERVER_A6_DEGRADED_CONSERVATIVE' else '仅A6合格计划')
     InternalOutbox(store).enqueue(account_id=account_id,trade_date=trade_date,kind='ALERT',
         source_id='PM_UNAVAILABLE_SERVER_FALLBACK:'+trade_date,
         observed_at=datetime.fromisoformat(decision['fallback_observed_at']),priority=0,
         body={'msg_type':'text','content':{'text':'模拟盘｜PM失败，服务端保守分配\n'
-            'PM_UNAVAILABLE_SERVER_FALLBACK\n仅A6合格计划、PROBE，仍须盘中条件及全部风控准入'}})
+            'PM_UNAVAILABLE_SERVER_FALLBACK\n'+envelope_basis+'、PROBE，仍须盘中条件及全部风控准入'}})
 
 
 def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, call_id: str,
