@@ -87,6 +87,11 @@ def test_33_to_12_uses_original_a3_priority_a6_and_geometry_without_mutating():
     _,missing,refs=pm_shortlist(values,envelopes=a6,plan_clusters=clusters,
         geometry_plan_ids=None,max_positions=6)
     assert refs=={} and missing['selected_plan_ids']==[]
+    labelled=deepcopy(values)
+    for item in labelled['EVIDENCE_CATALOG']['items']:
+        item['value']['publication_facts']['team_plan_geometry']={'classification':'FULL'}
+    assert pm_shortlist(labelled,envelopes=a6,plan_clusters=clusters,
+        geometry_plan_ids=None,max_positions=6)[2]=={}
     assert pm_output_budget(DEFAULT_POLICY,33,393216)==6144
     assert pm_output_budget(DEFAULT_POLICY,33,4096)==4096
     assert pm_output_budget(DEFAULT_POLICY,33,393216,max_positions=2)==3072

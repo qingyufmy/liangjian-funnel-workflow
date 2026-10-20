@@ -59,8 +59,9 @@ def pm_shortlist(values,*,envelopes,plan_clusters,geometry_plan_ids,max_position
         raise ValueError('PM_PLAN_CATALOG_BINDING_INVALID')
     refs={i['value']['plan_id']:i['id'] for i in items if i.get('category')=='PLAN'}
     if geometry_plan_ids is None:
-        geometry_plan_ids={p['plan_id'] for p in plans if p.get('publication_facts',{}).get(
-            'team_plan_geometry',{}).get('classification') in ('FULL','PARTIAL')}
+        # A classification label is not a fresh P06 proof. The natural caller
+        # supplies pm_geometry_domain's recomputed frozen-source domain.
+        geometry_plan_ids=set()
     if not isinstance(geometry_plan_ids,(set,frozenset)) or not geometry_plan_ids.issubset(by_id):
         raise ValueError('PM_GEOMETRY_SCOPE_INVALID')
     order=priority_order(plans)
