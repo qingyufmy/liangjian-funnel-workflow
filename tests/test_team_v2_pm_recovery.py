@@ -84,3 +84,16 @@ def test_compact_projection_is_one_catalogue_preserves_owner_and_does_not_mutate
     assert pm_output_budget(DEFAULT_POLICY,33,393216)==20480
     assert priority_order([dict(plan_id='b',symbol='b',plan_priority_rank=2),
         dict(plan_id='a',symbol='a',plan_priority_rank=1)])==['a','b']
+
+
+def test_fallback_skips_probe_round_lot_zero_before_consuming_slot(tmp_path):
+    kwargs,_=fixture(tmp_path);base=kwargs['envelopes'][0]
+    small=replace(base,plan_id='small',symbol='s1',risk_unit='STANDARD',max_shares_cap=100)
+    large=replace(base,plan_id='large',symbol='s2',risk_unit='STANDARD',max_shares_cap=1000)
+    args=dict(plan_clusters={'small':'bank','large':'tech'},priority=['small','large'],
+        free_slots=1,max_new_entries=3,a6_validated=True,utilization_cap=50)
+    out=derive_pm_fallback(envelopes=(small,large),**args)
+    assert [s['primary_plan_id'] for s in out['slot_plan']]==['large']
+    args.update(plan_clusters={'small':'bank'},priority=['small'])
+    out=derive_pm_fallback(envelopes=(small,),**args)
+    assert out['slot_plan']==[] and out['reason_code']=='PM_FALLBACK_NO_ELIGIBLE_PLANS'

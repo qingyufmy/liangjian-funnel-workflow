@@ -9,6 +9,8 @@ from pathlib import Path
 import json
 import math
 
+from .risk_engine import conservative_envelope
+
 DEFAULT_POLICY=dict(schema_version='team-pm-runtime/1',fallback_enabled=True,
     timeout_seconds=106,output_base_tokens=2048,output_per_plan_tokens=512)
 PLAN_FIELDS=frozenset(('strategy_profile','strategy_version','primary_theme','theme_id',
@@ -78,6 +80,9 @@ def derive_pm_fallback(*,envelopes,plan_clusters,priority,free_slots,max_new_ent
     counts=Counter();selected=[]
     for pid in priority:
         e=by_id[pid];cluster=plan_clusters[pid]
+        # Use the admission path's exact PROBE/round-lot projection before
+        # consuming a scarce slot. A 100-share STANDARD cap may become zero.
+        if e.risk_unit=='STANDARD':e=conservative_envelope(e,consecutive_failures=1)
         if (not e.eligible or e.risk_unit not in ('STANDARD','PROBE') or e.max_shares_cap<=0
                 or e.risk_budget<=0 or counts[cluster]>=cluster_cap):continue
         if len(selected)>=min(free_slots,max_new_entries):break
