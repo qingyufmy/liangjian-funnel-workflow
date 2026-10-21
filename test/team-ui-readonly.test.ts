@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import { parseTeamUiQuery, TeamUiReadOnly } from '../server/team-ui-readonly.js';
 
@@ -25,7 +25,11 @@ c.commit();c.close()
 `, root]);
   hashBefore = digest(join(root, 'state/workflow.sqlite3'));
 });
-afterAll(() => { if (root) rmSync(root, { recursive: true, force: true }); });
+afterAll(() => {
+  if (!root) return;
+  if (dirname(resolve(root)) !== resolve(tmpdir()) || !basename(root).startsWith('team-ui-ro-test-')) throw Error('UNSAFE_TEST_CLEANUP');
+  rmSync(root, { recursive: true, force: true, maxRetries:10, retryDelay:50 });
+});
 
 test('calendar dates, parameter duplication and pagination rejected before I/O', () => {
   for (const value of ['2026-02-30', '2026-13-01', '../../secret'])
