@@ -12,6 +12,7 @@ SCHEMA='a5-lossless-facts/1'
 REF='$a5_fact_ref'
 JSON_ROW='$a5_canonical_json'
 META='_a5_transport'
+TABLE='$a5_rows'
 
 
 def _text(value):
@@ -25,7 +26,7 @@ def project_review_facts(facts):
     counts=Counter();objects={}
     def decode(value):
         if isinstance(value,dict):
-            if set(value).intersection((REF,JSON_ROW,META)):
+            if set(value).intersection((REF,JSON_ROW,META,TABLE)):
                 raise ValueError('A5_TRANSPORT_RESERVED_KEY')
             return {k:decode(v) for k,v in value.items()}
         if isinstance(value,list):return [decode(v) for v in value]
@@ -51,11 +52,22 @@ def project_review_facts(facts):
         if reference and isinstance(value,(dict,list,str)) and _text(value) in ids:
             return {REF:ids[_text(value)]}
         if isinstance(value,dict):return {k:project(v) for k,v in value.items()}
-        if isinstance(value,list):return [project(v) for v in value]
+        if isinstance(value,list):
+            rows=[project(v) for v in value]
+            # Explicit column names preserve model readability. Presence masks
+            # distinguish an absent field from an explicit null. This is a
+            # reversible transport, never a summary or dropped observation.
+            if len(rows)>=3 and all(isinstance(v,dict) and not set(v).intersection((REF,JSON_ROW,TABLE)) for v in rows):
+                columns=sorted(set().union(*(v.keys() for v in rows)))
+                table={TABLE:dict(columns=columns,rows=[[v.get(k) for k in columns] for v in rows])}
+                if any(set(v)!=set(columns) for v in rows):
+                    table[TABLE]['present']=[[i for i,k in enumerate(columns) if k in v] for v in rows]
+                if len(_text(table))<len(_text(rows)):return table
+            return rows
         return value
     output=project(decoded)
     output[META]=dict(schema=SCHEMA,source_sha256=_sha(facts),
-        instructions='以共享事实引用读取同一原值；$a5_canonical_json为数据库原JSON字符串的无损解码，不是新增事实；证据目录ID保持原样。',
+        instructions='以共享事实引用读取同一原值；$a5_canonical_json为数据库原JSON字符串无损解码；$a5_rows按columns逐列读取rows，present为实际存在字段下标，省略时全字段存在；不是新增事实；证据目录ID保持原样。',
         shared_facts={ids[s]:project(objects[s],False) for s in repeated})
     if expand_review_facts(output)!=facts:raise ValueError('A5_TRANSPORT_INVERSE_FAILED')
     return output,dict(schema=SCHEMA,source_sha256=_sha(facts),transport_sha256=_sha(output),
@@ -73,6 +85,12 @@ def expand_review_facts(projected):
             if key not in catalog or key in visiting:raise ValueError('A5_TRANSPORT_REF_INVALID')
             visiting.add(key);value=expand(catalog[key]);visiting.remove(key);return value
         if isinstance(v,dict) and set(v)=={JSON_ROW}:return _text(expand(v[JSON_ROW]))
+        if isinstance(v,dict) and set(v)=={TABLE}:
+            t=v[TABLE];columns=t['columns'];rows=t['rows'];present=t.get('present')
+            if len(set(columns))!=len(columns) or any(len(r)!=len(columns) for r in rows):raise ValueError('A5_TRANSPORT_TABLE_INVALID')
+            if present is not None and (len(present)!=len(rows) or any(len(set(p))!=len(p) or any(type(i) is not int or i<0 or i>=len(columns) for i in p) for p in present)):
+                raise ValueError('A5_TRANSPORT_TABLE_INVALID')
+            return [{k:expand(row[i]) for i,k in enumerate(columns) if present is None or i in present[n]} for n,row in enumerate(rows)]
         if isinstance(v,dict):return {k:expand(x) for k,x in v.items()}
         if isinstance(v,list):return [expand(x) for x in v]
         return v
