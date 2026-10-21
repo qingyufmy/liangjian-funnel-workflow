@@ -34,4 +34,6 @@
 
 任务书§4九个GET路径也由 `scripts/team_mock_api.mjs` 按同签名提供：day/tasks、feed、plans、fills；role/today、stats；review/scoreboard、lessons；settings。day限定10-20，role/today在mock中也明确历史数据模式，不冒充今日。limit 1–500，offset有界，days≤20，未知角色/坏参数拒绝；source缺失返回null而不是[]或0。设置写申请路由不开放，本次无POST。生产接口将复用同一展示约定，但当前并未集成生产服务。
 
-生产只读接口还需按现有 Node 服务集成、默认关闭 `/team` 开关、SQLite mode=ro + query_only、有界读取、零写入/模型/通知证据及 Claude 审查；盘中不为前端连接 VM。届时原件不全的类型继续缺源，不能用本机历史 fixture 代替生产值。
+11:29本机已加入Node默认关闭开关 `LIANGJIAN_TEAM_UI_ENABLED`、同鉴权 `/api/ui` router和stdlib只读SQL桥接（尚未VM验收）：plans←execution_plans.valid_from当日范围/payload白名单；fills←Team paper_fills.minute_end当日范围；tasks/role-today←Team model_calls.captured_at当日范围（仅模型journal，不是全部调度任务）。模型任务按session含PM区分组合经理，不输出prompt/output。每行含真实表名、记录id、投影原件SHA；不返回文件路径。分页total未知仍null。历史计划状态是查询时最新状态，不冒称当日历史状态。其他GET签名目前明确MISSING_SOURCE/null；不读.env代替settings，不读原始模型文本造feed。
+
+仍欠：SSE按实际发生时序的完整来源、资产/风控等首页事件投影、页面装载、真实VM零写入/模型/通知与延迟证明、当天批准快照逐条核对及Claude最终审查。盘中不为前端连接VM；缺源继续缺源，不能用本机历史fixture代替生产值。

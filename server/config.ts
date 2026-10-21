@@ -33,6 +33,7 @@ export const JOB_DEFINITIONS: readonly JobDefinition[] = [
 ];
 
 export interface AppConfig {
+  readonly teamUiEnabled?: boolean;
   readonly rootDir: string;
   readonly host: string;
   readonly port: number;
@@ -92,6 +93,7 @@ export function loadConfig(
 ): AppConfig {
   const resolvedRoot = resolve(rootDir);
   return {
+    teamUiEnabled: booleanValue(env.LIANGJIAN_TEAM_UI_ENABLED, false),
     rootDir: resolvedRoot,
     host: env.HOST?.trim() || env.LIANGJIAN_HOST?.trim() || "127.0.0.1",
     port: positiveInteger(env.PORT?.trim() || env.LIANGJIAN_PORT, 3210),
