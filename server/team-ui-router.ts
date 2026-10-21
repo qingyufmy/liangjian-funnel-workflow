@@ -1,5 +1,5 @@
 import express, { type Router } from "express";
-import { parseTeamUiQuery, TeamUiQueryError, type TeamUiQuery } from "./team-ui-readonly.js";
+import { parseTeamUiQuery, TeamUiQueryError, TeamUiBusyError, type TeamUiQuery } from "./team-ui-readonly.js";
 
 export interface TeamUiReader { read(query: TeamUiQuery): Promise<unknown> }
 
@@ -26,8 +26,8 @@ export function createTeamUiRouter(reader: TeamUiReader, day = (): string =>
       return;
     }
     if (!query) { response.status(404).json({ error: "UI_API_NOT_FOUND" }); return; }
-    void reader.read(query).then(result => response.json(result)).catch(() => {
-      response.status(503).json({ error: "TEAM_UI_SOURCE_UNAVAILABLE" });
+    void reader.read(query).then(result => response.json(result)).catch(error => {
+      response.status(503).json({ error: error instanceof TeamUiBusyError ? "TEAM_UI_BUSY" : "TEAM_UI_SOURCE_UNAVAILABLE" });
     });
   });
   return router;

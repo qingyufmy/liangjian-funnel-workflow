@@ -36,4 +36,6 @@
 
 11:29本机已加入Node默认关闭开关 `LIANGJIAN_TEAM_UI_ENABLED`、同鉴权 `/api/ui` router和stdlib只读SQL桥接（尚未VM验收）：plans←execution_plans.valid_from当日范围/payload白名单；fills←Team paper_fills.minute_end当日范围；tasks/role-today←Team model_calls.captured_at当日范围（仅模型journal，不是全部调度任务）。模型任务按session含PM区分组合经理，不输出prompt/output。每行含真实表名、记录id、投影原件SHA；不返回文件路径。分页total未知仍null。历史计划状态是查询时最新状态，不冒称当日历史状态。其他GET签名目前明确MISSING_SOURCE/null；不读.env代替settings，不读原始模型文本造feed。
 
-仍欠：SSE按实际发生时序的完整来源、资产/风控等首页事件投影、页面装载、真实VM零写入/模型/通知与延迟证明、当天批准快照逐条核对及Claude最终审查。盘中不为前端连接VM；缺源继续缺源，不能用本机历史fixture代替生产值。
+0453最新裁定：本期改为10秒since_id增量轮询，不做SSE；旧mock的SSE仅历史fixture工具，不是本期生产接口。12:10读桥已本机加异步独立子进程、并发2、450ms截止、2秒/64条缓存、进行中查询合并、繁忙503不排队。压测数与未通过门详见实施记录；不将本机结果冒充VM交易Node指标。
+
+仍欠：增量事件的实际发生时序/完整来源、资产/风控等首页事件投影、页面装载、未登录页、真实VM零写入/模型/通知与延迟证明、当天批准快照逐条核对及Claude最终审查。盘中不为前端连接VM；缺源继续缺源，不能用本机历史fixture代替生产值。

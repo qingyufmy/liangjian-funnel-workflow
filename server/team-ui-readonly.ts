@@ -50,16 +50,53 @@ export function parseTeamUiQuery(path: string, query: URLSearchParams, today: st
     limit: integer(query, "limit", 50, 1, 500), offset: integer(query, "offset", 0, 0, 1_000_000), days: integer(query, "days", 20, 1, 20) };
 }
 
-/** Same VM Python executable configured for Node, but a stdlib-only read process. */
-export class TeamUiReadOnly {
-  constructor(private readonly rootDir: string, private readonly pythonBin: string) {}
+export class TeamUiBusyError extends Error {}
 
-  async read(query: TeamUiQuery): Promise<unknown> {
-    const { stdout } = await runFile(this.pythonBin,
-      ["-B", resolve(this.rootDir, "scripts/team_ui_readonly.py"), this.rootDir, JSON.stringify(query)],
-      { cwd: this.rootDir, timeout: 1_000, maxBuffer: 512 * 1024, windowsHide: true });
-    const result: unknown = JSON.parse(stdout);
-    if (!result || typeof result !== "object" || "error" in result) throw new Error("TEAM_UI_SOURCE_UNAVAILABLE");
-    return result;
+/** Two asynchronous child workers maximum; no unbounded request queue. */
+export class TeamUiReadPool {
+  private readonly pending = new Map<string, Promise<unknown>>();
+  private readonly cache = new Map<string, { readonly until: number; readonly value: unknown }>();
+  private active = 0;
+  private peak = 0;
+  private hits = 0;
+
+  constructor(private readonly worker: (query: TeamUiQuery) => Promise<unknown>, private readonly now = Date.now) {}
+
+  read(query: TeamUiQuery): Promise<unknown> {
+    // Explicit field order makes semantically equal queries share one worker/cache.
+    const key = JSON.stringify([query.kind,query.trade_date,query.role ?? null,query.limit,query.offset,query.days]);
+    const cached = this.cache.get(key);
+    if (cached && cached.until > this.now()) { this.hits += 1; return Promise.resolve(cached.value); }
+    if (cached) this.cache.delete(key);
+    const existing = this.pending.get(key);
+    if (existing) return existing;
+    if (this.active >= 2) return Promise.reject(new TeamUiBusyError("TEAM_UI_BUSY"));
+    this.active += 1; this.peak = Math.max(this.peak, this.active);
+    const operation = Promise.resolve().then(() => this.worker(query)).then(value => {
+      this.cache.set(key, {until:this.now()+2_000,value});
+      while (this.cache.size > 64) this.cache.delete(this.cache.keys().next().value!);
+      return value;
+    }).finally(() => { this.active -= 1; this.pending.delete(key); });
+    this.pending.set(key, operation);
+    return operation;
+  }
+
+  diagnostics(): {active: number; peak: number; cacheEntries: number; cacheHits: number} {
+    return {active:this.active,peak:this.peak,cacheEntries:this.cache.size,cacheHits:this.hits};
+  }
+}
+
+/** Same VM Python executable configured for Node; asynchronous stdlib-only child.
+ * 450ms child deadline leaves margin inside the 500ms HTTP budget. */
+export class TeamUiReadOnly extends TeamUiReadPool {
+  constructor(rootDir: string, pythonBin: string) {
+    super(async query => {
+      const { stdout } = await runFile(pythonBin,
+        ["-B", resolve(rootDir, "scripts/team_ui_readonly.py"), rootDir, JSON.stringify(query)],
+        { cwd: rootDir, timeout: 450, maxBuffer: 512 * 1024, windowsHide: true });
+      const result: unknown = JSON.parse(stdout);
+      if (!result || typeof result !== "object" || "error" in result) throw new Error("TEAM_UI_SOURCE_UNAVAILABLE");
+      return result;
+    });
   }
 }
