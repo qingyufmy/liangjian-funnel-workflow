@@ -1970,12 +1970,8 @@ def _validate_a2_rotation_focus_coverage(
         seen.add(direction)
         # A2 priority and A4 entry permission are separate. Optional emotion
         # factors cannot become a blanket rejection of a TREND direction.
-        non_selection_reasons = {
-            "MARKET_RISK_OFF_RETREAT", "MARKET_RISK_OFF", "RISK_OFF_RETREAT",
-            "EMOTION_DIVERGENCE_NO_NEW_ENTRY", "EMOTION_DIVERGENCE",
-            "NO_NEW_ENTRY", "NO_NEW_ENTRY_REGIME", "TIER_STRUCTURE_ZERO",
-            "TIER_STRUCTURE_ABSENT", "ROTATION_RANK_4", "ROTATION_RANK_5",
-        }
+        from ..team_v2_rotation_scope import ENTRY_GATE_ONLY_REASON_CODES
+        non_selection_reasons = ENTRY_GATE_ONLY_REASON_CODES
         if all(code.strip().upper() in non_selection_reasons for code in reasons):
             errors.append("A2_ROTATION_REVIEW_USES_ENTRY_GATE:" + direction)
             continue

@@ -1,0 +1,4655 @@
+{
+  "authority": "0505_RELEASE2_ZERO_HTTP_EXISTING_CAPTURE",
+  "source_root": "/var/tmp/team-v2-core-20261021-avh2z6l2/whole-chain-3c563dd-0498",
+  "captured": {
+    "call_id": "A2:CLOSE_REVIEW:7635cf4b137179b879fa62d5a4115c2ecfaaddbfa29578de153f766bdd796167",
+    "output_json": "{\"envelope\":{\"as_of\":\"2026-10-20T23:08:55.182899+08:00\",\"config_hash\":\"40b41a7326cde68342ed60a28a416b8cdd9dd7a487114d4c2de42aa8083f6b12\",\"config_version\":\"LIANGJIAN_FUNNEL_V2/2.0.0\",\"execution_trade_date\":\"2026-10-21\",\"input_snapshot_ids\":[\"snapshot-20261020T230415+0800-be48d39896c1:a2:6a7d0d7e6674:rotation-policy:a2-bottleneck:cdf36f843552\"],\"knowledge_cutoff\":\"2026-10-20T23:08:55.182899+08:00\",\"market_regime\":\"ROTATION_NO_MAINLINE\",\"model_name\":\"deepseek-v4-pro\",\"prompt_version\":\"agent-2/3.0.8\",\"reason_codes\":[],\"run_id\":\"ISOLATED_0498_3c563dd\",\"schema_version\":\"team-research-envelope/1\",\"source_trade_date\":\"2026-10-20\",\"stage_id\":\"A2\",\"status\":\"OK\"},\"focus_decisions\":[{\"opposing_refs\":[\"A2:QUANT:002530.SZ\"],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:001266.SZ\"],\"symbol\":\"001266.SZ\"},{\"opposing_refs\":[\"A2:QUANT:002530.SZ\"],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:002164.SZ\"],\"symbol\":\"002164.SZ\"},{\"opposing_refs\":[\"A2:QUANT:002712.SZ\"],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:002811.SZ\"],\"symbol\":\"002811.SZ\"},{\"opposing_refs\":[\"A2:QUANT:300181.SZ\"],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:300199.SZ\"],\"symbol\":\"300199.SZ\"},{\"opposing_refs\":[\"A2:QUANT:002712.SZ\"],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:300378.SZ\"],\"symbol\":\"300378.SZ\"},{\"opposing_refs\":[\"A2:QUANT:300181.SZ\"],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:603127.SH\"],\"symbol\":\"603127.SH\"},{\"opposing_refs\":[\"A2:QUANT:300556.SZ\"],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:603236.SH\"],\"symbol\":\"603236.SH\"},{\"opposing_refs\":[\"A2:QUANT:301002.SZ\"],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:688036.SH\"],\"symbol\":\"688036.SH\"}],\"handoff_notes\":{\"to_a3\":[\"机器人、AI应用、创新药三个确认期主题的核心股若明日跌破MA5，应暂停新开仓\",\"AI算力方向仅启动期试探，关注603236.SH能否形成2板确认\",\"所有主题均缺主力资金流数据，A3应把资金确认作为开仓前置条件\"]},\"market_read\":{\"dominant_themes\":[\"ROBOTICS_ADVANCED_MANUFACTURING\",\"AI_APPLICATIONS_DIGITAL_ECONOMY\",\"INNOVATIVE_MEDICINE_HEALTHCARE\"],\"emotion_cycle\":\"IGNITION\",\"opposing_refs\":[\"A2:NEWS\"],\"regime\":\"ROTATION_NO_MAINLINE\",\"supporting_refs\":[\"A2:MARKET\"]},\"model_nominations\":[{\"falsifiers\":[\"化工新材料板块广度连续2日回落\",\"该股跌破MA5且相对强度排名大幅下滑\"],\"nomination_thesis\":\"化工新材料方向处于启动期，该股相对强度极高且趋势结构完整，量化过滤原因主要是资金流缺失，不构成实质否决。\",\"opposing_refs\":[\"A2:QUANT:605488.SH\"],\"quant_filter_reason\":\"A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD\",\"supporting_refs\":[\"A2:NOMINATION:301190.SZ\"],\"symbol\":\"301190.SZ\",\"theme_id\":\"CHEMICAL_NEW_MATERIALS\",\"why_i_disagree\":\"资金流缺失是全局数据问题，不应单独否决该股；其相对强度与趋势结构均达标。\"},{\"falsifiers\":[\"AI应用板块广度连续2日回落\",\"该股跌破MA5且相对强度排名大幅下滑\"],\"nomination_thesis\":\"AI应用方向处于确认期，该股相对强度极高且趋势结构完整，量化过滤原因主要是资金流缺失，不构成实质否决。\",\"opposing_refs\":[\"A2:QUANT:300378.SZ\"],\"quant_filter_reason\":\"A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD\",\"supporting_refs\":[\"A2:NOMINATION:301608.SZ\"],\"symbol\":\"301608.SZ\",\"theme_id\":\"AI_APPLICATIONS_DIGITAL_ECONOMY\",\"why_i_disagree\":\"资金流缺失是全局数据问题，不应单独否决该股；其相对强度与趋势结构均达标。\"},{\"falsifiers\":[\"机器人板块广度连续2日回落\",\"该股跌破MA5且相对强度排名大幅下滑\"],\"nomination_thesis\":\"机器人方向处于确认期，该股相对强度极高且趋势结构完整，量化过滤原因主要是资金流缺失，不构成实质否决。\",\"opposing_refs\":[\"A2:QUANT:001266.SZ\"],\"quant_filter_reason\":\"A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD\",\"supporting_refs\":[\"A2:NOMINATION:300984.SZ\"],\"symbol\":\"300984.SZ\",\"theme_id\":\"ROBOTICS_ADVANCED_MANUFACTURING\",\"why_i_disagree\":\"资金流缺失是全局数据问题，不应单独否决该股；其相对强度与趋势结构均达标。\"}],\"reason_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\",\"A2_OPTIONAL_FACTS_DEGRADED\",\"A2_EMOTION_LADDER_LEADER_CONFIRMED\",\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"reject_decisions\":[{\"opposing_refs\":[\"A2:QUANT:300378.SZ\"],\"risk_codes\":[\"A2_IDENTIFIABILITY_BELOW_MINIMUM\"],\"supporting_refs\":[\"A2:QUANT:002712.SZ\"],\"symbol\":\"002712.SZ\"},{\"opposing_refs\":[\"A2:QUANT:300199.SZ\"],\"risk_codes\":[\"A2_IDENTIFIABILITY_BELOW_MINIMUM\"],\"supporting_refs\":[\"A2:QUANT:300181.SZ\"],\"symbol\":\"300181.SZ\"}],\"rotation_reviews\":[{\"decision\":\"NO_FOCUS\",\"explanation\":\"AI算力方向成员中，300556.SZ 与 300839.SZ 的 identifiability 低于最低阈值且趋势结构未确认，600406.SH 的 leader_structure 与 breadth 均偏弱，未出现可聚焦的完整结构代表。\",\"opposing_refs\":[\"A2:QUANT:600406.SH\"],\"reason_codes\":[],\"reviewed_symbols\":[\"300556.SZ\",\"300839.SZ\",\"600406.SH\"],\"rotation_direction_id\":\"SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE\",\"supporting_refs\":[\"A2:QUANT:300556.SZ\",\"A2:QUANT:300839.SZ\"]}],\"theme_reviews\":[{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:300999.SZ\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"LATENT\",\"support_codes\":[],\"supporting_refs\":[\"A2:QUANT:001313.SZ\"],\"theme_id\":\"AGRICULTURE_FOOD_SECURITY\",\"what_would_change_my_mind\":[\"农业板块广度突破40且主力净流入转正\",\"板块内出现2板以上梯队龙头\"]},{\"new_entry_policy\":\"ALLOW\",\"opposing_refs\":[\"A2:QUANT:002712.SZ\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"CONFIRMATION\",\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:300378.SZ\",\"A2:QUANT:002811.SZ\"],\"theme_id\":\"AI_APPLICATIONS_DIGITAL_ECONOMY\",\"what_would_change_my_mind\":[\"AI应用板块广度连续2日回落且核心股跌破MA5\",\"板块主力净流入转负\"]},{\"new_entry_policy\":\"PROBE_ONLY\",\"opposing_refs\":[\"A2:QUANT:300556.SZ\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"IGNITION\",\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:603236.SH\"],\"theme_id\":\"AI_COMPUTE_INFRASTRUCTURE\",\"what_would_change_my_mind\":[\"AI算力板块出现连续2日广度确认\",\"板块主力净流入转负\"]},{\"new_entry_policy\":\"PROBE_ONLY\",\"opposing_refs\":[\"A2:NOMINATION:603978.SH\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"IGNITION\",\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:605488.SH\"],\"theme_id\":\"CHEMICAL_NEW_MATERIALS\",\"what_would_change_my_mind\":[\"化工新材料板块出现连续2日广度确认\",\"板块主力净流入转负\"]},{\"new_entry_policy\":\"ALLOW\",\"opposing_refs\":[\"A2:QUANT:301002.SZ\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"CONFIRMATION\",\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:688036.SH\"],\"theme_id\":\"CONSUMER_ELECTRONICS\",\"what_would_change_my_mind\":[\"消费电子板块广度回落且核心股跌破MA5\",\"板块主力净流入转负\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:000729.SZ\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"LATENT\",\"support_codes\":[],\"supporting_refs\":[\"A2:QUANT:000858.SZ\"],\"theme_id\":\"CONSUMER_SERVICES\",\"what_would_change_my_mind\":[\"消费服务板块广度突破50且主力净流入转正\",\"板块内出现2板以上梯队龙头\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:601398.SH\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"LATENT\",\"support_codes\":[],\"supporting_refs\":[\"A2:QUANT:601288.SH\"],\"theme_id\":\"FINANCIAL_HIGH_DIVIDEND\",\"what_would_change_my_mind\":[\"高股息板块广度突破60且主力净流入转正\",\"板块内出现2板以上梯队龙头\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:601006.SH\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"LATENT\",\"support_codes\":[],\"supporting_refs\":[\"A2:QUANT:002811.SZ\"],\"theme_id\":\"INFRASTRUCTURE_DOMESTIC_DEMAND\",\"what_would_change_my_mind\":[\"基建内需板块广度突破50且主力净流入转正\",\"板块内出现2板以上梯队龙头\"]},{\"new_entry_policy\":\"ALLOW\",\"opposing_refs\":[\"A2:QUANT:300181.SZ\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"CONFIRMATION\",\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:300199.SZ\",\"A2:QUANT:603127.SH\"],\"theme_id\":\"INNOVATIVE_MEDICINE_HEALTHCARE\",\"what_would_change_my_mind\":[\"创新药板块广度连续2日回落且核心股跌破MA5\",\"板块主力净流入转负\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:NOMINATION:002674.SZ\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"LATENT\",\"support_codes\":[],\"supporting_refs\":[\"A2:QUANT:605189.SH\"],\"theme_id\":\"LIGHT_TEXTILE_CONSUMER_MANUFACTURING\",\"what_would_change_my_mind\":[\"轻纺消费板块广度突破40且主力净流入转正\",\"板块内出现2板以上梯队龙头\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:688522.SH\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"LATENT\",\"support_codes\":[],\"supporting_refs\":[\"A2:QUANT:300733.SZ\"],\"theme_id\":\"NATIONAL_DEFENSE\",\"what_would_change_my_mind\":[\"国防军工板块广度突破40且主力净流入转正\",\"板块内出现2板以上梯队龙头\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:600406.SH\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"LATENT\",\"support_codes\":[],\"supporting_refs\":[\"A2:QUANT:301487.SZ\"],\"theme_id\":\"POWER_EQUIPMENT_NEW_ENERGY\",\"what_would_change_my_mind\":[\"电力设备板块广度突破40且主力净流入转正\",\"板块内出现2板以上梯队龙头\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:600968.SH\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"LATENT\",\"support_codes\":[],\"supporting_refs\":[\"A2:QUANT:300839.SZ\"],\"theme_id\":\"RESOURCES_ENERGY\",\"what_would_change_my_mind\":[\"资源能源板块广度突破40且主力净流入转正\",\"板块内出现2板以上梯队龙头\"]},{\"new_entry_policy\":\"ALLOW\",\"opposing_refs\":[\"A2:QUANT:002530.SZ\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"CONFIRMATION\",\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:001266.SZ\",\"A2:QUANT:002164.SZ\"],\"theme_id\":\"ROBOTICS_ADVANCED_MANUFACTURING\",\"what_would_change_my_mind\":[\"机器人板块广度连续2日回落且核心股跌破MA5\",\"板块主力净流入转负\"]},{\"new_entry_policy\":\"PROBE_ONLY\",\"opposing_refs\":[\"A2:QUANT:688018.SH\"],\"penalty_codes\":[],\"risk_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"stage\":\"IGNITION\",\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:603068.SH\"],\"theme_id\":\"SEMICONDUCTOR_LOCALIZATION\",\"what_would_change_my_mind\":[\"半导体板块出现连续2日广度确认\",\"板块主力净流入转负\"]}],\"unresolved_questions\":[],\"what_would_change_my_mind\":[\"若主力资金流数据恢复且显示机器人/AI应用/创新药板块净流入转负，则下调对应主题阶段\",\"若市场广度连续2日跌破0.5且涨停家数降至20以下，则整体情绪周期从IGNITION下调\"]}",
+    "output_hash": "e31feddb5fa22e251e66bc4e92a3d445304c76c59b934a48320e64773d9398e9",
+    "validated": 1,
+    "issues_json": "[]"
+  },
+  "source_body_sha256": "324e43ab8e2977d15019664015dbccea9972968029f66d1db1d6ae0621dc00ef",
+  "source_input_sha256": "a777e9825575e6e5b9314d3d33ff2bbe66ae78384fd5d14757676019050e89ae",
+  "postpolicy_body_sha256": "1c8e5af0712ab5d626817ee076532db1617f3e4b280df37af3382166ca8217d7",
+  "postpolicy_reason_codes": [
+    "A2_ROTATION_REVIEW_INVALID:SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE:REASON_CODES_REQUIRED",
+    "A2_ROTATION_FOCUS_COVERAGE_MISSING:SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE"
+  ],
+  "postpolicy_exact_projection": {
+    "focus_pool": [
+      {
+        "A2_REVIEW_DEGRADED": false,
+        "ROTATION_GATE_EMPTY": false,
+        "a1_formal_member": true,
+        "a2_pool_channel": "EMOTION",
+        "a2_role": "EMOTION_LEADER",
+        "a2_route": "MARKET_CORE",
+        "all_failed_gates": [],
+        "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+        "capital_flow": {
+          "available": false,
+          "reason_code": "A2_CAPITAL_FLOW_UNAVAILABLE",
+          "score": null,
+          "source": "CAPITAL_FLOW_SNAPSHOT",
+          "source_refs": []
+        },
+        "capital_flow_available": false,
+        "channel_source_health": {
+          "emotion": {
+            "absence_is_not_popularity_evidence": true,
+            "as_of": "2026-10-20T15:10:00.924893+08:00",
+            "available": true,
+            "content_hash": "2269382b9f0941b993de51791c108180dc4103856c68508dc657fe7b9a1674c8",
+            "declared_available": true,
+            "reason_code": "OK",
+            "trade_date": "2026-10-20",
+            "validation_state": "COMPLETE",
+            "verified_record_count": 100
+          },
+          "trend": {
+            "available": true,
+            "reason_code": "OK",
+            "trade_date": "2026-10-20"
+          }
+        },
+        "company_name": "移远通信",
+        "crowding": {
+          "available": false,
+          "reason_code": "A2_CROWDING_OPTIONAL_UNAVAILABLE",
+          "score": null,
+          "source": "DETERMINISTIC_FROZEN_FACTS",
+          "upstream_reason_code": "PARTIAL_PROXY_ONLY"
+        },
+        "daily_verified_increment": {},
+        "decision_as_of": "2026-10-20T23:04:15+08:00",
+        "decision_id": "aa7dcfc00dbe035ae7bd644b",
+        "deterministic_data_sufficiency_state": "DEGRADED",
+        "eastmoney_hot100": {
+          "change_pct": 10,
+          "circulating_market_value": null,
+          "code": "603236",
+          "dynamic_pe": 19.14,
+          "latest_price": 76.11,
+          "market": "SH",
+          "name": "移远通信",
+          "pb": 3.54,
+          "rank": 53,
+          "symbol": "603236.SH",
+          "total_market_value": null,
+          "trading_volume": null,
+          "turnover_rate_pct": 7.27,
+          "volume_ratio": 2.26
+        },
+        "emotion_core_eligible": true,
+        "emotion_theme_binding": {
+          "candidate_routes": [
+            {
+              "evidence": [
+                {
+                  "confidence": 1,
+                  "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+                  "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+                  "taxonomy": "INDUSTRY",
+                  "taxonomy_code": "884264.TI",
+                  "taxonomy_name": "通信终端及配件",
+                  "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+                },
+                {
+                  "canonical_id": "AI_COMPUTE_INFRASTRUCTURE",
+                  "confidence": 1,
+                  "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+                  "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+                  "taxonomy": "INDUSTRY",
+                  "taxonomy_code": "884264.TI",
+                  "taxonomy_name": "通信终端及配件",
+                  "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+                }
+              ],
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            }
+          ],
+          "confirms_catalyst": false,
+          "confirms_theme_stage": false,
+          "gap_category": null,
+          "matches": [
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AGRICULTURE_FOOD_SECURITY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885706.TI",
+              "taxonomy_name": "农机",
+              "theme_id": "AGRICULTURE_FOOD_SECURITY"
+            },
+            {
+              "canonical_id": "AGRICULTURE_FOOD_SECURITY",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AGRICULTURE_FOOD_SECURITY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885706.TI",
+              "taxonomy_name": "农机",
+              "theme_id": "AGRICULTURE_FOOD_SECURITY"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AGRICULTURE_FOOD_SECURITY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885842.TI",
+              "taxonomy_name": "数字乡村",
+              "theme_id": "AGRICULTURE_FOOD_SECURITY"
+            },
+            {
+              "canonical_id": "AGRICULTURE_FOOD_SECURITY",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AGRICULTURE_FOOD_SECURITY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885842.TI",
+              "taxonomy_name": "数字乡村",
+              "theme_id": "AGRICULTURE_FOOD_SECURITY"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885728.TI",
+              "taxonomy_name": "人工智能",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "canonical_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885728.TI",
+              "taxonomy_name": "人工智能",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885866.TI",
+              "taxonomy_name": "数字货币",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "canonical_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885866.TI",
+              "taxonomy_name": "数字货币",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886099.TI",
+              "taxonomy_name": "AI智能体",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "canonical_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886099.TI",
+              "taxonomy_name": "AI智能体",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886100.TI",
+              "taxonomy_name": "DeepSeek概念",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "canonical_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886100.TI",
+              "taxonomy_name": "DeepSeek概念",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886108.TI",
+              "taxonomy_name": "AI应用",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "canonical_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886108.TI",
+              "taxonomy_name": "AI应用",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "881129.TI",
+              "taxonomy_name": "通信设备",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            },
+            {
+              "canonical_id": "AI_COMPUTE_INFRASTRUCTURE",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "881129.TI",
+              "taxonomy_name": "通信设备",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "884264.TI",
+              "taxonomy_name": "通信终端及配件",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            },
+            {
+              "canonical_id": "AI_COMPUTE_INFRASTRUCTURE",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "884264.TI",
+              "taxonomy_name": "通信终端及配件",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885728.TI",
+              "taxonomy_name": "人工智能",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            },
+            {
+              "canonical_id": "AI_COMPUTE_INFRASTRUCTURE",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885728.TI",
+              "taxonomy_name": "人工智能",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885957.TI",
+              "taxonomy_name": "东数西算(算力)",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            },
+            {
+              "canonical_id": "AI_COMPUTE_INFRASTRUCTURE",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885957.TI",
+              "taxonomy_name": "东数西算(算力)",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886048.TI",
+              "taxonomy_name": "英伟达概念",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            },
+            {
+              "canonical_id": "AI_COMPUTE_INFRASTRUCTURE",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886048.TI",
+              "taxonomy_name": "英伟达概念",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_ELECTRONICS:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885454.TI",
+              "taxonomy_name": "智能穿戴",
+              "theme_id": "CONSUMER_ELECTRONICS"
+            },
+            {
+              "canonical_id": "CONSUMER_ELECTRONICS",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_ELECTRONICS:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885454.TI",
+              "taxonomy_name": "智能穿戴",
+              "theme_id": "CONSUMER_ELECTRONICS"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_ELECTRONICS:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885785.TI",
+              "taxonomy_name": "小米概念",
+              "theme_id": "CONSUMER_ELECTRONICS"
+            },
+            {
+              "canonical_id": "CONSUMER_ELECTRONICS",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_ELECTRONICS:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885785.TI",
+              "taxonomy_name": "小米概念",
+              "theme_id": "CONSUMER_ELECTRONICS"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_ELECTRONICS:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885800.TI",
+              "taxonomy_name": "消费电子概念",
+              "theme_id": "CONSUMER_ELECTRONICS"
+            },
+            {
+              "canonical_id": "CONSUMER_ELECTRONICS",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_ELECTRONICS:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885800.TI",
+              "taxonomy_name": "消费电子概念",
+              "theme_id": "CONSUMER_ELECTRONICS"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_ELECTRONICS:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886085.TI",
+              "taxonomy_name": "AI眼镜",
+              "theme_id": "CONSUMER_ELECTRONICS"
+            },
+            {
+              "canonical_id": "CONSUMER_ELECTRONICS",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_ELECTRONICS:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886085.TI",
+              "taxonomy_name": "AI眼镜",
+              "theme_id": "CONSUMER_ELECTRONICS"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_SERVICES:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885642.TI",
+              "taxonomy_name": "跨境电商",
+              "theme_id": "CONSUMER_SERVICES"
+            },
+            {
+              "canonical_id": "CONSUMER_SERVICES",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_SERVICES:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885642.TI",
+              "taxonomy_name": "跨境电商",
+              "theme_id": "CONSUMER_SERVICES"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885572.TI",
+              "taxonomy_name": "水利",
+              "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND"
+            },
+            {
+              "canonical_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885572.TI",
+              "taxonomy_name": "水利",
+              "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:INNOVATIVE_MEDICINE_HEALTHCARE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885402.TI",
+              "taxonomy_name": "智能医疗",
+              "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE"
+            },
+            {
+              "canonical_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:INNOVATIVE_MEDICINE_HEALTHCARE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885402.TI",
+              "taxonomy_name": "智能医疗",
+              "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:NATIONAL_DEFENSE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885574.TI",
+              "taxonomy_name": "卫星导航",
+              "theme_id": "NATIONAL_DEFENSE"
+            },
+            {
+              "canonical_id": "NATIONAL_DEFENSE",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:NATIONAL_DEFENSE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885574.TI",
+              "taxonomy_name": "卫星导航",
+              "theme_id": "NATIONAL_DEFENSE"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:NATIONAL_DEFENSE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886078.TI",
+              "taxonomy_name": "商业航天",
+              "theme_id": "NATIONAL_DEFENSE"
+            },
+            {
+              "canonical_id": "NATIONAL_DEFENSE",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:NATIONAL_DEFENSE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886078.TI",
+              "taxonomy_name": "商业航天",
+              "theme_id": "NATIONAL_DEFENSE"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885311.TI",
+              "taxonomy_name": "智能电网",
+              "theme_id": "POWER_EQUIPMENT_NEW_ENERGY"
+            },
+            {
+              "canonical_id": "POWER_EQUIPMENT_NEW_ENERGY",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885311.TI",
+              "taxonomy_name": "智能电网",
+              "theme_id": "POWER_EQUIPMENT_NEW_ENERGY"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885461.TI",
+              "taxonomy_name": "充电桩",
+              "theme_id": "POWER_EQUIPMENT_NEW_ENERGY"
+            },
+            {
+              "canonical_id": "POWER_EQUIPMENT_NEW_ENERGY",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885461.TI",
+              "taxonomy_name": "充电桩",
+              "theme_id": "POWER_EQUIPMENT_NEW_ENERGY"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885819.TI",
+              "taxonomy_name": "电力物联网",
+              "theme_id": "POWER_EQUIPMENT_NEW_ENERGY"
+            },
+            {
+              "canonical_id": "POWER_EQUIPMENT_NEW_ENERGY",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885819.TI",
+              "taxonomy_name": "电力物联网",
+              "theme_id": "POWER_EQUIPMENT_NEW_ENERGY"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885921.TI",
+              "taxonomy_name": "储能",
+              "theme_id": "POWER_EQUIPMENT_NEW_ENERGY"
+            },
+            {
+              "canonical_id": "POWER_EQUIPMENT_NEW_ENERGY",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885921.TI",
+              "taxonomy_name": "储能",
+              "theme_id": "POWER_EQUIPMENT_NEW_ENERGY"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885517.TI",
+              "taxonomy_name": "机器人概念",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "canonical_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885517.TI",
+              "taxonomy_name": "机器人概念",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885783.TI",
+              "taxonomy_name": "工业互联网",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "canonical_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885783.TI",
+              "taxonomy_name": "工业互联网",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886002.TI",
+              "taxonomy_name": "机器视觉",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "canonical_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886002.TI",
+              "taxonomy_name": "机器视觉",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886069.TI",
+              "taxonomy_name": "人形机器人",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "canonical_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886069.TI",
+              "taxonomy_name": "人形机器人",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885756.TI",
+              "taxonomy_name": "芯片概念",
+              "theme_id": "SEMICONDUCTOR_LOCALIZATION"
+            },
+            {
+              "canonical_id": "SEMICONDUCTOR_LOCALIZATION",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885756.TI",
+              "taxonomy_name": "芯片概念",
+              "theme_id": "SEMICONDUCTOR_LOCALIZATION"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885843.TI",
+              "taxonomy_name": "华为海思概念股",
+              "theme_id": "SEMICONDUCTOR_LOCALIZATION"
+            },
+            {
+              "canonical_id": "SEMICONDUCTOR_LOCALIZATION",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885843.TI",
+              "taxonomy_name": "华为海思概念股",
+              "theme_id": "SEMICONDUCTOR_LOCALIZATION"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885925.TI",
+              "taxonomy_name": "MCU芯片",
+              "theme_id": "SEMICONDUCTOR_LOCALIZATION"
+            },
+            {
+              "canonical_id": "SEMICONDUCTOR_LOCALIZATION",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885925.TI",
+              "taxonomy_name": "MCU芯片",
+              "theme_id": "SEMICONDUCTOR_LOCALIZATION"
+            }
+          ],
+          "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+          "reason_code": "OK",
+          "requires_theme_selection": false,
+          "research_resolved": true,
+          "resolved": true,
+          "schema_version": "emotion-theme-binding/1.1.0",
+          "selection_basis": "UNIQUE_LEAF_INDUSTRY",
+          "source": "FROZEN_STRATEGY_REGISTRY_AND_SYMBOL_MEMBERSHIP",
+          "source_hash": "679bbda4d7e224427377488d19f06af6eb2638459a850d4f4a24b36369ce000c",
+          "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+        },
+        "execution_permission": "REQUIRES_A3_A4_CONFIRMATION",
+        "factor_coverage": {
+          "available_factors": [
+            "agent_1_quality",
+            "breadth",
+            "catalyst_freshness",
+            "index_chain_resonance",
+            "leader_structure",
+            "profit_effect",
+            "tier_structure",
+            "turnover_share",
+            "weekly_confirmation"
+          ],
+          "available_weight": 0.88,
+          "missing_factors": [
+            "capital_flow"
+          ],
+          "percent": 88,
+          "ratio": 0.88,
+          "total_weight": 1
+        },
+        "gate_results": {
+          "BEHAVIOR_TYPE_RESOLVED": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_BEHAVIOR_TYPE_RESOLVED",
+            "route_permission": [
+              "LEADER_INTRADAY"
+            ],
+            "threshold": [
+              "EMOTION",
+              "TREND"
+            ],
+            "value": "EMOTION"
+          },
+          "FREE_FLOAT_CAP": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_FREE_FLOAT_GATE",
+            "passed": null,
+            "reason_code": "A2_FREE_FLOAT_UNAVAILABLE",
+            "threshold": 3000000000,
+            "value": null
+          },
+          "IDENTIFIABILITY_MIN": {
+            "applied": false,
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "RISK_AND_ORDERING_ONLY_NOT_A_DETERMINISTIC_REVIEW_GATE",
+            "passed": true,
+            "reason_code": "A2_IDENTIFIABILITY_MEETS_MINIMUM_REVIEW_ONLY",
+            "threshold": 60,
+            "value": 73.0172
+          },
+          "LEADER_MIN_CRITERIA": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_LEADER_CRITERIA_GATE",
+            "passed": null,
+            "reason_code": "A2_LEADER_CRITERIA_UNAVAILABLE",
+            "threshold": 4,
+            "value": null
+          },
+          "LOCAL_DATA_SUFFICIENCY": {
+            "accepted_states": [
+              "SUFFICIENT",
+              "DEGRADED"
+            ],
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_LOCAL_DATA_DEGRADED",
+            "threshold": [
+              "SUFFICIENT",
+              "DEGRADED"
+            ],
+            "value": "DEGRADED"
+          },
+          "LOCAL_ELIGIBILITY": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "eligible_for_review": true,
+            "passed": true,
+            "reason_code": "A2_LOCAL_ELIGIBLE_FOR_REVIEW",
+            "threshold": "REVIEW_CANDIDATE",
+            "value": "REVIEW_CANDIDATE"
+          },
+          "MAX_LEADERS_PER_THEME": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_MAX_LEADERS_GATE",
+            "passed": null,
+            "reason_code": "A2_MAX_LEADERS_UNAVAILABLE",
+            "threshold": 2,
+            "value": null
+          },
+          "ROUTE_REQUIREMENT": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "eligible_routes": [
+              "MARKET_CORE"
+            ],
+            "passed": true,
+            "reason_code": "A2_ROUTE_REQUIREMENT_SATISFIED",
+            "threshold": 1,
+            "value": 1
+          },
+          "SENT_TO_LLM": {
+            "applicable": true,
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_SENT_TO_LLM",
+            "threshold": true,
+            "value": true
+          },
+          "THEME_SCORE_MIN": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "OBSERVATION_ONLY_NOT_A_DETERMINISTIC_GATE",
+            "passed": null,
+            "reason_code": "A2_THEME_SCORE_UNAVAILABLE",
+            "threshold": 60,
+            "value": null
+          },
+          "TIER_STRUCTURE": {
+            "applied": false,
+            "availability_state": "OBSERVED_VALUE",
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "OPTIONAL_FACTOR_NOT_A_MARKET_CORE_VETO",
+            "passed": null,
+            "reason_code": "A2_TIER_STRUCTURE_OBSERVATION_ONLY",
+            "threshold": null,
+            "value": 62.5
+          }
+        },
+        "independent_strategy_review": false,
+        "index_chain_resonance": {
+          "available": true,
+          "reason_code": "OK",
+          "score": 37.6155,
+          "source": "A1_BOUND_TAXONOMY_AGGREGATE",
+          "source_refs": [],
+          "taxonomy_code": "885728.TI"
+        },
+        "industry_chain_node": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+        "leader_structure": {
+          "availability_state": "OBSERVED_VALUE",
+          "available": true,
+          "continuation_confirmed": false,
+          "first_board_observed": true,
+          "reason_code": "OK",
+          "role": "EMOTION_LEADER",
+          "score": 91.6689,
+          "sector_ladder_groups": [
+            "CONCEPT:885311.TI",
+            "CONCEPT:885312.TI",
+            "CONCEPT:885333.TI",
+            "CONCEPT:885338.TI",
+            "CONCEPT:885378.TI",
+            "CONCEPT:885402.TI",
+            "CONCEPT:885454.TI",
+            "CONCEPT:885461.TI",
+            "CONCEPT:885478.TI",
+            "CONCEPT:885517.TI",
+            "CONCEPT:885520.TI",
+            "CONCEPT:885556.TI",
+            "CONCEPT:885572.TI",
+            "CONCEPT:885574.TI",
+            "CONCEPT:885642.TI",
+            "CONCEPT:885662.TI",
+            "CONCEPT:885728.TI",
+            "CONCEPT:885736.TI",
+            "CONCEPT:885756.TI",
+            "CONCEPT:885757.TI",
+            "CONCEPT:885783.TI",
+            "CONCEPT:885800.TI",
+            "CONCEPT:885819.TI",
+            "CONCEPT:885840.TI",
+            "CONCEPT:885842.TI",
+            "CONCEPT:885866.TI",
+            "CONCEPT:885921.TI",
+            "CONCEPT:885957.TI",
+            "CONCEPT:886061.TI",
+            "CONCEPT:886069.TI",
+            "CONCEPT:886078.TI",
+            "CONCEPT:886099.TI",
+            "CONCEPT:886100.TI",
+            "CONCEPT:886108.TI"
+          ],
+          "sector_ladder_support": true,
+          "source": "LOCAL_THEME_CROSS_SECTION",
+          "source_refs": [],
+          "tier_confirmation_mode": "DIRECT_STOCK_LADDER"
+        },
+        "lineage_missing_fields": [],
+        "lineage_schema_version": "stage-lineage/1.0.0",
+        "lineage_source_stage": "A1_UPSTREAM",
+        "lineage_status": "COMPLETE",
+        "market_role": "EMOTION_LEADER",
+        "missing_optional_factors": [
+          "capital_flow"
+        ],
+        "monthly_a1_member": true,
+        "name": "移远通信",
+        "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+        "primary_theme": "AI_COMPUTE_INFRASTRUCTURE",
+        "reason_codes": [
+          "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION"
+        ],
+        "research_observation_scope": null,
+        "research_only_reason": null,
+        "research_route_qualifications": {
+          "LEADER_INTRADAY": {
+            "eligible": true,
+            "execution_authority": false
+          },
+          "MA520_SWING": {
+            "eligible": false,
+            "execution_authority": false
+          },
+          "TREND_MA5": {
+            "eligible": false,
+            "execution_authority": false
+          }
+        },
+        "risk_flags": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "risk_reasons": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "role": "EMOTION_LEADER",
+        "rotation_direction_id": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+        "rotation_reserve_boards": [],
+        "rotation_reserve_eligible": false,
+        "rotation_reserve_scope": null,
+        "rotation_strength_source": "EASTMONEY_HOT100_EMOTION_CHANNEL",
+        "route": "MARKET_CORE",
+        "route_permission": [
+          "LEADER_INTRADAY"
+        ],
+        "sector_index_code": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "sector_index_name": "机器人概念",
+        "selected_board": {
+          "board_code": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "board_name": "机器人概念",
+          "fund_flow_history_evidence": null,
+          "is_child_board": false,
+          "main_net_inflow_3d_mean_cny": null,
+          "main_net_inflow_cny": 6502687472,
+          "membership_basis": "VENDOR_NATIVE_BOARD",
+          "membership_components": [],
+          "membership_reference_hash": "4a593b595446ff3b7feb25fb580ac672ae457fda3b06e1191658a49a04b1faf3",
+          "membership_source_board_id": "885517.TI",
+          "membership_source_id": "HITHINK_THS_API",
+          "parent_theme_id": null,
+          "primary_rank": 2,
+          "rotation_reserve_rank": null,
+          "rotation_reserve_scope": null,
+          "selected_for_rotation": true,
+          "strategy_theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "strength": 79.2763,
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "theme_level": "PRIMARY"
+        },
+        "selected_board_binding": "STABLE_FULL_MARKET_SYMBOL_MEMBERSHIP",
+        "selected_board_theme_match": true,
+        "selection_reasons": [
+          "A2_EMOTION_LADDER_LEADER_CONFIRMED"
+        ],
+        "selection_route": "MARKET_CORE",
+        "stock_behavior_type": "EMOTION",
+        "strong_trend_observation": false,
+        "supply_chain_role": {
+          "available": false,
+          "reason_code": "NOT_REQUIRED_FOR_MARKET_CORE",
+          "score": null,
+          "source": "A2_BOTTLENECK_CONTEXT"
+        },
+        "symbol": "603236.SH",
+        "team_score_evidence": {
+          "applied_penalty_codes": [],
+          "base_score": "51.94469772727272727272727273",
+          "focus_policy": "ORIGINAL_THRESHOLD_AND_TOP5_EXCEPTION",
+          "original_penalty_rules": {
+            "high_crowding": [
+              -20,
+              -5
+            ],
+            "insufficient_capacity": [
+              -15,
+              -5
+            ],
+            "laggard_spread_core_weak": [
+              -20,
+              -5
+            ],
+            "news_hot_capital_out": [
+              -15,
+              -5
+            ],
+            "single_limit_up_driven": [
+              -15,
+              -5
+            ],
+            "volume_up_return_down": [
+              -20,
+              -5
+            ]
+          },
+          "penalty_mode": "MIDPOINT_FIXED_V1",
+          "penalty_points": "0",
+          "penalty_rules_sha256": "b7a0b23de0eb17a7abfdc64b326c91b63ef941e5da0d3dd18263a6f4ddd1380b",
+          "raw_penalty_points": "0",
+          "score_snapshot_sha256": "3b1336cc7929ab1b364eeb6638eba26ef6a26be848a50aa2a0f427bffbb015ba",
+          "status": "SCORE_COMPLETE",
+          "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+          "theme_score": "51.94469772727272727272727273",
+          "unresolved_penalty_codes": []
+        },
+        "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+        "theme_rotation_rank": null,
+        "theme_rotation_score": null,
+        "theme_score": "51.94469772727272727272727273",
+        "tier_structure": {
+          "availability_state": "OBSERVED_VALUE",
+          "available": true,
+          "continuation_confirmed": false,
+          "event_source": "HITHINK_LIMIT_UP_POOL",
+          "first_board_observed": true,
+          "ladder_height": 1,
+          "reason_code": "OK",
+          "score": 62.5,
+          "sector_ladder_groups": [
+            "CONCEPT:885311.TI",
+            "CONCEPT:885312.TI",
+            "CONCEPT:885333.TI",
+            "CONCEPT:885338.TI",
+            "CONCEPT:885378.TI",
+            "CONCEPT:885402.TI",
+            "CONCEPT:885454.TI",
+            "CONCEPT:885461.TI",
+            "CONCEPT:885478.TI",
+            "CONCEPT:885517.TI",
+            "CONCEPT:885520.TI",
+            "CONCEPT:885556.TI",
+            "CONCEPT:885572.TI",
+            "CONCEPT:885574.TI",
+            "CONCEPT:885642.TI",
+            "CONCEPT:885662.TI",
+            "CONCEPT:885728.TI",
+            "CONCEPT:885736.TI",
+            "CONCEPT:885756.TI",
+            "CONCEPT:885757.TI",
+            "CONCEPT:885783.TI",
+            "CONCEPT:885800.TI",
+            "CONCEPT:885819.TI",
+            "CONCEPT:885840.TI",
+            "CONCEPT:885842.TI",
+            "CONCEPT:885866.TI",
+            "CONCEPT:885921.TI",
+            "CONCEPT:885957.TI",
+            "CONCEPT:886061.TI",
+            "CONCEPT:886069.TI",
+            "CONCEPT:886078.TI",
+            "CONCEPT:886099.TI",
+            "CONCEPT:886100.TI",
+            "CONCEPT:886108.TI"
+          ],
+          "sector_ladder_support": true,
+          "source": "HITHINK_LIMIT_UP_POOL_FIRST_BOARD",
+          "source_refs": [
+            "HITHINK_LIMIT_UP_POOL"
+          ],
+          "tier": "T1",
+          "trade_date": "2026-10-20"
+        },
+        "top_rotation_theme": false,
+        "trend_core_eligible": false,
+        "trend_pre_rotation_eligible": false,
+        "upstream_candidate_id": "a1-local:603236.SH",
+        "weak_evidence_fields": [
+          "capital_flow",
+          "supply_chain_role",
+          "crowding"
+        ]
+      },
+      {
+        "A2_REVIEW_DEGRADED": false,
+        "ROTATION_GATE_EMPTY": false,
+        "a1_formal_member": true,
+        "a2_pool_channel": "TREND",
+        "a2_role": "TREND_CORE",
+        "a2_route": "MARKET_CORE",
+        "all_failed_gates": [],
+        "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+        "capital_flow": {
+          "available": false,
+          "reason_code": "A2_CAPITAL_FLOW_UNAVAILABLE",
+          "score": null,
+          "source": "CAPITAL_FLOW_SNAPSHOT",
+          "source_refs": []
+        },
+        "capital_flow_available": false,
+        "channel_source_health": {
+          "emotion": {
+            "absence_is_not_popularity_evidence": true,
+            "as_of": "2026-10-20T15:10:00.924893+08:00",
+            "available": true,
+            "content_hash": "2269382b9f0941b993de51791c108180dc4103856c68508dc657fe7b9a1674c8",
+            "declared_available": true,
+            "reason_code": "OK",
+            "trade_date": "2026-10-20",
+            "validation_state": "COMPLETE",
+            "verified_record_count": 100
+          },
+          "trend": {
+            "available": true,
+            "reason_code": "OK",
+            "trade_date": "2026-10-20"
+          }
+        },
+        "company_name": "鼎捷数智",
+        "crowding": {
+          "available": false,
+          "reason_code": "A2_CROWDING_OPTIONAL_UNAVAILABLE",
+          "score": null,
+          "source": "DETERMINISTIC_FROZEN_FACTS",
+          "upstream_reason_code": "PARTIAL_PROXY_ONLY"
+        },
+        "daily_verified_increment": {},
+        "decision_as_of": "2026-10-20T23:04:15+08:00",
+        "decision_id": "dd92eef680c0dca29bdf1b25",
+        "deterministic_data_sufficiency_state": "DEGRADED",
+        "eastmoney_hot100": {},
+        "emotion_core_eligible": false,
+        "emotion_theme_binding": null,
+        "execution_permission": "REQUIRES_A3_A4_CONFIRMATION",
+        "factor_coverage": {
+          "available_factors": [
+            "agent_1_quality",
+            "breadth",
+            "catalyst_freshness",
+            "index_chain_resonance",
+            "leader_structure",
+            "profit_effect",
+            "tier_structure",
+            "turnover_share",
+            "weekly_confirmation"
+          ],
+          "available_weight": 0.88,
+          "missing_factors": [
+            "capital_flow"
+          ],
+          "percent": 88,
+          "ratio": 0.88,
+          "total_weight": 1
+        },
+        "gate_results": {
+          "BEHAVIOR_TYPE_RESOLVED": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_BEHAVIOR_TYPE_RESOLVED",
+            "route_permission": [
+              "TREND_MA5",
+              "MA520_SWING"
+            ],
+            "threshold": [
+              "EMOTION",
+              "TREND"
+            ],
+            "value": "TREND"
+          },
+          "FREE_FLOAT_CAP": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_FREE_FLOAT_GATE",
+            "passed": null,
+            "reason_code": "A2_FREE_FLOAT_UNAVAILABLE",
+            "threshold": 3000000000,
+            "value": null
+          },
+          "IDENTIFIABILITY_MIN": {
+            "applied": false,
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "RISK_AND_ORDERING_ONLY_NOT_A_DETERMINISTIC_REVIEW_GATE",
+            "passed": true,
+            "reason_code": "A2_IDENTIFIABILITY_MEETS_MINIMUM_REVIEW_ONLY",
+            "threshold": 60,
+            "value": 91.1778
+          },
+          "LEADER_MIN_CRITERIA": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_LEADER_CRITERIA_GATE",
+            "passed": null,
+            "reason_code": "A2_LEADER_CRITERIA_UNAVAILABLE",
+            "threshold": 4,
+            "value": null
+          },
+          "LOCAL_DATA_SUFFICIENCY": {
+            "accepted_states": [
+              "SUFFICIENT",
+              "DEGRADED"
+            ],
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_LOCAL_DATA_DEGRADED",
+            "threshold": [
+              "SUFFICIENT",
+              "DEGRADED"
+            ],
+            "value": "DEGRADED"
+          },
+          "LOCAL_ELIGIBILITY": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "eligible_for_review": true,
+            "passed": true,
+            "reason_code": "A2_LOCAL_ELIGIBLE_FOR_REVIEW",
+            "threshold": "REVIEW_CANDIDATE",
+            "value": "REVIEW_CANDIDATE"
+          },
+          "MAX_LEADERS_PER_THEME": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_MAX_LEADERS_GATE",
+            "passed": null,
+            "reason_code": "A2_MAX_LEADERS_UNAVAILABLE",
+            "threshold": 2,
+            "value": null
+          },
+          "ROUTE_REQUIREMENT": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "eligible_routes": [
+              "MARKET_CORE"
+            ],
+            "passed": true,
+            "reason_code": "A2_ROUTE_REQUIREMENT_SATISFIED",
+            "threshold": 1,
+            "value": 1
+          },
+          "SENT_TO_LLM": {
+            "applicable": true,
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_SENT_TO_LLM",
+            "threshold": true,
+            "value": true
+          },
+          "THEME_SCORE_MIN": {
+            "applied": false,
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "OBSERVATION_ONLY_NOT_A_DETERMINISTIC_GATE",
+            "passed": true,
+            "reason_code": "A2_THEME_SCORE_OBSERVED_NOT_APPLIED",
+            "threshold": 60,
+            "value": 78.9474
+          },
+          "TIER_STRUCTURE": {
+            "applied": false,
+            "availability_state": "OBSERVED_ABSENT",
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "OPTIONAL_FACTOR_NOT_A_MARKET_CORE_VETO",
+            "passed": null,
+            "reason_code": "A2_TIER_STRUCTURE_OBSERVATION_ONLY",
+            "threshold": null,
+            "value": 0
+          }
+        },
+        "independent_strategy_review": true,
+        "index_chain_resonance": {
+          "available": true,
+          "reason_code": "OK",
+          "score": 53.8711,
+          "source": "A1_BOUND_TAXONOMY_AGGREGATE",
+          "source_refs": [],
+          "taxonomy_code": "881272.TI"
+        },
+        "industry_chain_node": "N_AI_APP",
+        "leader_structure": {
+          "availability_state": "OBSERVED_VALUE",
+          "available": true,
+          "continuation_confirmed": false,
+          "first_board_observed": false,
+          "reason_code": "OK",
+          "role": "TREND_LEADER",
+          "score": 88.2882,
+          "sector_ladder_groups": [
+            "CONCEPT:885338.TI",
+            "CONCEPT:885611.TI",
+            "CONCEPT:885694.TI",
+            "CONCEPT:885728.TI",
+            "CONCEPT:885756.TI",
+            "CONCEPT:885783.TI",
+            "CONCEPT:885786.TI",
+            "CONCEPT:885797.TI",
+            "CONCEPT:885806.TI",
+            "CONCEPT:885890.TI",
+            "CONCEPT:885939.TI",
+            "CONCEPT:885942.TI",
+            "CONCEPT:885976.TI",
+            "CONCEPT:885980.TI",
+            "CONCEPT:886019.TI",
+            "CONCEPT:886031.TI",
+            "CONCEPT:886041.TI",
+            "CONCEPT:886057.TI",
+            "CONCEPT:886062.TI",
+            "CONCEPT:886099.TI",
+            "CONCEPT:886100.TI",
+            "CONCEPT:886108.TI",
+            "INDUSTRY:881272.TI",
+            "INDUSTRY:884296.TI"
+          ],
+          "sector_ladder_support": true,
+          "source": "LOCAL_THEME_CROSS_SECTION",
+          "source_refs": [],
+          "tier_confirmation_mode": "SECTOR_LADDER_RELATIVE_LIQUIDITY"
+        },
+        "lineage_missing_fields": [],
+        "lineage_schema_version": "stage-lineage/1.0.0",
+        "lineage_source_stage": "A1_UPSTREAM",
+        "lineage_status": "COMPLETE",
+        "market_role": "TREND_CORE",
+        "missing_optional_factors": [
+          "capital_flow"
+        ],
+        "monthly_a1_member": true,
+        "name": "鼎捷数智",
+        "node_id": "N_AI_APP",
+        "primary_theme": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "reason_codes": [
+          "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION"
+        ],
+        "research_observation_scope": null,
+        "research_only_reason": null,
+        "research_route_qualifications": {
+          "LEADER_INTRADAY": {
+            "eligible": false,
+            "execution_authority": false
+          },
+          "MA520_SWING": {
+            "eligible": true,
+            "execution_authority": false
+          },
+          "TREND_MA5": {
+            "eligible": true,
+            "execution_authority": false
+          }
+        },
+        "risk_flags": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "risk_reasons": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "role": "TREND_CORE",
+        "rotation_direction_id": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "rotation_reserve_boards": [],
+        "rotation_reserve_eligible": false,
+        "rotation_reserve_scope": null,
+        "rotation_strength_source": "LIANGJIAN_FREE_ROTATION_STRENGTH",
+        "route": "MARKET_CORE",
+        "route_permission": [
+          "TREND_MA5",
+          "MA520_SWING"
+        ],
+        "sector_index_code": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "sector_index_name": "AI应用",
+        "selected_board": {
+          "board_code": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "board_name": "AI应用",
+          "fund_flow_history_evidence": null,
+          "is_child_board": false,
+          "main_net_inflow_3d_mean_cny": null,
+          "main_net_inflow_cny": 1167186874,
+          "membership_basis": "VENDOR_NATIVE_BOARD",
+          "membership_components": [],
+          "membership_reference_hash": "578207cb80f4781622ff8cae4a706fd464562454f4b950b3c30d25db3dcb1fb0",
+          "membership_source_board_id": "886108.TI",
+          "membership_source_id": "HITHINK_THS_API",
+          "parent_theme_id": null,
+          "primary_rank": 3,
+          "rotation_reserve_rank": null,
+          "rotation_reserve_scope": null,
+          "selected_for_rotation": true,
+          "strategy_theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "strength": 78.9474,
+          "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "theme_level": "PRIMARY"
+        },
+        "selected_board_binding": "STABLE_FULL_MARKET_SYMBOL_MEMBERSHIP",
+        "selected_board_theme_match": true,
+        "selection_reasons": [
+          "A2_EMOTION_LADDER_LEADER_CONFIRMED"
+        ],
+        "selection_route": "MARKET_CORE",
+        "stock_behavior_type": "TREND",
+        "strong_trend_observation": false,
+        "supply_chain_role": {
+          "available": false,
+          "reason_code": "NOT_REQUIRED_FOR_MARKET_CORE",
+          "score": null,
+          "source": "A2_BOTTLENECK_CONTEXT"
+        },
+        "symbol": "300378.SZ",
+        "team_score_evidence": {
+          "applied_penalty_codes": [],
+          "base_score": "51.20859962121212121212121212",
+          "focus_policy": "ORIGINAL_THRESHOLD_AND_TOP5_EXCEPTION",
+          "original_penalty_rules": {
+            "high_crowding": [
+              -20,
+              -5
+            ],
+            "insufficient_capacity": [
+              -15,
+              -5
+            ],
+            "laggard_spread_core_weak": [
+              -20,
+              -5
+            ],
+            "news_hot_capital_out": [
+              -15,
+              -5
+            ],
+            "single_limit_up_driven": [
+              -15,
+              -5
+            ],
+            "volume_up_return_down": [
+              -20,
+              -5
+            ]
+          },
+          "penalty_mode": "MIDPOINT_FIXED_V1",
+          "penalty_points": "0",
+          "penalty_rules_sha256": "b7a0b23de0eb17a7abfdc64b326c91b63ef941e5da0d3dd18263a6f4ddd1380b",
+          "raw_penalty_points": "0",
+          "score_snapshot_sha256": "3b1336cc7929ab1b364eeb6638eba26ef6a26be848a50aa2a0f427bffbb015ba",
+          "status": "SCORE_COMPLETE",
+          "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "theme_score": "51.20859962121212121212121212",
+          "unresolved_penalty_codes": []
+        },
+        "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "theme_rotation_rank": 3,
+        "theme_rotation_score": 78.9474,
+        "theme_score": "51.20859962121212121212121212",
+        "tier_structure": {
+          "availability_state": "OBSERVED_ABSENT",
+          "available": true,
+          "ladder_height": 0,
+          "reason_code": "OK",
+          "score": 0,
+          "sector_ladder_groups": [
+            "CONCEPT:885338.TI",
+            "CONCEPT:885611.TI",
+            "CONCEPT:885694.TI",
+            "CONCEPT:885728.TI",
+            "CONCEPT:885756.TI",
+            "CONCEPT:885783.TI",
+            "CONCEPT:885786.TI",
+            "CONCEPT:885797.TI",
+            "CONCEPT:885806.TI",
+            "CONCEPT:885890.TI",
+            "CONCEPT:885939.TI",
+            "CONCEPT:885942.TI",
+            "CONCEPT:885976.TI",
+            "CONCEPT:885980.TI",
+            "CONCEPT:886019.TI",
+            "CONCEPT:886031.TI",
+            "CONCEPT:886041.TI",
+            "CONCEPT:886057.TI",
+            "CONCEPT:886062.TI",
+            "CONCEPT:886099.TI",
+            "CONCEPT:886100.TI",
+            "CONCEPT:886108.TI",
+            "INDUSTRY:881272.TI",
+            "INDUSTRY:884296.TI"
+          ],
+          "sector_ladder_support": true,
+          "source": "HITHINK_LIMIT_UP_LADDER",
+          "source_refs": [],
+          "tier": "NONE"
+        },
+        "top_rotation_theme": true,
+        "trend_core_eligible": true,
+        "trend_pre_rotation_eligible": true,
+        "upstream_candidate_id": "a1-local:300378.SZ",
+        "weak_evidence_fields": [
+          "capital_flow",
+          "supply_chain_role",
+          "crowding"
+        ]
+      },
+      {
+        "A2_REVIEW_DEGRADED": false,
+        "ROTATION_GATE_EMPTY": false,
+        "a1_formal_member": true,
+        "a2_pool_channel": "TREND",
+        "a2_role": "TREND_CORE",
+        "a2_route": "MARKET_CORE",
+        "all_failed_gates": [],
+        "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+        "capital_flow": {
+          "available": false,
+          "reason_code": "A2_CAPITAL_FLOW_UNAVAILABLE",
+          "score": null,
+          "source": "CAPITAL_FLOW_SNAPSHOT",
+          "source_refs": []
+        },
+        "capital_flow_available": false,
+        "channel_source_health": {
+          "emotion": {
+            "absence_is_not_popularity_evidence": true,
+            "as_of": "2026-10-20T15:10:00.924893+08:00",
+            "available": true,
+            "content_hash": "2269382b9f0941b993de51791c108180dc4103856c68508dc657fe7b9a1674c8",
+            "declared_available": true,
+            "reason_code": "OK",
+            "trade_date": "2026-10-20",
+            "validation_state": "COMPLETE",
+            "verified_record_count": 100
+          },
+          "trend": {
+            "available": true,
+            "reason_code": "OK",
+            "trade_date": "2026-10-20"
+          }
+        },
+        "company_name": "传音控股",
+        "crowding": {
+          "available": false,
+          "reason_code": "A2_CROWDING_OPTIONAL_UNAVAILABLE",
+          "score": null,
+          "source": "DETERMINISTIC_FROZEN_FACTS",
+          "upstream_reason_code": "PARTIAL_PROXY_ONLY"
+        },
+        "daily_verified_increment": {},
+        "decision_as_of": "2026-10-20T23:04:15+08:00",
+        "decision_id": "b41d706b9122595c606984fc",
+        "deterministic_data_sufficiency_state": "DEGRADED",
+        "eastmoney_hot100": {},
+        "emotion_core_eligible": false,
+        "emotion_theme_binding": null,
+        "execution_permission": "REQUIRES_A3_A4_CONFIRMATION",
+        "factor_coverage": {
+          "available_factors": [
+            "agent_1_quality",
+            "breadth",
+            "catalyst_freshness",
+            "index_chain_resonance",
+            "leader_structure",
+            "profit_effect",
+            "tier_structure",
+            "turnover_share",
+            "weekly_confirmation"
+          ],
+          "available_weight": 0.88,
+          "missing_factors": [
+            "capital_flow"
+          ],
+          "percent": 88,
+          "ratio": 0.88,
+          "total_weight": 1
+        },
+        "gate_results": {
+          "BEHAVIOR_TYPE_RESOLVED": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_BEHAVIOR_TYPE_RESOLVED",
+            "route_permission": [
+              "TREND_MA5",
+              "MA520_SWING"
+            ],
+            "threshold": [
+              "EMOTION",
+              "TREND"
+            ],
+            "value": "TREND"
+          },
+          "FREE_FLOAT_CAP": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_FREE_FLOAT_GATE",
+            "passed": null,
+            "reason_code": "A2_FREE_FLOAT_UNAVAILABLE",
+            "threshold": 3000000000,
+            "value": null
+          },
+          "IDENTIFIABILITY_MIN": {
+            "applied": false,
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "RISK_AND_ORDERING_ONLY_NOT_A_DETERMINISTIC_REVIEW_GATE",
+            "passed": true,
+            "reason_code": "A2_IDENTIFIABILITY_MEETS_MINIMUM_REVIEW_ONLY",
+            "threshold": 60,
+            "value": 70.2786
+          },
+          "LEADER_MIN_CRITERIA": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_LEADER_CRITERIA_GATE",
+            "passed": null,
+            "reason_code": "A2_LEADER_CRITERIA_UNAVAILABLE",
+            "threshold": 4,
+            "value": null
+          },
+          "LOCAL_DATA_SUFFICIENCY": {
+            "accepted_states": [
+              "SUFFICIENT",
+              "DEGRADED"
+            ],
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_LOCAL_DATA_DEGRADED",
+            "threshold": [
+              "SUFFICIENT",
+              "DEGRADED"
+            ],
+            "value": "DEGRADED"
+          },
+          "LOCAL_ELIGIBILITY": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "eligible_for_review": true,
+            "passed": true,
+            "reason_code": "A2_LOCAL_ELIGIBLE_FOR_REVIEW",
+            "threshold": "REVIEW_CANDIDATE",
+            "value": "REVIEW_CANDIDATE"
+          },
+          "MAX_LEADERS_PER_THEME": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_MAX_LEADERS_GATE",
+            "passed": null,
+            "reason_code": "A2_MAX_LEADERS_UNAVAILABLE",
+            "threshold": 2,
+            "value": null
+          },
+          "ROUTE_REQUIREMENT": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "eligible_routes": [
+              "MARKET_CORE"
+            ],
+            "passed": true,
+            "reason_code": "A2_ROUTE_REQUIREMENT_SATISFIED",
+            "threshold": 1,
+            "value": 1
+          },
+          "SENT_TO_LLM": {
+            "applicable": true,
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_SENT_TO_LLM",
+            "threshold": true,
+            "value": true
+          },
+          "THEME_SCORE_MIN": {
+            "applied": false,
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "OBSERVATION_ONLY_NOT_A_DETERMINISTIC_GATE",
+            "passed": true,
+            "reason_code": "A2_THEME_SCORE_OBSERVED_NOT_APPLIED",
+            "threshold": 60,
+            "value": 86.5132
+          },
+          "TIER_STRUCTURE": {
+            "applied": false,
+            "availability_state": "OBSERVED_ABSENT",
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "OPTIONAL_FACTOR_NOT_A_MARKET_CORE_VETO",
+            "passed": null,
+            "reason_code": "A2_TIER_STRUCTURE_OBSERVATION_ONLY",
+            "threshold": null,
+            "value": 0
+          }
+        },
+        "independent_strategy_review": false,
+        "index_chain_resonance": {
+          "available": true,
+          "reason_code": "OK",
+          "score": 37.7362,
+          "source": "A1_BOUND_TAXONOMY_AGGREGATE",
+          "source_refs": [],
+          "taxonomy_code": "884230.TI"
+        },
+        "industry_chain_node": "MTR:CONSUMER_ELECTRONICS:CORE",
+        "leader_structure": {
+          "availability_state": "OBSERVED_VALUE",
+          "available": true,
+          "continuation_confirmed": false,
+          "first_board_observed": false,
+          "reason_code": "OK",
+          "role": "TREND_LEADER",
+          "score": 91.5439,
+          "sector_ladder_groups": [
+            "CONCEPT:885338.TI",
+            "CONCEPT:885454.TI",
+            "CONCEPT:885520.TI",
+            "CONCEPT:885728.TI",
+            "CONCEPT:885800.TI",
+            "CONCEPT:885840.TI",
+            "CONCEPT:885921.TI",
+            "CONCEPT:886071.TI",
+            "CONCEPT:886099.TI",
+            "CONCEPT:886100.TI",
+            "INDUSTRY:881124.TI"
+          ],
+          "sector_ladder_support": true,
+          "source": "LOCAL_THEME_CROSS_SECTION",
+          "source_refs": [],
+          "tier_confirmation_mode": "SECTOR_LADDER_RELATIVE_LIQUIDITY"
+        },
+        "lineage_missing_fields": [],
+        "lineage_schema_version": "stage-lineage/1.0.0",
+        "lineage_source_stage": "A1_UPSTREAM",
+        "lineage_status": "COMPLETE",
+        "market_role": "TREND_CORE",
+        "missing_optional_factors": [
+          "capital_flow"
+        ],
+        "monthly_a1_member": true,
+        "name": "传音控股",
+        "node_id": "MTR:CONSUMER_ELECTRONICS:CORE",
+        "primary_theme": "CONSUMER_ELECTRONICS",
+        "reason_codes": [
+          "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION"
+        ],
+        "research_observation_scope": null,
+        "research_only_reason": null,
+        "research_route_qualifications": {
+          "LEADER_INTRADAY": {
+            "eligible": false,
+            "execution_authority": false
+          },
+          "MA520_SWING": {
+            "eligible": true,
+            "execution_authority": false
+          },
+          "TREND_MA5": {
+            "eligible": true,
+            "execution_authority": false
+          }
+        },
+        "risk_flags": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "risk_reasons": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "role": "TREND_CORE",
+        "rotation_direction_id": "SELECTED_BOARD:CONSUMER_ELECTRONICS",
+        "rotation_reserve_boards": [],
+        "rotation_reserve_eligible": false,
+        "rotation_reserve_scope": null,
+        "rotation_strength_source": "LIANGJIAN_FREE_ROTATION_STRENGTH",
+        "route": "MARKET_CORE",
+        "route_permission": [
+          "TREND_MA5",
+          "MA520_SWING"
+        ],
+        "sector_index_code": "CONSUMER_ELECTRONICS",
+        "sector_index_name": "消费电子",
+        "selected_board": {
+          "board_code": "CONSUMER_ELECTRONICS",
+          "board_name": "消费电子",
+          "fund_flow_history_evidence": null,
+          "is_child_board": false,
+          "main_net_inflow_3d_mean_cny": null,
+          "main_net_inflow_cny": 2853393471,
+          "membership_basis": "VENDOR_NATIVE_BOARD",
+          "membership_components": [],
+          "membership_reference_hash": "067aa49c1feb583a076fa3707d795650c1e36f5c8dcc39462f4654746e9d7310",
+          "membership_source_board_id": "881124.TI",
+          "membership_source_id": "HITHINK_THS_API",
+          "parent_theme_id": null,
+          "primary_rank": 1,
+          "rotation_reserve_rank": null,
+          "rotation_reserve_scope": null,
+          "selected_for_rotation": true,
+          "strategy_theme_id": "CONSUMER_ELECTRONICS",
+          "strength": 86.5132,
+          "theme_id": "CONSUMER_ELECTRONICS",
+          "theme_level": "PRIMARY"
+        },
+        "selected_board_binding": "STABLE_FULL_MARKET_SYMBOL_MEMBERSHIP",
+        "selected_board_theme_match": true,
+        "selection_reasons": [
+          "A2_EMOTION_LADDER_LEADER_CONFIRMED"
+        ],
+        "selection_route": "MARKET_CORE",
+        "stock_behavior_type": "TREND",
+        "strong_trend_observation": false,
+        "supply_chain_role": {
+          "available": false,
+          "reason_code": "NOT_REQUIRED_FOR_MARKET_CORE",
+          "score": null,
+          "source": "A2_BOTTLENECK_CONTEXT"
+        },
+        "symbol": "688036.SH",
+        "team_score_evidence": {
+          "applied_penalty_codes": [],
+          "base_score": "50.68472651515151515151515152",
+          "focus_policy": "ORIGINAL_THRESHOLD_AND_TOP5_EXCEPTION",
+          "original_penalty_rules": {
+            "high_crowding": [
+              -20,
+              -5
+            ],
+            "insufficient_capacity": [
+              -15,
+              -5
+            ],
+            "laggard_spread_core_weak": [
+              -20,
+              -5
+            ],
+            "news_hot_capital_out": [
+              -15,
+              -5
+            ],
+            "single_limit_up_driven": [
+              -15,
+              -5
+            ],
+            "volume_up_return_down": [
+              -20,
+              -5
+            ]
+          },
+          "penalty_mode": "MIDPOINT_FIXED_V1",
+          "penalty_points": "0",
+          "penalty_rules_sha256": "b7a0b23de0eb17a7abfdc64b326c91b63ef941e5da0d3dd18263a6f4ddd1380b",
+          "raw_penalty_points": "0",
+          "score_snapshot_sha256": "3b1336cc7929ab1b364eeb6638eba26ef6a26be848a50aa2a0f427bffbb015ba",
+          "status": "SCORE_COMPLETE",
+          "theme_id": "CONSUMER_ELECTRONICS",
+          "theme_score": "50.68472651515151515151515152",
+          "unresolved_penalty_codes": []
+        },
+        "theme_id": "CONSUMER_ELECTRONICS",
+        "theme_rotation_rank": 1,
+        "theme_rotation_score": 86.5132,
+        "theme_score": "50.68472651515151515151515152",
+        "tier_structure": {
+          "availability_state": "OBSERVED_ABSENT",
+          "available": true,
+          "ladder_height": 0,
+          "reason_code": "OK",
+          "score": 0,
+          "sector_ladder_groups": [
+            "CONCEPT:885338.TI",
+            "CONCEPT:885454.TI",
+            "CONCEPT:885520.TI",
+            "CONCEPT:885728.TI",
+            "CONCEPT:885800.TI",
+            "CONCEPT:885840.TI",
+            "CONCEPT:885921.TI",
+            "CONCEPT:886071.TI",
+            "CONCEPT:886099.TI",
+            "CONCEPT:886100.TI",
+            "INDUSTRY:881124.TI"
+          ],
+          "sector_ladder_support": true,
+          "source": "HITHINK_LIMIT_UP_LADDER",
+          "source_refs": [],
+          "tier": "NONE"
+        },
+        "top_rotation_theme": true,
+        "trend_core_eligible": true,
+        "trend_pre_rotation_eligible": true,
+        "upstream_candidate_id": "a1-local:688036.SH",
+        "weak_evidence_fields": [
+          "capital_flow",
+          "supply_chain_role",
+          "crowding"
+        ]
+      },
+      {
+        "A2_REVIEW_DEGRADED": false,
+        "ROTATION_GATE_EMPTY": false,
+        "a1_formal_member": true,
+        "a2_pool_channel": "TREND",
+        "a2_role": "TREND_CORE",
+        "a2_route": "MARKET_CORE",
+        "all_failed_gates": [],
+        "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+        "capital_flow": {
+          "available": false,
+          "reason_code": "A2_CAPITAL_FLOW_UNAVAILABLE",
+          "score": null,
+          "source": "CAPITAL_FLOW_SNAPSHOT",
+          "source_refs": []
+        },
+        "capital_flow_available": false,
+        "channel_source_health": {
+          "emotion": {
+            "absence_is_not_popularity_evidence": true,
+            "as_of": "2026-10-20T15:10:00.924893+08:00",
+            "available": true,
+            "content_hash": "2269382b9f0941b993de51791c108180dc4103856c68508dc657fe7b9a1674c8",
+            "declared_available": true,
+            "reason_code": "OK",
+            "trade_date": "2026-10-20",
+            "validation_state": "COMPLETE",
+            "verified_record_count": 100
+          },
+          "trend": {
+            "available": true,
+            "reason_code": "OK",
+            "trade_date": "2026-10-20"
+          }
+        },
+        "company_name": "宏英智能",
+        "crowding": {
+          "available": false,
+          "reason_code": "A2_CROWDING_OPTIONAL_UNAVAILABLE",
+          "score": null,
+          "source": "DETERMINISTIC_FROZEN_FACTS",
+          "upstream_reason_code": "PARTIAL_PROXY_ONLY"
+        },
+        "daily_verified_increment": {},
+        "decision_as_of": "2026-10-20T23:04:15+08:00",
+        "decision_id": "aa20eb1d9789d9c8eac467da",
+        "deterministic_data_sufficiency_state": "DEGRADED",
+        "eastmoney_hot100": {},
+        "emotion_core_eligible": false,
+        "emotion_theme_binding": null,
+        "execution_permission": "REQUIRES_A3_A4_CONFIRMATION",
+        "factor_coverage": {
+          "available_factors": [
+            "agent_1_quality",
+            "breadth",
+            "catalyst_freshness",
+            "index_chain_resonance",
+            "leader_structure",
+            "profit_effect",
+            "tier_structure",
+            "turnover_share",
+            "weekly_confirmation"
+          ],
+          "available_weight": 0.88,
+          "missing_factors": [
+            "capital_flow"
+          ],
+          "percent": 88,
+          "ratio": 0.88,
+          "total_weight": 1
+        },
+        "gate_results": {
+          "BEHAVIOR_TYPE_RESOLVED": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_BEHAVIOR_TYPE_RESOLVED",
+            "route_permission": [
+              "TREND_MA5",
+              "MA520_SWING"
+            ],
+            "threshold": [
+              "EMOTION",
+              "TREND"
+            ],
+            "value": "TREND"
+          },
+          "FREE_FLOAT_CAP": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_FREE_FLOAT_GATE",
+            "passed": null,
+            "reason_code": "A2_FREE_FLOAT_UNAVAILABLE",
+            "threshold": 3000000000,
+            "value": null
+          },
+          "IDENTIFIABILITY_MIN": {
+            "applied": false,
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "RISK_AND_ORDERING_ONLY_NOT_A_DETERMINISTIC_REVIEW_GATE",
+            "passed": true,
+            "reason_code": "A2_IDENTIFIABILITY_MEETS_MINIMUM_REVIEW_ONLY",
+            "threshold": 60,
+            "value": 84.5337
+          },
+          "LEADER_MIN_CRITERIA": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_LEADER_CRITERIA_GATE",
+            "passed": null,
+            "reason_code": "A2_LEADER_CRITERIA_UNAVAILABLE",
+            "threshold": 4,
+            "value": null
+          },
+          "LOCAL_DATA_SUFFICIENCY": {
+            "accepted_states": [
+              "SUFFICIENT",
+              "DEGRADED"
+            ],
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_LOCAL_DATA_DEGRADED",
+            "threshold": [
+              "SUFFICIENT",
+              "DEGRADED"
+            ],
+            "value": "DEGRADED"
+          },
+          "LOCAL_ELIGIBILITY": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "eligible_for_review": true,
+            "passed": true,
+            "reason_code": "A2_LOCAL_ELIGIBLE_FOR_REVIEW",
+            "threshold": "REVIEW_CANDIDATE",
+            "value": "REVIEW_CANDIDATE"
+          },
+          "MAX_LEADERS_PER_THEME": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_MAX_LEADERS_GATE",
+            "passed": null,
+            "reason_code": "A2_MAX_LEADERS_UNAVAILABLE",
+            "threshold": 2,
+            "value": null
+          },
+          "ROUTE_REQUIREMENT": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "eligible_routes": [
+              "MARKET_CORE"
+            ],
+            "passed": true,
+            "reason_code": "A2_ROUTE_REQUIREMENT_SATISFIED",
+            "threshold": 1,
+            "value": 1
+          },
+          "SENT_TO_LLM": {
+            "applicable": true,
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_SENT_TO_LLM",
+            "threshold": true,
+            "value": true
+          },
+          "THEME_SCORE_MIN": {
+            "applied": false,
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "OBSERVATION_ONLY_NOT_A_DETERMINISTIC_GATE",
+            "passed": true,
+            "reason_code": "A2_THEME_SCORE_OBSERVED_NOT_APPLIED",
+            "threshold": 60,
+            "value": 79.2763
+          },
+          "TIER_STRUCTURE": {
+            "applied": false,
+            "availability_state": "OBSERVED_ABSENT",
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "OPTIONAL_FACTOR_NOT_A_MARKET_CORE_VETO",
+            "passed": null,
+            "reason_code": "A2_TIER_STRUCTURE_OBSERVATION_ONLY",
+            "threshold": null,
+            "value": 0
+          }
+        },
+        "independent_strategy_review": false,
+        "index_chain_resonance": {
+          "available": true,
+          "reason_code": "OK",
+          "score": 36.3214,
+          "source": "A1_BOUND_TAXONOMY_AGGREGATE",
+          "source_refs": [],
+          "taxonomy_code": "884219.TI"
+        },
+        "industry_chain_node": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+        "leader_structure": {
+          "availability_state": "OBSERVED_VALUE",
+          "available": true,
+          "continuation_confirmed": false,
+          "first_board_observed": false,
+          "reason_code": "OK",
+          "role": "TREND_LEADER",
+          "score": 88.6241,
+          "sector_ladder_groups": [
+            "CONCEPT:885312.TI",
+            "CONCEPT:885431.TI",
+            "CONCEPT:885461.TI",
+            "CONCEPT:885517.TI",
+            "CONCEPT:885574.TI",
+            "CONCEPT:885641.TI",
+            "CONCEPT:885662.TI",
+            "CONCEPT:885728.TI",
+            "CONCEPT:885736.TI",
+            "CONCEPT:885783.TI",
+            "CONCEPT:885887.TI",
+            "CONCEPT:885921.TI",
+            "CONCEPT:885929.TI",
+            "CONCEPT:885938.TI",
+            "CONCEPT:885946.TI",
+            "CONCEPT:886057.TI",
+            "CONCEPT:886078.TI",
+            "CONCEPT:886099.TI",
+            "CONCEPT:886110.TI"
+          ],
+          "sector_ladder_support": true,
+          "source": "LOCAL_THEME_CROSS_SECTION",
+          "source_refs": [],
+          "tier_confirmation_mode": "SECTOR_LADDER_RELATIVE_LIQUIDITY"
+        },
+        "lineage_missing_fields": [],
+        "lineage_schema_version": "stage-lineage/1.0.0",
+        "lineage_source_stage": "A1_UPSTREAM",
+        "lineage_status": "COMPLETE",
+        "market_role": "TREND_CORE",
+        "missing_optional_factors": [
+          "capital_flow"
+        ],
+        "monthly_a1_member": true,
+        "name": "宏英智能",
+        "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+        "primary_theme": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "reason_codes": [
+          "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION"
+        ],
+        "research_observation_scope": null,
+        "research_only_reason": null,
+        "research_route_qualifications": {
+          "LEADER_INTRADAY": {
+            "eligible": false,
+            "execution_authority": false
+          },
+          "MA520_SWING": {
+            "eligible": true,
+            "execution_authority": false
+          },
+          "TREND_MA5": {
+            "eligible": true,
+            "execution_authority": false
+          }
+        },
+        "risk_flags": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "risk_reasons": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "role": "TREND_CORE",
+        "rotation_direction_id": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+        "rotation_reserve_boards": [],
+        "rotation_reserve_eligible": false,
+        "rotation_reserve_scope": null,
+        "rotation_strength_source": "LIANGJIAN_FREE_ROTATION_STRENGTH",
+        "route": "MARKET_CORE",
+        "route_permission": [
+          "TREND_MA5",
+          "MA520_SWING"
+        ],
+        "sector_index_code": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "sector_index_name": "机器人概念",
+        "selected_board": {
+          "board_code": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "board_name": "机器人概念",
+          "fund_flow_history_evidence": null,
+          "is_child_board": false,
+          "main_net_inflow_3d_mean_cny": null,
+          "main_net_inflow_cny": 6502687472,
+          "membership_basis": "VENDOR_NATIVE_BOARD",
+          "membership_components": [],
+          "membership_reference_hash": "4a593b595446ff3b7feb25fb580ac672ae457fda3b06e1191658a49a04b1faf3",
+          "membership_source_board_id": "885517.TI",
+          "membership_source_id": "HITHINK_THS_API",
+          "parent_theme_id": null,
+          "primary_rank": 2,
+          "rotation_reserve_rank": null,
+          "rotation_reserve_scope": null,
+          "selected_for_rotation": true,
+          "strategy_theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "strength": 79.2763,
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "theme_level": "PRIMARY"
+        },
+        "selected_board_binding": "STABLE_FULL_MARKET_SYMBOL_MEMBERSHIP",
+        "selected_board_theme_match": true,
+        "selection_reasons": [
+          "A2_EMOTION_LADDER_LEADER_CONFIRMED"
+        ],
+        "selection_route": "MARKET_CORE",
+        "stock_behavior_type": "TREND",
+        "strong_trend_observation": false,
+        "supply_chain_role": {
+          "available": false,
+          "reason_code": "NOT_REQUIRED_FOR_MARKET_CORE",
+          "score": null,
+          "source": "A2_BOTTLENECK_CONTEXT"
+        },
+        "symbol": "001266.SZ",
+        "team_score_evidence": {
+          "applied_penalty_codes": [],
+          "base_score": "50.44282762784090909090909091",
+          "focus_policy": "ORIGINAL_THRESHOLD_AND_TOP5_EXCEPTION",
+          "original_penalty_rules": {
+            "high_crowding": [
+              -20,
+              -5
+            ],
+            "insufficient_capacity": [
+              -15,
+              -5
+            ],
+            "laggard_spread_core_weak": [
+              -20,
+              -5
+            ],
+            "news_hot_capital_out": [
+              -15,
+              -5
+            ],
+            "single_limit_up_driven": [
+              -15,
+              -5
+            ],
+            "volume_up_return_down": [
+              -20,
+              -5
+            ]
+          },
+          "penalty_mode": "MIDPOINT_FIXED_V1",
+          "penalty_points": "0",
+          "penalty_rules_sha256": "b7a0b23de0eb17a7abfdc64b326c91b63ef941e5da0d3dd18263a6f4ddd1380b",
+          "raw_penalty_points": "0",
+          "score_snapshot_sha256": "3b1336cc7929ab1b364eeb6638eba26ef6a26be848a50aa2a0f427bffbb015ba",
+          "status": "SCORE_COMPLETE",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "theme_score": "50.44282762784090909090909091",
+          "unresolved_penalty_codes": []
+        },
+        "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "theme_rotation_rank": 2,
+        "theme_rotation_score": 79.2763,
+        "theme_score": "50.44282762784090909090909091",
+        "tier_structure": {
+          "availability_state": "OBSERVED_ABSENT",
+          "available": true,
+          "ladder_height": 0,
+          "reason_code": "OK",
+          "score": 0,
+          "sector_ladder_groups": [
+            "CONCEPT:885312.TI",
+            "CONCEPT:885431.TI",
+            "CONCEPT:885461.TI",
+            "CONCEPT:885517.TI",
+            "CONCEPT:885574.TI",
+            "CONCEPT:885641.TI",
+            "CONCEPT:885662.TI",
+            "CONCEPT:885728.TI",
+            "CONCEPT:885736.TI",
+            "CONCEPT:885783.TI",
+            "CONCEPT:885887.TI",
+            "CONCEPT:885921.TI",
+            "CONCEPT:885929.TI",
+            "CONCEPT:885938.TI",
+            "CONCEPT:885946.TI",
+            "CONCEPT:886057.TI",
+            "CONCEPT:886078.TI",
+            "CONCEPT:886099.TI",
+            "CONCEPT:886110.TI"
+          ],
+          "sector_ladder_support": true,
+          "source": "HITHINK_LIMIT_UP_LADDER",
+          "source_refs": [],
+          "tier": "NONE"
+        },
+        "top_rotation_theme": true,
+        "trend_core_eligible": true,
+        "trend_pre_rotation_eligible": true,
+        "upstream_candidate_id": "a1-local:001266.SZ",
+        "weak_evidence_fields": [
+          "capital_flow",
+          "supply_chain_role",
+          "crowding"
+        ]
+      },
+      {
+        "A2_REVIEW_DEGRADED": false,
+        "ROTATION_GATE_EMPTY": false,
+        "a1_formal_member": true,
+        "a2_pool_channel": "EMOTION",
+        "a2_role": "EMOTION_LEADER",
+        "a2_route": "MARKET_CORE",
+        "all_failed_gates": [],
+        "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+        "capital_flow": {
+          "available": false,
+          "reason_code": "A2_CAPITAL_FLOW_UNAVAILABLE",
+          "score": null,
+          "source": "CAPITAL_FLOW_SNAPSHOT",
+          "source_refs": []
+        },
+        "capital_flow_available": false,
+        "channel_source_health": {
+          "emotion": {
+            "absence_is_not_popularity_evidence": true,
+            "as_of": "2026-10-20T15:10:00.924893+08:00",
+            "available": true,
+            "content_hash": "2269382b9f0941b993de51791c108180dc4103856c68508dc657fe7b9a1674c8",
+            "declared_available": true,
+            "reason_code": "OK",
+            "trade_date": "2026-10-20",
+            "validation_state": "COMPLETE",
+            "verified_record_count": 100
+          },
+          "trend": {
+            "available": true,
+            "reason_code": "OK",
+            "trade_date": "2026-10-20"
+          }
+        },
+        "company_name": "宁波东力",
+        "crowding": {
+          "available": false,
+          "reason_code": "A2_CROWDING_OPTIONAL_UNAVAILABLE",
+          "score": null,
+          "source": "DETERMINISTIC_FROZEN_FACTS",
+          "upstream_reason_code": "PARTIAL_PROXY_ONLY"
+        },
+        "daily_verified_increment": {},
+        "decision_as_of": "2026-10-20T23:04:15+08:00",
+        "decision_id": "a52dec0a99191e75a2dd9b88",
+        "deterministic_data_sufficiency_state": "DEGRADED",
+        "eastmoney_hot100": {
+          "change_pct": 10.01,
+          "circulating_market_value": null,
+          "code": "002164",
+          "dynamic_pe": 80.74,
+          "latest_price": 16.16,
+          "market": "SZ",
+          "name": "宁波东力",
+          "pb": 5.07,
+          "rank": 9,
+          "symbol": "002164.SZ",
+          "total_market_value": null,
+          "trading_volume": null,
+          "turnover_rate_pct": 12.99,
+          "volume_ratio": 1.61
+        },
+        "emotion_core_eligible": true,
+        "emotion_theme_binding": {
+          "candidate_routes": [
+            {
+              "evidence": [
+                {
+                  "confidence": 1,
+                  "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+                  "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+                  "taxonomy": "INDUSTRY",
+                  "taxonomy_code": "881117.TI",
+                  "taxonomy_name": "通用设备",
+                  "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+                },
+                {
+                  "canonical_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+                  "confidence": 1,
+                  "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+                  "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+                  "taxonomy": "INDUSTRY",
+                  "taxonomy_code": "881117.TI",
+                  "taxonomy_name": "通用设备",
+                  "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+                }
+              ],
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            }
+          ],
+          "confirms_catalyst": false,
+          "confirms_theme_stage": false,
+          "gap_category": null,
+          "matches": [
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885641.TI",
+              "taxonomy_name": "风电",
+              "theme_id": "POWER_EQUIPMENT_NEW_ENERGY"
+            },
+            {
+              "canonical_id": "POWER_EQUIPMENT_NEW_ENERGY",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885641.TI",
+              "taxonomy_name": "风电",
+              "theme_id": "POWER_EQUIPMENT_NEW_ENERGY"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "881117.TI",
+              "taxonomy_name": "通用设备",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "canonical_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "881117.TI",
+              "taxonomy_name": "通用设备",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885517.TI",
+              "taxonomy_name": "机器人概念",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "canonical_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885517.TI",
+              "taxonomy_name": "机器人概念",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886008.TI",
+              "taxonomy_name": "减速器",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "canonical_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886008.TI",
+              "taxonomy_name": "减速器",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886069.TI",
+              "taxonomy_name": "人形机器人",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "canonical_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "confidence": 1,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886069.TI",
+              "taxonomy_name": "人形机器人",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            }
+          ],
+          "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+          "reason_code": "OK",
+          "requires_theme_selection": false,
+          "research_resolved": true,
+          "resolved": true,
+          "schema_version": "emotion-theme-binding/1.1.0",
+          "selection_basis": "UNIQUE_INDUSTRY",
+          "source": "FROZEN_STRATEGY_REGISTRY_AND_SYMBOL_MEMBERSHIP",
+          "source_hash": "502d3f30c8223beccf81482aa13c5ace78c4fa7bfdbd7f682e6b3580bad9bb31",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+        },
+        "execution_permission": "REQUIRES_A3_A4_CONFIRMATION",
+        "factor_coverage": {
+          "available_factors": [
+            "agent_1_quality",
+            "breadth",
+            "catalyst_freshness",
+            "index_chain_resonance",
+            "leader_structure",
+            "profit_effect",
+            "tier_structure",
+            "turnover_share",
+            "weekly_confirmation"
+          ],
+          "available_weight": 0.88,
+          "missing_factors": [
+            "capital_flow"
+          ],
+          "percent": 88,
+          "ratio": 0.88,
+          "total_weight": 1
+        },
+        "gate_results": {
+          "BEHAVIOR_TYPE_RESOLVED": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_BEHAVIOR_TYPE_RESOLVED",
+            "route_permission": [
+              "LEADER_INTRADAY"
+            ],
+            "threshold": [
+              "EMOTION",
+              "TREND"
+            ],
+            "value": "EMOTION"
+          },
+          "FREE_FLOAT_CAP": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_FREE_FLOAT_GATE",
+            "passed": null,
+            "reason_code": "A2_FREE_FLOAT_UNAVAILABLE",
+            "threshold": 3000000000,
+            "value": null
+          },
+          "IDENTIFIABILITY_MIN": {
+            "applied": false,
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "RISK_AND_ORDERING_ONLY_NOT_A_DETERMINISTIC_REVIEW_GATE",
+            "passed": true,
+            "reason_code": "A2_IDENTIFIABILITY_MEETS_MINIMUM_REVIEW_ONLY",
+            "threshold": 60,
+            "value": 95.8145
+          },
+          "LEADER_MIN_CRITERIA": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_LEADER_CRITERIA_GATE",
+            "passed": null,
+            "reason_code": "A2_LEADER_CRITERIA_UNAVAILABLE",
+            "threshold": 4,
+            "value": null
+          },
+          "LOCAL_DATA_SUFFICIENCY": {
+            "accepted_states": [
+              "SUFFICIENT",
+              "DEGRADED"
+            ],
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_LOCAL_DATA_DEGRADED",
+            "threshold": [
+              "SUFFICIENT",
+              "DEGRADED"
+            ],
+            "value": "DEGRADED"
+          },
+          "LOCAL_ELIGIBILITY": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "eligible_for_review": true,
+            "passed": true,
+            "reason_code": "A2_LOCAL_ELIGIBLE_FOR_REVIEW",
+            "threshold": "REVIEW_CANDIDATE",
+            "value": "REVIEW_CANDIDATE"
+          },
+          "MAX_LEADERS_PER_THEME": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_MAX_LEADERS_GATE",
+            "passed": null,
+            "reason_code": "A2_MAX_LEADERS_UNAVAILABLE",
+            "threshold": 2,
+            "value": null
+          },
+          "ROUTE_REQUIREMENT": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "eligible_routes": [
+              "MARKET_CORE"
+            ],
+            "passed": true,
+            "reason_code": "A2_ROUTE_REQUIREMENT_SATISFIED",
+            "threshold": 1,
+            "value": 1
+          },
+          "SENT_TO_LLM": {
+            "applicable": true,
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_SENT_TO_LLM",
+            "threshold": true,
+            "value": true
+          },
+          "THEME_SCORE_MIN": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "OBSERVATION_ONLY_NOT_A_DETERMINISTIC_GATE",
+            "passed": null,
+            "reason_code": "A2_THEME_SCORE_UNAVAILABLE",
+            "threshold": 60,
+            "value": null
+          },
+          "TIER_STRUCTURE": {
+            "applied": false,
+            "availability_state": "OBSERVED_VALUE",
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "OPTIONAL_FACTOR_NOT_A_MARKET_CORE_VETO",
+            "passed": null,
+            "reason_code": "A2_TIER_STRUCTURE_OBSERVATION_ONLY",
+            "threshold": null,
+            "value": 70
+          }
+        },
+        "independent_strategy_review": false,
+        "index_chain_resonance": {
+          "available": true,
+          "reason_code": "OK",
+          "score": 40.6681,
+          "source": "A1_BOUND_TAXONOMY_AGGREGATE",
+          "source_refs": [],
+          "taxonomy_code": "886008.TI"
+        },
+        "industry_chain_node": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+        "leader_structure": {
+          "availability_state": "OBSERVED_VALUE",
+          "available": true,
+          "continuation_confirmed": true,
+          "first_board_observed": false,
+          "reason_code": "OK",
+          "role": "EMOTION_LEADER",
+          "score": 98.2057,
+          "sector_ladder_groups": [
+            "CONCEPT:885338.TI",
+            "CONCEPT:885517.TI",
+            "CONCEPT:885562.TI",
+            "CONCEPT:885641.TI",
+            "CONCEPT:885694.TI",
+            "CONCEPT:885924.TI",
+            "CONCEPT:886008.TI",
+            "CONCEPT:886069.TI",
+            "CONCEPT:886110.TI",
+            "INDUSTRY:881117.TI",
+            "INDUSTRY:884075.TI"
+          ],
+          "sector_ladder_support": true,
+          "source": "LOCAL_THEME_CROSS_SECTION",
+          "source_refs": [],
+          "tier_confirmation_mode": "DIRECT_STOCK_LADDER"
+        },
+        "lineage_missing_fields": [],
+        "lineage_schema_version": "stage-lineage/1.0.0",
+        "lineage_source_stage": "A1_UPSTREAM",
+        "lineage_status": "COMPLETE",
+        "market_role": "EMOTION_LEADER",
+        "missing_optional_factors": [
+          "capital_flow"
+        ],
+        "monthly_a1_member": true,
+        "name": "宁波东力",
+        "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+        "primary_theme": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "reason_codes": [
+          "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION"
+        ],
+        "research_observation_scope": null,
+        "research_only_reason": null,
+        "research_route_qualifications": {
+          "LEADER_INTRADAY": {
+            "eligible": true,
+            "execution_authority": false
+          },
+          "MA520_SWING": {
+            "eligible": false,
+            "execution_authority": false
+          },
+          "TREND_MA5": {
+            "eligible": false,
+            "execution_authority": false
+          }
+        },
+        "risk_flags": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "risk_reasons": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "role": "EMOTION_LEADER",
+        "rotation_direction_id": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+        "rotation_reserve_boards": [],
+        "rotation_reserve_eligible": false,
+        "rotation_reserve_scope": null,
+        "rotation_strength_source": "EASTMONEY_HOT100_EMOTION_CHANNEL",
+        "route": "MARKET_CORE",
+        "route_permission": [
+          "LEADER_INTRADAY"
+        ],
+        "sector_index_code": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "sector_index_name": "机器人概念",
+        "selected_board": {
+          "board_code": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "board_name": "机器人概念",
+          "fund_flow_history_evidence": null,
+          "is_child_board": false,
+          "main_net_inflow_3d_mean_cny": null,
+          "main_net_inflow_cny": 6502687472,
+          "membership_basis": "VENDOR_NATIVE_BOARD",
+          "membership_components": [],
+          "membership_reference_hash": "4a593b595446ff3b7feb25fb580ac672ae457fda3b06e1191658a49a04b1faf3",
+          "membership_source_board_id": "885517.TI",
+          "membership_source_id": "HITHINK_THS_API",
+          "parent_theme_id": null,
+          "primary_rank": 2,
+          "rotation_reserve_rank": null,
+          "rotation_reserve_scope": null,
+          "selected_for_rotation": true,
+          "strategy_theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "strength": 79.2763,
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "theme_level": "PRIMARY"
+        },
+        "selected_board_binding": "STABLE_FULL_MARKET_SYMBOL_MEMBERSHIP",
+        "selected_board_theme_match": true,
+        "selection_reasons": [
+          "A2_EMOTION_LADDER_LEADER_CONFIRMED"
+        ],
+        "selection_route": "MARKET_CORE",
+        "stock_behavior_type": "EMOTION",
+        "strong_trend_observation": false,
+        "supply_chain_role": {
+          "available": false,
+          "reason_code": "NOT_REQUIRED_FOR_MARKET_CORE",
+          "score": null,
+          "source": "A2_BOTTLENECK_CONTEXT"
+        },
+        "symbol": "002164.SZ",
+        "team_score_evidence": {
+          "applied_penalty_codes": [],
+          "base_score": "50.44282762784090909090909091",
+          "focus_policy": "ORIGINAL_THRESHOLD_AND_TOP5_EXCEPTION",
+          "original_penalty_rules": {
+            "high_crowding": [
+              -20,
+              -5
+            ],
+            "insufficient_capacity": [
+              -15,
+              -5
+            ],
+            "laggard_spread_core_weak": [
+              -20,
+              -5
+            ],
+            "news_hot_capital_out": [
+              -15,
+              -5
+            ],
+            "single_limit_up_driven": [
+              -15,
+              -5
+            ],
+            "volume_up_return_down": [
+              -20,
+              -5
+            ]
+          },
+          "penalty_mode": "MIDPOINT_FIXED_V1",
+          "penalty_points": "0",
+          "penalty_rules_sha256": "b7a0b23de0eb17a7abfdc64b326c91b63ef941e5da0d3dd18263a6f4ddd1380b",
+          "raw_penalty_points": "0",
+          "score_snapshot_sha256": "3b1336cc7929ab1b364eeb6638eba26ef6a26be848a50aa2a0f427bffbb015ba",
+          "status": "SCORE_COMPLETE",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "theme_score": "50.44282762784090909090909091",
+          "unresolved_penalty_codes": []
+        },
+        "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "theme_rotation_rank": null,
+        "theme_rotation_score": null,
+        "theme_score": "50.44282762784090909090909091",
+        "tier_structure": {
+          "availability_state": "OBSERVED_VALUE",
+          "available": true,
+          "continuation_confirmed": true,
+          "event_source": "HITHINK_LIMIT_UP_LADDER",
+          "first_board_observed": false,
+          "ladder_height": 2,
+          "reason_code": "OK",
+          "score": 70,
+          "sector_ladder_groups": [
+            "CONCEPT:885338.TI",
+            "CONCEPT:885517.TI",
+            "CONCEPT:885562.TI",
+            "CONCEPT:885641.TI",
+            "CONCEPT:885694.TI",
+            "CONCEPT:885924.TI",
+            "CONCEPT:886008.TI",
+            "CONCEPT:886069.TI",
+            "CONCEPT:886110.TI",
+            "INDUSTRY:881117.TI",
+            "INDUSTRY:884075.TI"
+          ],
+          "sector_ladder_support": true,
+          "source": "HITHINK_LIMIT_UP_LADDER",
+          "source_refs": [
+            "HITHINK_LIMIT_UP_LADDER"
+          ],
+          "tier": "T2",
+          "trade_date": "2026-10-20"
+        },
+        "top_rotation_theme": false,
+        "trend_core_eligible": false,
+        "trend_pre_rotation_eligible": false,
+        "upstream_candidate_id": "a1-local:002164.SZ",
+        "weak_evidence_fields": [
+          "capital_flow",
+          "supply_chain_role",
+          "crowding"
+        ]
+      },
+      {
+        "A2_REVIEW_DEGRADED": false,
+        "ROTATION_GATE_EMPTY": false,
+        "a1_formal_member": true,
+        "a2_pool_channel": "TREND",
+        "a2_role": "TREND_CORE",
+        "a2_route": "MARKET_CORE",
+        "all_failed_gates": [],
+        "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+        "capital_flow": {
+          "available": false,
+          "reason_code": "A2_CAPITAL_FLOW_UNAVAILABLE",
+          "score": null,
+          "source": "CAPITAL_FLOW_SNAPSHOT",
+          "source_refs": []
+        },
+        "capital_flow_available": false,
+        "channel_source_health": {
+          "emotion": {
+            "absence_is_not_popularity_evidence": true,
+            "as_of": "2026-10-20T15:10:00.924893+08:00",
+            "available": true,
+            "content_hash": "2269382b9f0941b993de51791c108180dc4103856c68508dc657fe7b9a1674c8",
+            "declared_available": true,
+            "reason_code": "OK",
+            "trade_date": "2026-10-20",
+            "validation_state": "COMPLETE",
+            "verified_record_count": 100
+          },
+          "trend": {
+            "available": true,
+            "reason_code": "OK",
+            "trade_date": "2026-10-20"
+          }
+        },
+        "company_name": "郑中设计",
+        "crowding": {
+          "available": false,
+          "reason_code": "A2_CROWDING_OPTIONAL_UNAVAILABLE",
+          "score": null,
+          "source": "DETERMINISTIC_FROZEN_FACTS",
+          "upstream_reason_code": "PARTIAL_PROXY_ONLY"
+        },
+        "daily_verified_increment": {},
+        "decision_as_of": "2026-10-20T23:04:15+08:00",
+        "decision_id": "b8c5c81f6ce3efb4d53b8312",
+        "deterministic_data_sufficiency_state": "DEGRADED",
+        "eastmoney_hot100": {},
+        "emotion_core_eligible": false,
+        "emotion_theme_binding": null,
+        "execution_permission": "REQUIRES_A3_A4_CONFIRMATION",
+        "factor_coverage": {
+          "available_factors": [
+            "agent_1_quality",
+            "breadth",
+            "catalyst_freshness",
+            "index_chain_resonance",
+            "leader_structure",
+            "profit_effect",
+            "tier_structure",
+            "turnover_share",
+            "weekly_confirmation"
+          ],
+          "available_weight": 0.88,
+          "missing_factors": [
+            "capital_flow"
+          ],
+          "percent": 88,
+          "ratio": 0.88,
+          "total_weight": 1
+        },
+        "gate_results": {
+          "BEHAVIOR_TYPE_RESOLVED": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_BEHAVIOR_TYPE_RESOLVED",
+            "route_permission": [
+              "TREND_MA5",
+              "MA520_SWING"
+            ],
+            "threshold": [
+              "EMOTION",
+              "TREND"
+            ],
+            "value": "TREND"
+          },
+          "FREE_FLOAT_CAP": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_FREE_FLOAT_GATE",
+            "passed": null,
+            "reason_code": "A2_FREE_FLOAT_UNAVAILABLE",
+            "threshold": 3000000000,
+            "value": null
+          },
+          "IDENTIFIABILITY_MIN": {
+            "applied": false,
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "RISK_AND_ORDERING_ONLY_NOT_A_DETERMINISTIC_REVIEW_GATE",
+            "passed": true,
+            "reason_code": "A2_IDENTIFIABILITY_MEETS_MINIMUM_REVIEW_ONLY",
+            "threshold": 60,
+            "value": 93.5373
+          },
+          "LEADER_MIN_CRITERIA": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_LEADER_CRITERIA_GATE",
+            "passed": null,
+            "reason_code": "A2_LEADER_CRITERIA_UNAVAILABLE",
+            "threshold": 4,
+            "value": null
+          },
+          "LOCAL_DATA_SUFFICIENCY": {
+            "accepted_states": [
+              "SUFFICIENT",
+              "DEGRADED"
+            ],
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_LOCAL_DATA_DEGRADED",
+            "threshold": [
+              "SUFFICIENT",
+              "DEGRADED"
+            ],
+            "value": "DEGRADED"
+          },
+          "LOCAL_ELIGIBILITY": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "eligible_for_review": true,
+            "passed": true,
+            "reason_code": "A2_LOCAL_ELIGIBLE_FOR_REVIEW",
+            "threshold": "REVIEW_CANDIDATE",
+            "value": "REVIEW_CANDIDATE"
+          },
+          "MAX_LEADERS_PER_THEME": {
+            "applied": false,
+            "available": false,
+            "blocks_decision": false,
+            "evaluation": "NO_DETERMINISTIC_MAX_LEADERS_GATE",
+            "passed": null,
+            "reason_code": "A2_MAX_LEADERS_UNAVAILABLE",
+            "threshold": 2,
+            "value": null
+          },
+          "ROUTE_REQUIREMENT": {
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "eligible_routes": [
+              "MARKET_CORE"
+            ],
+            "passed": true,
+            "reason_code": "A2_ROUTE_REQUIREMENT_SATISFIED",
+            "threshold": 1,
+            "value": 1
+          },
+          "SENT_TO_LLM": {
+            "applicable": true,
+            "applied": true,
+            "available": true,
+            "blocks_decision": false,
+            "passed": true,
+            "reason_code": "A2_SENT_TO_LLM",
+            "threshold": true,
+            "value": true
+          },
+          "THEME_SCORE_MIN": {
+            "applied": false,
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "OBSERVATION_ONLY_NOT_A_DETERMINISTIC_GATE",
+            "passed": true,
+            "reason_code": "A2_THEME_SCORE_OBSERVED_NOT_APPLIED",
+            "threshold": 60,
+            "value": 78.9474
+          },
+          "TIER_STRUCTURE": {
+            "applied": false,
+            "availability_state": "OBSERVED_ABSENT",
+            "available": true,
+            "blocks_decision": false,
+            "evaluation": "OPTIONAL_FACTOR_NOT_A_MARKET_CORE_VETO",
+            "passed": null,
+            "reason_code": "A2_TIER_STRUCTURE_OBSERVATION_ONLY",
+            "threshold": null,
+            "value": 0
+          }
+        },
+        "independent_strategy_review": false,
+        "index_chain_resonance": {
+          "available": true,
+          "reason_code": "OK",
+          "score": 42.7926,
+          "source": "A1_BOUND_TAXONOMY_AGGREGATE",
+          "source_refs": [],
+          "taxonomy_code": "884217.TI"
+        },
+        "industry_chain_node": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE",
+        "leader_structure": {
+          "availability_state": "OBSERVED_VALUE",
+          "available": true,
+          "continuation_confirmed": false,
+          "first_board_observed": false,
+          "reason_code": "OK",
+          "role": "TREND_LEADER",
+          "score": 92.8386,
+          "sector_ladder_groups": [
+            "CONCEPT:885494.TI",
+            "CONCEPT:885728.TI",
+            "CONCEPT:885756.TI",
+            "CONCEPT:885976.TI",
+            "CONCEPT:886019.TI",
+            "CONCEPT:886095.TI",
+            "CONCEPT:886100.TI",
+            "CONCEPT:886108.TI"
+          ],
+          "sector_ladder_support": true,
+          "source": "LOCAL_THEME_CROSS_SECTION",
+          "source_refs": [],
+          "tier_confirmation_mode": "SECTOR_LADDER_RELATIVE_LIQUIDITY"
+        },
+        "lineage_missing_fields": [],
+        "lineage_schema_version": "stage-lineage/1.0.0",
+        "lineage_source_stage": "A1_UPSTREAM",
+        "lineage_status": "COMPLETE",
+        "market_role": "TREND_CORE",
+        "missing_optional_factors": [
+          "capital_flow"
+        ],
+        "monthly_a1_member": true,
+        "name": "郑中设计",
+        "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE",
+        "primary_theme": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "reason_codes": [
+          "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION"
+        ],
+        "research_observation_scope": null,
+        "research_only_reason": null,
+        "research_route_qualifications": {
+          "LEADER_INTRADAY": {
+            "eligible": false,
+            "execution_authority": false
+          },
+          "MA520_SWING": {
+            "eligible": true,
+            "execution_authority": false
+          },
+          "TREND_MA5": {
+            "eligible": true,
+            "execution_authority": false
+          }
+        },
+        "risk_flags": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "risk_reasons": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "role": "TREND_CORE",
+        "rotation_direction_id": "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "rotation_reserve_boards": [],
+        "rotation_reserve_eligible": false,
+        "rotation_reserve_scope": null,
+        "rotation_strength_source": "LIANGJIAN_FREE_ROTATION_STRENGTH",
+        "route": "MARKET_CORE",
+        "route_permission": [
+          "TREND_MA5",
+          "MA520_SWING"
+        ],
+        "sector_index_code": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "sector_index_name": "AI应用",
+        "selected_board": {
+          "board_code": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "board_name": "AI应用",
+          "fund_flow_history_evidence": null,
+          "is_child_board": false,
+          "main_net_inflow_3d_mean_cny": null,
+          "main_net_inflow_cny": 1167186874,
+          "membership_basis": "VENDOR_NATIVE_BOARD",
+          "membership_components": [],
+          "membership_reference_hash": "578207cb80f4781622ff8cae4a706fd464562454f4b950b3c30d25db3dcb1fb0",
+          "membership_source_board_id": "886108.TI",
+          "membership_source_id": "HITHINK_THS_API",
+          "parent_theme_id": null,
+          "primary_rank": 3,
+          "rotation_reserve_rank": null,
+          "rotation_reserve_scope": null,
+          "selected_for_rotation": true,
+          "strategy_theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "strength": 78.9474,
+          "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "theme_level": "PRIMARY"
+        },
+        "selected_board_binding": "STABLE_FULL_MARKET_SYMBOL_MEMBERSHIP",
+        "selected_board_theme_match": true,
+        "selection_reasons": [
+          "A2_EMOTION_LADDER_LEADER_CONFIRMED"
+        ],
+        "selection_route": "MARKET_CORE",
+        "stock_behavior_type": "TREND",
+        "strong_trend_observation": false,
+        "supply_chain_role": {
+          "available": false,
+          "reason_code": "NOT_REQUIRED_FOR_MARKET_CORE",
+          "score": null,
+          "source": "A2_BOTTLENECK_CONTEXT"
+        },
+        "symbol": "002811.SZ",
+        "team_score_evidence": {
+          "applied_penalty_codes": [],
+          "base_score": "49.95506038961038961038961039",
+          "focus_policy": "ORIGINAL_THRESHOLD_AND_TOP5_EXCEPTION",
+          "original_penalty_rules": {
+            "high_crowding": [
+              -20,
+              -5
+            ],
+            "insufficient_capacity": [
+              -15,
+              -5
+            ],
+            "laggard_spread_core_weak": [
+              -20,
+              -5
+            ],
+            "news_hot_capital_out": [
+              -15,
+              -5
+            ],
+            "single_limit_up_driven": [
+              -15,
+              -5
+            ],
+            "volume_up_return_down": [
+              -20,
+              -5
+            ]
+          },
+          "penalty_mode": "MIDPOINT_FIXED_V1",
+          "penalty_points": "0",
+          "penalty_rules_sha256": "b7a0b23de0eb17a7abfdc64b326c91b63ef941e5da0d3dd18263a6f4ddd1380b",
+          "raw_penalty_points": "0",
+          "score_snapshot_sha256": "3b1336cc7929ab1b364eeb6638eba26ef6a26be848a50aa2a0f427bffbb015ba",
+          "status": "SCORE_COMPLETE",
+          "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+          "theme_score": "49.95506038961038961038961039",
+          "unresolved_penalty_codes": []
+        },
+        "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "theme_rotation_rank": 3,
+        "theme_rotation_score": 78.9474,
+        "theme_score": "49.95506038961038961038961039",
+        "tier_structure": {
+          "availability_state": "OBSERVED_ABSENT",
+          "available": true,
+          "ladder_height": 0,
+          "reason_code": "OK",
+          "score": 0,
+          "sector_ladder_groups": [
+            "CONCEPT:885494.TI",
+            "CONCEPT:885728.TI",
+            "CONCEPT:885756.TI",
+            "CONCEPT:885976.TI",
+            "CONCEPT:886019.TI",
+            "CONCEPT:886095.TI",
+            "CONCEPT:886100.TI",
+            "CONCEPT:886108.TI"
+          ],
+          "sector_ladder_support": true,
+          "source": "HITHINK_LIMIT_UP_LADDER",
+          "source_refs": [],
+          "tier": "NONE"
+        },
+        "top_rotation_theme": true,
+        "trend_core_eligible": true,
+        "trend_pre_rotation_eligible": true,
+        "upstream_candidate_id": "a1-local:002811.SZ",
+        "weak_evidence_fields": [
+          "capital_flow",
+          "supply_chain_role",
+          "crowding"
+        ]
+      }
+    ],
+    "rotation_reviews": [
+      {
+        "decision": "NO_FOCUS",
+        "explanation": "AI算力方向成员中，300556.SZ 与 300839.SZ 的 identifiability 低于最低阈值且趋势结构未确认，600406.SH 的 leader_structure 与 breadth 均偏弱，未出现可聚焦的完整结构代表。",
+        "opposing_refs": [
+          "A2:QUANT:600406.SH"
+        ],
+        "reason_codes": [],
+        "reviewed_symbols": [
+          "300556.SZ",
+          "300839.SZ",
+          "600406.SH"
+        ],
+        "rotation_direction_id": "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE",
+        "supporting_refs": [
+          "A2:QUANT:300556.SZ",
+          "A2:QUANT:300839.SZ"
+        ]
+      },
+      {
+        "decision": "NO_FOCUS",
+        "explanation": "服务端策略使该方向原重点成员全部降级；仅说明服务端结果，不代表模型改判，不生成计划或交易权限。",
+        "reason_codes": [
+          "SERVER_POLICY_DEMOTED"
+        ],
+        "reviewed_symbols": [
+          "300199.SZ",
+          "603127.SH"
+        ],
+        "rotation_direction_id": "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE"
+      }
+    ]
+  },
+  "frozen": {
+    "catalog": {
+      "categories": [
+        "MARKET",
+        "NEWS",
+        "QUANT"
+      ],
+      "items": [
+        {
+          "category": "MARKET",
+          "id": "A2:MARKET",
+          "sha256": "c3f30d7720317742190cb6881719734dbc0708c749e3aeaefe69d4d220394d84"
+        },
+        {
+          "category": "NEWS",
+          "id": "A2:NEWS",
+          "sha256": "186b7ce70a3aff7ff36298dfbb02d163e4ec967baf5c2e62506004723595e665"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:000333.SZ",
+          "sha256": "d9594ce509e0aded8b328e899f3e7faa3bf652ee4e2451f32d244164c4af5fb0"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:000423.SZ",
+          "sha256": "e8b2557beb31005987b0dc283635c8e4c0fc3b8c16bea85f626b929d5ca1dfe2"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:000538.SZ",
+          "sha256": "570bc7e1e8710922da7678d1cc3a891baa5f9b7c76bd32676d600e5133540efe"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:000682.SZ",
+          "sha256": "c7f1b726ac8eee6d0cbfdec1760c3917730370e4f9e3f78d6b07e4d285bbc17c"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:000729.SZ",
+          "sha256": "8873d4302f3ea0865e6e353ea8e079235f36e21573f8851eb8a7f420fcaab991"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:000848.SZ",
+          "sha256": "794d31938052807a78546d3ddfc067d29850be3b76da76d5f950b6c012a5d9ef"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:000858.SZ",
+          "sha256": "3439108656425b182353d86ba3dee83de41921a9ab3d64061c2538accef23cc1"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:000963.SZ",
+          "sha256": "67d67986e81284c84daa34ab61ff27a243519b78cb323a0261dde5ed9ab5196a"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:000989.SZ",
+          "sha256": "5b2f890dd76cf405180bee63b05338bf483f8c0a7603d4c83e3897ac37f963a0"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:001266.SZ",
+          "sha256": "f595c8f20f30b7a0542a33e6be586e23a0df30e350dc419abeae439977ae33b7"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:001313.SZ",
+          "sha256": "a836179b69801e390767dd9dea36198dd30c0d56fd344adfa959dcf18afce751"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:001965.SZ",
+          "sha256": "4b720e79a868c74454c58c51459a8fef212c3f985edf94a4ed94b36bfed27500"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002001.SZ",
+          "sha256": "b0082aa6c23760954951febf4465684119c3164c66d510b185bd12214e3f6fd7"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002164.SZ",
+          "sha256": "eb8cf4a20bfd6aac7abecf015df3f6e63cf6b01af41a4f29a98d229dec461560"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002262.SZ",
+          "sha256": "7a932a2132255edf4dbf419a70f4a21c1a76dc4a3ed1405cde755ec4634f2efe"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002270.SZ",
+          "sha256": "fec4cf176c410f6e09f19017bb3e8d9d435293d5e5a221d300b97c0d9f9146c3"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002292.SZ",
+          "sha256": "baef527329b8d67b3478ffa815a94cf1302da63dd07905de10e261fe22c6c583"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002294.SZ",
+          "sha256": "69a19137b8f33b49a3798637f771ea7b5e28468cf34157acee3756f864daf3ce"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002322.SZ",
+          "sha256": "0d9f88a8a1980519dea729b996897033b1fb59df277dfebc5848eee29fc98e21"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002354.SZ",
+          "sha256": "91bc033d8c1310cddb649f7b13e3691281f9899e66b0d71bebbbb77e679af183"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002425.SZ",
+          "sha256": "65eaca60bc90f71241e3a29897bc9d1a916c21ad9f3987c990ee3937dd71b448"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002439.SZ",
+          "sha256": "c111a1067af52a2f164723c2f8cce54cf273aba84cb89146a6beb966532dc773"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002530.SZ",
+          "sha256": "3f62b160fddb22a63cfe181d378b2b1910fb1371ddaf65276f20c27e9da05cf9"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002541.SZ",
+          "sha256": "63fe1b3a83e510d99dbefa2b5ee5b4b24455154ba6a0056e3e0b0a816d95d0e4"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002590.SZ",
+          "sha256": "afd7c77de3845b44d4c4bc7d2f75c2c4964b4aa7edeae14111abb15317e4f002"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002603.SZ",
+          "sha256": "d0fa83ebd982124edda64ab7b9cc22652b9033da3a146f26131128ec3f744a52"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002712.SZ",
+          "sha256": "d6e59bda93d6b0950abd910ead56eb292f558bedce5a6d737279eb656228366a"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002811.SZ",
+          "sha256": "9042bc31922e27596a8766c6feb37f6feab284ed338cfe0894192328bf1cf96f"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002833.SZ",
+          "sha256": "dbd14d5f02e43dfc6a03adaf0c3f2eb561b01bd212e046f759fbc58c560dc0ed"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002946.SZ",
+          "sha256": "036bf561b455b9d1460d995f0437dbadb3a27b9cc702f5886872aa5bb6d062b0"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:002990.SZ",
+          "sha256": "7df23afd5472260e845239251deab12c6498f17d7aa674e799a387abeb12cf8d"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300012.SZ",
+          "sha256": "59fc57cf5d44202f58da2931358963341bf814df70464ead530a21311a9b9d6c"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300031.SZ",
+          "sha256": "9484d75a9dccb532d17e7b7f212e8ef45d98551d40c82e55151c95b4e5b29062"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300143.SZ",
+          "sha256": "9b2fc36028b025798d2bccb98e8d9f9bb5cfee10d9c5544a3fe33d34dd9b162f"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300181.SZ",
+          "sha256": "58fa4c94d748a395383d3e0dbbcc1c79e73097c8861c72590d4c90917bc5da2b"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300199.SZ",
+          "sha256": "9455edd85917b1881c0892f907e08b1b51d96da770ad0f4fe46dfeb2e08cf304"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300226.SZ",
+          "sha256": "331a9c042fd23e54926fb84513cd0f712d90fc7cdeb3757703aa80fef317da1e"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300298.SZ",
+          "sha256": "e85003f9a7b89c7d8ef35ee072f004d8b885359749d771a01425c9673ebe960d"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300299.SZ",
+          "sha256": "9a272bad759fd4d437fbcfb2c0a0a0ac7c176e4c35742246b49d452b15e37f50"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300378.SZ",
+          "sha256": "f801f87f6bb0d6ca75cabbb37c15a148046e229ca8926f989d4ad14a9c79ab63"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300406.SZ",
+          "sha256": "6352bc0ee688ae9305af9fe326f0ee6243359047ed77f05bffbc3cc1189638cd"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300426.SZ",
+          "sha256": "cd12f7e57ecc3c5360c63b5f32e3314b4dc86208b79ce3ed74f04f926a434117"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300432.SZ",
+          "sha256": "69f5276e4f24ba9fc1fb75d5bf4096fb857e765d8a08457e0a2c9972eb906173"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300453.SZ",
+          "sha256": "74568fb76b9dd637fcbfd7f6c1b3d6a958ac37301d3d657e3c694dd542a65c10"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300556.SZ",
+          "sha256": "80e10033cdd0cf10db2b1ae08eb3a200a288c374f7d7e80a181d1e39a54c13a7"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300678.SZ",
+          "sha256": "5e7490cba4f5f14225cc6ca01418894f1a06f7e9f26d8753438d4f05337013f4"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300733.SZ",
+          "sha256": "13dd6253ae3b51e27fd327c468d90100ee4855da848b5c65a189c54d21db8915"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300756.SZ",
+          "sha256": "a7d326b72828fb8c5338ce17c87c8548c8b266f778f13b168c79fcebe5559b3a"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300765.SZ",
+          "sha256": "b8b875aad41974a7e698818aba674b5f5163e1e17d5077ec7291cd73939c5095"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300771.SZ",
+          "sha256": "be8ed7b4f60ac3a8c550bcef055ac366ee4144fd1ac0bbdf5f69a7bd74d98d49"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300832.SZ",
+          "sha256": "e74827bcfd465a4d9f4d026083772763c9c8d3cb8c395761bf79e01281baffb7"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300839.SZ",
+          "sha256": "fd0e6ebc403aa87817e611b5711749514f946d076903bca35a5383c44c088146"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300852.SZ",
+          "sha256": "4dc01022c756b5704977b7d27bbe8b07dfad7bdf3e3c4e2587e7e8933c5af831"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300957.SZ",
+          "sha256": "df91f085dd4498638510559ae4270aca8b5efbc0c36544dce71aefeb0603077d"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:300999.SZ",
+          "sha256": "824a2bb7fe839591c427655aa321774596d57b0b79eca40523de1b45f0e0db38"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:301002.SZ",
+          "sha256": "5786f4a60277dc81ea941a1ced200d67299cf51f19ba28da3e191f734a460817"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:301025.SZ",
+          "sha256": "614fc1c673960b7a328a4a71470cf3e153812b46fdd24d5f6af6941af8c97a7c"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:301108.SZ",
+          "sha256": "d642b965c4d3078defe449fe13b7c0937423152c533bc64481219cd5cc2bde4c"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:301110.SZ",
+          "sha256": "c044412e3282053b3590c7640ef0c477603e78a9399e57071be4b8b98bf2e680"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:301122.SZ",
+          "sha256": "5f637154fd7bb9a01da31a0f0886b5c6adea3874ce9509084125e844c85bcf19"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:301230.SZ",
+          "sha256": "e5536f02e971dd4142486b91a09ab072825d3e56455af005ee8d58d256444229"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:301239.SZ",
+          "sha256": "4a45c89c1242992c6f66922c2c5b1f8ff4d88fe170f789346ba96260ff51b1ee"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:301282.SZ",
+          "sha256": "2147d12bcff132ba63c721706e046d2ae48fb42925252d01621530207a4245d5"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:301310.SZ",
+          "sha256": "c1b06382812680d47b9a297167e1910549be8c0abb34a28d4811890632e3b747"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:301487.SZ",
+          "sha256": "2004db8f7597722826433c5a5afac173b6df8367af617cfc01177f3aa1106947"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:600189.SH",
+          "sha256": "fcc4e29ea9811e752663daeb063b736af3acabe43a847dd9817d140493b12872"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:600196.SH",
+          "sha256": "5771509672e734096a149371c9a81996a7869b8ecdbd864eaa160c14fa53eacf"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:600201.SH",
+          "sha256": "f6463d06b72c03571512ab52d34c0f5e501237e4f163a2fbbeec15479c859248"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:600285.SH",
+          "sha256": "cbe992a5be7f5e4405dc4ca70d10f6ae5ae6fa8afba826b19746abc4094b7244"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:600351.SH",
+          "sha256": "af54c5a710f73cbda2e1dbf53add2cf582f8376460795193721bc998589a6b96"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:600406.SH",
+          "sha256": "8972c044963049607fc2f22052a763d265cfc9572ebb4346a79c5915bb413ca2"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:600521.SH",
+          "sha256": "56736cddf1fafa030d9274914a7edb707561df84d90e85c8a1ed7aa2aad47ee8"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:600557.SH",
+          "sha256": "ca47e44a62cef7b0781f0f65edbcf04fff094827e8afaaaa3f75fdabe646e7d3"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:600573.SH",
+          "sha256": "b1e9769597a40e751dd28bacc5f732187e6607a07d2cae6447fc4d0fa3594368"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:600771.SH",
+          "sha256": "d697afcdd6496ec20481f8cc5c07a89206173f82fd316211b6f630a1bda971ce"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:600968.SH",
+          "sha256": "24ee1f80fc6269245492b4c6af91992ac32940862315a46e58e0619a59cbfee3"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:600993.SH",
+          "sha256": "20a83a7525190e26505fe9c5a19a5e116278b6071fb6fe68e9f120a58ce7bd75"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:601006.SH",
+          "sha256": "c4f44288dd1c476665704b25b4c3b1044b46af427d9aa3bc346654ec85cf1f48"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:601222.SH",
+          "sha256": "746c270d9b2e4063b564ba9ec1ceca029d12f0845caf99a661d06b5b39133b33"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:601288.SH",
+          "sha256": "0f6ffbcebaee595efa5562c60d9201f35ccc84a59eafb92923b5e4a4bd97379d"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:601328.SH",
+          "sha256": "0ab5499b6de746d813c2395cb5472c3683b03713b51367b6125dc26f806a5438"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:601398.SH",
+          "sha256": "252f829bc3901064a7f4ff8003ccd0eb1b2a445fcc0e7ad23bcdeafb250fe0be"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:601658.SH",
+          "sha256": "297fc263fda87954e36ef2b2a076e32c6ebc56798f04caea1a72d6d5421e6d01"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:601766.SH",
+          "sha256": "32ff65d77dfc31062f6099ec2b0c4a34375152aa0936e0e4f5b9588ab17735b1"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:601816.SH",
+          "sha256": "825ef09073afb74b5d0dfbf1e1cbbbb0603beddb50031d870719a3caa0f86fbc"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:601877.SH",
+          "sha256": "4b649851bc9e5edd1f78b513aa91a437873d342995a6fd45c70e0502941fa7dd"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:601939.SH",
+          "sha256": "450d94c027b06f19c5fea6522f1b8a0a3401dd25320bc489e9f4db66be3cacf1"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:601965.SH",
+          "sha256": "e6f4a5006aaf1ca49313df8fa294c44151d0d362722fe1068195924a0e105a8b"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:601988.SH",
+          "sha256": "499b454a4fe6afea3e6d8af14be52a69977e8adbdd94b62943fae199d78ed36d"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603025.SH",
+          "sha256": "1d4105b8a8db31d903c75738e07cb48fde292916064d7d777af44d7aa897d43f"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603068.SH",
+          "sha256": "4cbed855943824026e0da0d3ae46e00f8d139e8f9eb2407c8930c2b8038437f6"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603127.SH",
+          "sha256": "772851506ce02ad474c49ff9915d180ca1db84e4462d65e3de8f8b4595f5c7b7"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603171.SH",
+          "sha256": "1e5b80f878da07f827657822d5b40ffff18c8728d68489ad17d4a708abb3d841"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603198.SH",
+          "sha256": "c2418fd1e41ad5cd46c1c51f92d7ba8f19351d8976f4ee04cbe25e1b096fc2ca"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603236.SH",
+          "sha256": "3a59dae4137e6d6ef4ee5c190a0c1716e38152ee9ccd39725cba8fb2d1813389"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603301.SH",
+          "sha256": "8f19cd5c7186ab48e3c8daa2a58a25fccb2dd1fd8918fc3ab8d0de7f3aae1f7c"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603337.SH",
+          "sha256": "0adfb278f99d8ebf8e18bf157c569041299e5b58b32fbcdce826061872eefef9"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603383.SH",
+          "sha256": "7dea7400740be2cef76ecdbd3d3cd2b1570585a55d7e24ac387b334dd4c7b782"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603418.SH",
+          "sha256": "5fdd2be12d364e366b19cb9336a98df91285caa13408f05685af02686ce87c31"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603598.SH",
+          "sha256": "a4eb5ae96eeffb273d698b0eb33b80769b2ce3d4f58c35c5922beead2dc39e92"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603602.SH",
+          "sha256": "1a8202fdcac908ab7fead22d71f8c10f528a26493d01a56808c399aba115f40b"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603630.SH",
+          "sha256": "35f277df95e87cf4c63b4f65dccd5269546c67d0a2feb97522a441068070174e"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603656.SH",
+          "sha256": "6fb078cef57a1995bb156c49d5d91960efcb7c2f463244ded33919b613174c2f"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603669.SH",
+          "sha256": "c0ef25b5a2970e152b41adf3c26c8edbcdb1ad87d62123a658240b8cc24a6c46"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603728.SH",
+          "sha256": "dbd4129be5db98221b2bbf82cb720cf0e219b1d0be728a3ea06fa8d0a438338f"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603809.SH",
+          "sha256": "10c9fff522b838c47b1873c81a8d2b569e6be36a478ff37f722a4047bb144948"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603883.SH",
+          "sha256": "f403087aec6c921b6851c1eb0742047d9014451306c99003d16da8af8feefbcf"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603893.SH",
+          "sha256": "041a7d70a8bf24b3549185cbd742df503d9b5db4255dafa7bdff06084759a1fb"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603939.SH",
+          "sha256": "491305c2ff8fbdeed589953ce81ad07c39b1d895efd6d320e4a32739453154bd"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603992.SH",
+          "sha256": "710a2e51eaf6d0d20f53895ead098666e4642e1b0cf70ede0d98a2d41ec69096"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:603998.SH",
+          "sha256": "73e5b244da098c5fe6767464e05aa6fbda59184b9f244aac7ba82bb862569356"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:605189.SH",
+          "sha256": "d185cae5c4b07f37fe3855123efce0fea56a1a16115e357a2b089ab0d74723db"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:605488.SH",
+          "sha256": "b77da62a690311baf3c97163845268d46955899166b74003607537800b0e4eab"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688018.SH",
+          "sha256": "e6804240d3392a582b0d1a584c4c3469ce4388a7c2a8c92f1b7e7dcdba881fa8"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688036.SH",
+          "sha256": "94b3aff16ccd863b9fc4d9eec42b3760ed93ebd0287d2715f363fa6e7377440b"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688071.SH",
+          "sha256": "c0476c40b564116762e04dae4b2acf812f49b4043f20d794ce046fc091623e72"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688095.SH",
+          "sha256": "abc9081ff87f675b2e5cede7882c057cd7559b79b27e29ca706c3536d02a73ac"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688097.SH",
+          "sha256": "3a5e8694ddcfe19b700e3326d1611b90825be709c44dd36bd89fc56ccd13179c"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688099.SH",
+          "sha256": "bc27f65bc9f8369ed55aaebb9628609956544d75fc2a03d4cf1ae5a7b68c50cd"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688111.SH",
+          "sha256": "a6d6e0ef8f7a58f397ba3e2fc293f0c964e40000ab0544297c18dd18f916a855"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688151.SH",
+          "sha256": "44a6963c13190d57efd9989dcc37a0a70039c4e825daff78a54d5ac3fb330d9b"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688156.SH",
+          "sha256": "5e3acaac20f25513083d61eaf211c76613720f3a393b85107f00afb5aa0d18f5"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688187.SH",
+          "sha256": "5d0ae0a2f75b2b2053065a56eef3a7b9ae39e9dd8793917c845763b023b075dc"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688188.SH",
+          "sha256": "f32f1ed634a5f30e61c167d916e1ab524cba72c8f9f8a32123c1814778165df7"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688213.SH",
+          "sha256": "72a12f622016782d019c9c54f99231beb40448c1ac6c76b24a2c62f868a5b599"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688235.SH",
+          "sha256": "b36eb8e85132dc1a6ee6555b9c60ff88ae46402ff27223cadf45dead8b17852b"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688365.SH",
+          "sha256": "5f086d65a772f30bfef3c26aed6dfce0637e6a4ebd790060654bae71cc95a71e"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688475.SH",
+          "sha256": "bfbab36a50f2ee2996b6d1f27fe3d9cc1a8617ad5e1461f46cdcda4793d01570"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688499.SH",
+          "sha256": "41fa14c2d8575b97e8ebb3a9d3741c8de9adf1b88c2ed36d284d80379f5e6018"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688522.SH",
+          "sha256": "f12b037dd0ab6ad753a48b30b120ae6c5bb9aa11648046f921a9859b9055123e"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688575.SH",
+          "sha256": "d353f32bf1add6932ecf721d77b24f9ea275962169cce49777a04664dd763452"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688615.SH",
+          "sha256": "e04876520d09aadefa1056f40d9666a7e6c434995e9e24e4d2b7328a102571d2"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688617.SH",
+          "sha256": "9d6aa2ca366f5a23a5519eabfe191bbfd8657f2b800755b632e7d875ad752c46"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:QUANT:688626.SH",
+          "sha256": "7cf80a741cfddfbba62e500aa8688ac88780518eb28ac1f4112fe49561731cbe"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:301190.SZ",
+          "sha256": "4c04c7390ae2e09d8babdd24f735a9f432f5d62d1e061999cab70e1277ccf0e6"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:301608.SZ",
+          "sha256": "c9b72fd80af8c2b677714a19b28af60b524c02e05a99e0f005622534e51be371"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:300984.SZ",
+          "sha256": "cf0dc01ad35453ffb6b2c6e2b8d960fbae2b07b5d76ddc82aa3bfc2ee955b527"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:001326.SZ",
+          "sha256": "c30839470d00f9da0c378e01ea60d60291afda9dc0d91ce1bc14b0fe33c468b2"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:605100.SH",
+          "sha256": "24250c9ad8cd25fd9b5f9bcdaf5192a1a056453c21b52566857a3001472c2ed0"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:001368.SZ",
+          "sha256": "196bdb521aee5a49a801bd33a14fb33656e4864dfb578612c1531a274569aa88"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:002956.SZ",
+          "sha256": "823d7695d8ffad10e198e43ce3f5e3ba4d922ad98cf6dcff214ee6f1a8dc1ef7"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:301529.SZ",
+          "sha256": "0170f810dadef78b6fb7b1ad7f94575c4aeef46ff5eb7789a84a355eabd9017f"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:603276.SH",
+          "sha256": "880996685eaa9280f7140a6f88f409dfcf60cf1d93005303d4e009ab2cbcd4d5"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:603978.SH",
+          "sha256": "f86f89a3a2f4c5a4730605625b1a68a96be93722478e4ddd8110e9c76bf5d1a1"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:301286.SZ",
+          "sha256": "f870c370c3e0f356ef8d742f1ddf8f08076713c1ec99809aeaa68b9837e996f3"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:600641.SH",
+          "sha256": "c2d3cada429023a66b30db56f2d6fa7af6b1d99e94d3fdb40c08eebd782e9a3b"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:002674.SZ",
+          "sha256": "874c9a2c572513e5688cd97f8cbb609ef1db3c13fd59ea13be1bb312f3d57e0b"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:603155.SH",
+          "sha256": "167f6c9bfd488027d03b6553bef42c7dc42cee7537a4666e26e78192e37e12c8"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:300990.SZ",
+          "sha256": "1bc7b1df180020e379750c4e5246998f08ce2a56b2644f80911b6767304ca78a"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:688787.SH",
+          "sha256": "8d9509f7c558a78c92ba3f00ef0d1f46b49ef2e876f86754a633bd688ef3d8f2"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:601857.SH",
+          "sha256": "1688858d1e49f7983d31e5b852a7f05794a1fa8e052f6829ebf59c00ea9effb2"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:300821.SZ",
+          "sha256": "44bcdd486379bb5098f8f25c79da0742fafe6f1197d1c3facd9e238e3f813fd9"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:300107.SZ",
+          "sha256": "2adf68b5ca177c4ae614ebdff2faa621f61517690823de566dc34549e5fac468"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:603500.SH",
+          "sha256": "4437c862dc88963b8570e60f15bfce9bbb1bd161a0d09000061113b4da724a03"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:301210.SZ",
+          "sha256": "1109d1fbeb2ed4bfdda049ad8af2179e7e357d0f040206d13ff3909e61d90f34"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:601579.SH",
+          "sha256": "48263bf63613e8cbe0783cde926a3ca64c0c3c9efe5884b986fb05b5dde33b3e"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:688199.SH",
+          "sha256": "c24a87d9b440890be811505c35d5467c372426c93964269058e08b1426f28260"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:688112.SH",
+          "sha256": "bb13818b5ceecd9a2d46ef6435475caf34d43292c53e23af952879d886c2dddc"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:600316.SH",
+          "sha256": "44352e6241e91c42f9bbca522bd533893b54df13618ac8bada28cf5ff6bc073d"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:603980.SH",
+          "sha256": "b2a75aa4e4261abec68212cafc8c007b10520e3097762396eca0eecb6761ee7a"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:002780.SZ",
+          "sha256": "4c52888b1f7638777fe8b2e73206f1d4c9ef1e034b23c4b83abc6466f228f5f9"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:603188.SH",
+          "sha256": "df2d5a0de92a96c876210f910da340de79830cece0b511056359b8bfcd7a245b"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:603373.SH",
+          "sha256": "dd57159035972271a6fe47243b1423c28da5b3ea2bba4d1b6f4ab406fe6785d7"
+        },
+        {
+          "category": "QUANT",
+          "id": "A2:NOMINATION:301069.SZ",
+          "sha256": "757d81d2f351e2d3e43a90475f71d3c14dd153509cfa3c33c64535a05e576edf"
+        }
+      ]
+    },
+    "envelope": {
+      "as_of": "2026-10-20T23:08:55.182899+08:00",
+      "config_hash": "40b41a7326cde68342ed60a28a416b8cdd9dd7a487114d4c2de42aa8083f6b12",
+      "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+      "execution_trade_date": "2026-10-21",
+      "input_snapshot_ids": [
+        "snapshot-20261020T230415+0800-be48d39896c1:a2:6a7d0d7e6674:rotation-policy:a2-bottleneck:cdf36f843552"
+      ],
+      "knowledge_cutoff": "2026-10-20T23:08:55.182899+08:00",
+      "market_regime": "ROTATION_NO_MAINLINE",
+      "model_name": "deepseek-v4-pro",
+      "prompt_version": "agent-2/3.0.8",
+      "reason_codes": [],
+      "run_id": "ISOLATED_0498_3c563dd",
+      "schema_version": "team-research-envelope/1",
+      "source_trade_date": "2026-10-20",
+      "stage_id": "A2",
+      "status": "OK"
+    },
+    "candidate_ids": [
+      "000333.SZ",
+      "000423.SZ",
+      "000538.SZ",
+      "000682.SZ",
+      "000729.SZ",
+      "000848.SZ",
+      "000858.SZ",
+      "000963.SZ",
+      "000989.SZ",
+      "001266.SZ",
+      "001313.SZ",
+      "001965.SZ",
+      "002001.SZ",
+      "002164.SZ",
+      "002262.SZ",
+      "002270.SZ",
+      "002292.SZ",
+      "002294.SZ",
+      "002322.SZ",
+      "002354.SZ",
+      "002425.SZ",
+      "002439.SZ",
+      "002530.SZ",
+      "002541.SZ",
+      "002590.SZ",
+      "002603.SZ",
+      "002712.SZ",
+      "002811.SZ",
+      "002833.SZ",
+      "002946.SZ",
+      "002990.SZ",
+      "300012.SZ",
+      "300031.SZ",
+      "300143.SZ",
+      "300181.SZ",
+      "300199.SZ",
+      "300226.SZ",
+      "300298.SZ",
+      "300299.SZ",
+      "300378.SZ",
+      "300406.SZ",
+      "300426.SZ",
+      "300432.SZ",
+      "300453.SZ",
+      "300556.SZ",
+      "300678.SZ",
+      "300733.SZ",
+      "300756.SZ",
+      "300765.SZ",
+      "300771.SZ",
+      "300832.SZ",
+      "300839.SZ",
+      "300852.SZ",
+      "300957.SZ",
+      "300999.SZ",
+      "301002.SZ",
+      "301025.SZ",
+      "301108.SZ",
+      "301110.SZ",
+      "301122.SZ",
+      "301230.SZ",
+      "301239.SZ",
+      "301282.SZ",
+      "301310.SZ",
+      "301487.SZ",
+      "600189.SH",
+      "600196.SH",
+      "600201.SH",
+      "600285.SH",
+      "600351.SH",
+      "600406.SH",
+      "600521.SH",
+      "600557.SH",
+      "600573.SH",
+      "600771.SH",
+      "600968.SH",
+      "600993.SH",
+      "601006.SH",
+      "601222.SH",
+      "601288.SH",
+      "601328.SH",
+      "601398.SH",
+      "601658.SH",
+      "601766.SH",
+      "601816.SH",
+      "601877.SH",
+      "601939.SH",
+      "601965.SH",
+      "601988.SH",
+      "603025.SH",
+      "603068.SH",
+      "603127.SH",
+      "603171.SH",
+      "603198.SH",
+      "603236.SH",
+      "603301.SH",
+      "603337.SH",
+      "603383.SH",
+      "603418.SH",
+      "603598.SH",
+      "603602.SH",
+      "603630.SH",
+      "603656.SH",
+      "603669.SH",
+      "603728.SH",
+      "603809.SH",
+      "603883.SH",
+      "603893.SH",
+      "603939.SH",
+      "603992.SH",
+      "603998.SH",
+      "605189.SH",
+      "605488.SH",
+      "688018.SH",
+      "688036.SH",
+      "688071.SH",
+      "688095.SH",
+      "688097.SH",
+      "688099.SH",
+      "688111.SH",
+      "688151.SH",
+      "688156.SH",
+      "688187.SH",
+      "688188.SH",
+      "688213.SH",
+      "688235.SH",
+      "688365.SH",
+      "688475.SH",
+      "688499.SH",
+      "688522.SH",
+      "688575.SH",
+      "688615.SH",
+      "688617.SH",
+      "688626.SH"
+    ],
+    "nomination_scope": [
+      "301190.SZ",
+      "301608.SZ",
+      "300984.SZ",
+      "001326.SZ",
+      "605100.SH",
+      "001368.SZ",
+      "002956.SZ",
+      "301529.SZ",
+      "603276.SH",
+      "603978.SH",
+      "301286.SZ",
+      "600641.SH",
+      "002674.SZ",
+      "603155.SH",
+      "300990.SZ",
+      "688787.SH",
+      "601857.SH",
+      "300821.SZ",
+      "300107.SZ",
+      "603500.SH",
+      "301210.SZ",
+      "601579.SH",
+      "688199.SH",
+      "688112.SH",
+      "600316.SH",
+      "603980.SH",
+      "002780.SZ",
+      "603188.SH",
+      "603373.SH",
+      "301069.SZ"
+    ],
+    "symbol_themes": {
+      "000333.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "000423.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "000538.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "000682.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+      "000729.SZ": "CONSUMER_SERVICES",
+      "000848.SZ": "CONSUMER_SERVICES",
+      "000858.SZ": "CONSUMER_SERVICES",
+      "000963.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "000989.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "001266.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "001313.SZ": "AGRICULTURE_FOOD_SECURITY",
+      "001965.SZ": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+      "002001.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "002164.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "002262.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "002270.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+      "002292.SZ": "CONSUMER_SERVICES",
+      "002294.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "002322.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "002354.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "002425.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "002439.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "002530.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "002541.SZ": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+      "002590.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "002603.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "002712.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "002811.SZ": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+      "002833.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "002946.SZ": "CONSUMER_SERVICES",
+      "002990.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "300012.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "300031.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "300143.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "300181.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "300199.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "300226.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "300298.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "300299.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "300378.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "300406.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "300426.SZ": "CONSUMER_SERVICES",
+      "300432.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "300453.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "300556.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "300678.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "300733.SZ": "NATIONAL_DEFENSE",
+      "300756.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "300765.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "300771.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "300832.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "300839.SZ": "RESOURCES_ENERGY",
+      "300852.SZ": "AI_COMPUTE_INFRASTRUCTURE",
+      "300957.SZ": "CONSUMER_SERVICES",
+      "300999.SZ": "AGRICULTURE_FOOD_SECURITY",
+      "301002.SZ": "CONSUMER_ELECTRONICS",
+      "301025.SZ": "CONSUMER_SERVICES",
+      "301108.SZ": "CONSUMER_SERVICES",
+      "301110.SZ": "CONSUMER_SERVICES",
+      "301122.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "301230.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "301239.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "301282.SZ": "AI_COMPUTE_INFRASTRUCTURE",
+      "301310.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "301487.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+      "600189.SH": "CONSUMER_SERVICES",
+      "600196.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "600201.SH": "AGRICULTURE_FOOD_SECURITY",
+      "600285.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "600351.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "600406.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+      "600521.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "600557.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "600573.SH": "CONSUMER_SERVICES",
+      "600771.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "600968.SH": "RESOURCES_ENERGY",
+      "600993.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "601006.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+      "601222.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+      "601288.SH": "FINANCIAL_HIGH_DIVIDEND",
+      "601328.SH": "FINANCIAL_HIGH_DIVIDEND",
+      "601398.SH": "FINANCIAL_HIGH_DIVIDEND",
+      "601658.SH": "FINANCIAL_HIGH_DIVIDEND",
+      "601766.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+      "601816.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+      "601877.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+      "601939.SH": "FINANCIAL_HIGH_DIVIDEND",
+      "601965.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "601988.SH": "FINANCIAL_HIGH_DIVIDEND",
+      "603025.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "603068.SH": "SEMICONDUCTOR_LOCALIZATION",
+      "603127.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "603171.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "603198.SH": "CONSUMER_SERVICES",
+      "603236.SH": "AI_COMPUTE_INFRASTRUCTURE",
+      "603301.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "603337.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "603383.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "603418.SH": "CONSUMER_ELECTRONICS",
+      "603598.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "603602.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "603630.SH": "CONSUMER_SERVICES",
+      "603656.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "603669.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "603728.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "603809.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "603883.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "603893.SH": "SEMICONDUCTOR_LOCALIZATION",
+      "603939.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "603992.SH": "CONSUMER_SERVICES",
+      "603998.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "605189.SH": "LIGHT_TEXTILE_CONSUMER_MANUFACTURING",
+      "605488.SH": "CHEMICAL_NEW_MATERIALS",
+      "688018.SH": "SEMICONDUCTOR_LOCALIZATION",
+      "688036.SH": "CONSUMER_ELECTRONICS",
+      "688071.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "688095.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "688097.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "688099.SH": "SEMICONDUCTOR_LOCALIZATION",
+      "688111.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "688151.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "688156.SH": "AGRICULTURE_FOOD_SECURITY",
+      "688187.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+      "688188.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "688213.SH": "SEMICONDUCTOR_LOCALIZATION",
+      "688235.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "688365.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "688475.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "688499.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+      "688522.SH": "NATIONAL_DEFENSE",
+      "688575.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "688615.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "688617.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "688626.SH": "INNOVATIVE_MEDICINE_HEALTHCARE"
+    },
+    "allowed_theme_ids": [
+      "AGRICULTURE_FOOD_SECURITY",
+      "AI_APPLICATIONS_DIGITAL_ECONOMY",
+      "AI_COMPUTE_INFRASTRUCTURE",
+      "CHEMICAL_NEW_MATERIALS",
+      "CONSUMER_ELECTRONICS",
+      "CONSUMER_SERVICES",
+      "FINANCIAL_HIGH_DIVIDEND",
+      "INFRASTRUCTURE_DOMESTIC_DEMAND",
+      "INNOVATIVE_MEDICINE_HEALTHCARE",
+      "LIGHT_TEXTILE_CONSUMER_MANUFACTURING",
+      "NATIONAL_DEFENSE",
+      "POWER_EQUIPMENT_NEW_ENERGY",
+      "RESOURCES_ENERGY",
+      "ROBOTICS_ADVANCED_MANUFACTURING",
+      "SEMICONDUCTOR_LOCALIZATION"
+    ],
+    "direction_symbols": {
+      "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY": [
+        "002322.SZ",
+        "002425.SZ",
+        "002712.SZ",
+        "002811.SZ",
+        "300226.SZ",
+        "300378.SZ",
+        "300426.SZ",
+        "300957.SZ",
+        "301110.SZ",
+        "301230.SZ",
+        "603171.SH",
+        "603383.SH",
+        "603598.SH",
+        "603602.SH",
+        "688095.SH",
+        "688111.SH",
+        "688365.SH",
+        "688522.SH"
+      ],
+      "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE": [
+        "300556.SZ",
+        "300839.SZ",
+        "600406.SH",
+        "601222.SH"
+      ],
+      "SELECTED_BOARD:CONSUMER_ELECTRONICS": [
+        "688036.SH"
+      ],
+      "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE": [
+        "000423.SZ",
+        "000538.SZ",
+        "000963.SZ",
+        "000989.SZ",
+        "002001.SZ",
+        "002262.SZ",
+        "002294.SZ",
+        "002603.SZ",
+        "300181.SZ",
+        "300199.SZ",
+        "300298.SZ",
+        "300406.SZ",
+        "300453.SZ",
+        "300765.SZ",
+        "300832.SZ",
+        "301122.SZ",
+        "301239.SZ",
+        "600285.SH",
+        "600351.SH",
+        "600521.SH",
+        "600557.SH",
+        "600771.SH",
+        "600993.SH",
+        "603127.SH",
+        "603301.SH",
+        "603669.SH",
+        "603883.SH",
+        "603939.SH",
+        "603998.SH",
+        "688235.SH",
+        "688575.SH",
+        "688617.SH"
+      ],
+      "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING": [
+        "000333.SZ",
+        "000682.SZ",
+        "001266.SZ",
+        "002270.SZ",
+        "002354.SZ",
+        "002439.SZ",
+        "002530.SZ",
+        "002541.SZ",
+        "002590.SZ",
+        "002833.SZ",
+        "002990.SZ",
+        "300012.SZ",
+        "300031.SZ",
+        "300143.SZ",
+        "300299.SZ",
+        "300432.SZ",
+        "300678.SZ",
+        "300733.SZ",
+        "300756.SZ",
+        "300771.SZ",
+        "300852.SZ",
+        "301002.SZ",
+        "301282.SZ",
+        "301310.SZ",
+        "301487.SZ",
+        "600196.SH",
+        "600968.SH",
+        "601766.SH",
+        "601877.SH",
+        "601965.SH",
+        "603025.SH",
+        "603337.SH",
+        "603418.SH",
+        "603656.SH",
+        "603728.SH",
+        "603809.SH",
+        "603992.SH",
+        "605189.SH",
+        "688018.SH",
+        "688071.SH",
+        "688097.SH",
+        "688099.SH",
+        "688151.SH",
+        "688187.SH",
+        "688188.SH",
+        "688213.SH",
+        "688475.SH",
+        "688499.SH",
+        "688615.SH",
+        "688626.SH"
+      ]
+    }
+  }
+}

@@ -81,7 +81,7 @@ def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, dire
     """Return concrete offending values plus the unchanged frozen legal domains."""
     source = raw if isinstance(raw, Mapping) else {}
     focused = {r.get('symbol') for r in _rows(source, 'focus_decisions') if isinstance(r.get('symbol'), str)} & set(symbols)
-    from .team_v2_rotation_scope import rotation_coverage
+    from .team_v2_rotation_scope import rotation_coverage,rotation_reason_contract,rotation_reason_issues
     coverage=rotation_coverage(focused if effective_focus_symbols is None else set(effective_focus_symbols)&set(symbols),directions)
     expected=coverage['required_no_focus']
     known_refs = sorted(row['id'] for row in catalog['items'])
@@ -94,6 +94,7 @@ def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, dire
         nomination_scope=sorted(nomination_scope), evidence_reference_ids=known_refs,
         required_envelope=envelope, required_root_fields=sorted(_ROOT),
         required_item_fields={key: sorted(fields) for key, fields in _FIELDS.items()},
+        rotation_reason_codes_by_direction=rotation_reason_contract(directions),
         required_no_focus_if_focus_unchanged=expected,
         rotation_rule='Already FOCUS directions must not appear in rotation_reviews; each remaining frozen direction requires exactly one NO_FOCUS row with 1-3 unique in-domain symbols.')
     fields = {
@@ -116,6 +117,38 @@ def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, dire
     violations = []
     for code in issues:
         prefix, _, path = code.partition(':')
+        if prefix in {'A2_ROTATION_REASON_CODES_INVALID','A2_ROTATION_REASON_CODES_ENTRY_GATE_ONLY'}:
+            for index,row in enumerate(_rows(source,'rotation_reviews')):
+                direction=row.get('rotation_direction_id')
+                if direction!=path:continue
+                violations.append(dict(code=code,field=f'rotation_reviews[{index}].reason_codes',
+                    actual=deepcopy(row.get('reason_codes')),
+                    allowed=rotation_reason_contract(directions)[direction]))
+            continue
+        if prefix in {'A2_ROTATION_REVIEW_INVALID','A2_ROTATION_FOCUS_COVERAGE_MISSING'}:
+            # Posterior failures name a direction, not an output JSON field.
+            # Point back to its exact original row rather than showing null.
+            direction=next((d for d in sorted(directions,key=len,reverse=True)
+                if path==d or path.startswith(d+':')),None)
+            found=False
+            for index,row in enumerate(_rows(source,'rotation_reviews')):
+                if row.get('rotation_direction_id')!=direction:continue
+                found=True
+                if rotation_reason_issues(direction,row.get('reason_codes'),directions):
+                    violations.append(dict(code=code,field=f'rotation_reviews[{index}].reason_codes',
+                        actual=deepcopy(row.get('reason_codes')),
+                        allowed=rotation_reason_contract(directions)[direction]))
+                elif ':EXPLANATION_REQUIRED' in path:
+                    violations.append(dict(code=code,field=f'rotation_reviews[{index}].explanation',
+                        actual=deepcopy(row.get('explanation')),allowed=dict(type='string',minLength=10,
+                            rule='Existing posterior requires at least 10 stripped characters.')))
+            if direction is not None and not found and prefix=='A2_ROTATION_FOCUS_COVERAGE_MISSING':
+                violations.append(dict(code=code,field=f'rotation_reviews[{len(_rows(source,"rotation_reviews"))}]',
+                    actual=None,allowed=dict(rotation_direction_id=direction,decision='NO_FOCUS',
+                        reviewed_symbols=dict(minItems=1,maxItems=3,values=sorted(directions[direction])),
+                        reason_codes=rotation_reason_contract(directions).get(direction),
+                        rule='Missing exact direction row; the model must supply its own evidence-based reason.')))
+            if any(v['code']==code for v in violations):continue
         if prefix=='A2_SYMBOL_OUTSIDE_FROZEN_DOMAIN' and path in ('focus_decisions','reject_decisions','model_nominations'):
             from .team_v2_symbol_suffix import canonical_symbol
             allowed_symbols=set(nomination_scope) if path=='model_nominations' else set(symbols)

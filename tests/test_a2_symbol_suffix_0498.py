@@ -36,7 +36,9 @@ def test_real_three_originals_immutable_strict_vs_suffix_only_validation():
     assert valid==[False,False,False]
     last=rounds[-1]
     canonical,_=canonicalize_a2_symbols(json.loads(last['captured']['output_json']),**args(last))
-    assert validate(canonical,last).issues==('A2_ROTATION_DOMAIN_MISMATCH',)
+    issues=validate(canonical,last).issues
+    assert 'A2_ROTATION_DOMAIN_MISMATCH' in issues
+    assert all(code=='A2_ROTATION_DOMAIN_MISMATCH' or code.startswith('A2_ROTATION_REASON_CODES_INVALID:') for code in issues)
 
 def test_0501_three_originals_keep_other_errors_but_remove_only_contradictions():
     from liangjian_funnel.pipeline.team_v2_a2_recovery import drop_focused_rotation
@@ -50,7 +52,10 @@ def test_0501_three_originals_keep_other_errors_but_remove_only_contradictions()
         if projection is not None:
             assert all(a['rule_id']=='CONTRADICTORY_NO_FOCUS_DROPPED' and a['canonical'] is None for a in projection[1]['actions'])
         valid.append(validate(effective,row).valid)
-    assert valid==[False,True,True]
+    # 0505 now rejects original empty SELECTED_BOARD reasons that 0501's
+    # contradiction-only authority never repaired. Keep captured bytes intact.
+    assert valid==[False,True,False]
+    assert all(code.startswith('A2_ROTATION_REASON_CODES_INVALID:') for code in validate(effective,row).issues)
 
 def test_ambiguous_or_unknown_six_digits_never_canonicalized():
     assert canonical_symbol('603127.SZ',{'603127.SH','603127.BJ'})=='603127.SZ'

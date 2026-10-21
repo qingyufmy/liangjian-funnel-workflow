@@ -2,6 +2,44 @@
 from collections.abc import Mapping
 
 
+# Existing legacy posterior exclusions, not a new reason-code taxonomy.
+ENTRY_GATE_ONLY_REASON_CODES = frozenset({
+    'MARKET_RISK_OFF_RETREAT', 'MARKET_RISK_OFF', 'RISK_OFF_RETREAT',
+    'EMOTION_DIVERGENCE_NO_NEW_ENTRY', 'EMOTION_DIVERGENCE',
+    'NO_NEW_ENTRY', 'NO_NEW_ENTRY_REGIME', 'TIER_STRUCTURE_ZERO',
+    'TIER_STRUCTURE_ABSENT', 'ROTATION_RANK_4', 'ROTATION_RANK_5',
+})
+
+
+def rotation_reason_contract(direction_members):
+    """No positive enum exists in the posterior; expose its actual constraints.
+
+    SELECTED_BOARD is the approved Release-2 scope. Other legacy schemas are
+    untouched. Codes are model judgments, never synthesized by the service.
+    """
+    rotation_coverage(set(),direction_members)
+    return {direction:dict(minItems=1,maxItems=4,uniqueItems=True,
+        item_type='nonempty_string',positive_enum=None,
+        forbidden_as_only_reasons=sorted(ENTRY_GATE_ONLY_REASON_CODES),
+        rule='At least one concrete evidence-based non-selection reason; '
+            'a list consisting ONLY of the excluded entry-gate codes is invalid. '
+            'The existing posterior has no positive reason-code enum. '
+            'The service never invents a model reason.')
+        for direction in sorted(direction_members) if direction.startswith('SELECTED_BOARD:')}
+
+
+def rotation_reason_issues(direction,reason_codes,direction_members):
+    contract=rotation_reason_contract(direction_members).get(direction)
+    if contract is None:return ()
+    if (not isinstance(reason_codes,list) or not 1<=len(reason_codes)<=4
+            or any(not isinstance(code,str) or not code.strip() for code in reason_codes)
+            or len(set(reason_codes))!=len(reason_codes)):
+        return ('A2_ROTATION_REASON_CODES_INVALID:'+direction,)
+    if all(code.strip().upper() in ENTRY_GATE_ONLY_REASON_CODES for code in reason_codes):
+        return ('A2_ROTATION_REASON_CODES_ENTRY_GATE_ONLY:'+direction,)
+    return ()
+
+
 def rotation_output_contract(direction_members):
     """Generate the exact catalog from the same projection the validator uses.
 
@@ -11,6 +49,7 @@ def rotation_output_contract(direction_members):
     coverage=rotation_coverage(set(),direction_members)
     return dict(rule_id='A2_ROTATION_COVERAGE_V1',
         allowed_direction_members=coverage['required_no_focus'],
+        rotation_reason_codes_by_direction=rotation_reason_contract(direction_members),
         identifier_policy='EXACT_CASE_SENSITIVE_NO_ALIAS_NO_FOREIGN_IDS',
         algorithm=[
             '先完成 focus_decisions；allowed_direction_members 是全部可用方向，不是必须逐行填写的 NO_FOCUS 表。',

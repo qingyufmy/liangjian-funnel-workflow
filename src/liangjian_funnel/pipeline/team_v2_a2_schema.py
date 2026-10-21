@@ -161,7 +161,7 @@ def validate_a2_response(output: Any, catalog: Any, *, required_envelope: Mappin
             or not focus_themes.issubset(allowed_theme_ids)):
         issues.append("A2_FOCUS_THEME_COVERAGE_MISMATCH")
 
-    from .team_v2_rotation_scope import rotation_coverage
+    from .team_v2_rotation_scope import rotation_coverage,rotation_reason_issues
     coverage=rotation_coverage(set(focused) if effective_focus_symbols is None else effective_focus_symbols,
         direction_symbols)
     expected=set(coverage['required_no_focus'])
@@ -171,6 +171,7 @@ def validate_a2_response(output: Any, catalog: Any, *, required_envelope: Mappin
         if not isinstance(direction, str) or direction not in expected:
             issues.append("A2_ROTATION_DOMAIN_MISMATCH"); continue
         reviewed.append(direction)
+        issues.extend(rotation_reason_issues(direction,row['reason_codes'],direction_symbols))
         symbols = row["reviewed_symbols"]
         if (row["decision"] != "NO_FOCUS" or not _strings(symbols, 3, 1)
                 or not set(symbols).issubset(direction_symbols[direction])
