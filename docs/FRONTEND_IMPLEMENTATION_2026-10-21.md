@@ -1,5 +1,13 @@
 # 10-21 前端本机实现与交付记录
 
+## 0444 第三轮返工（10:54 本机验证）
+
+0444 三项修改已在独立前端 checkout 落地：未知角色只显示姓名，舞台标签/计划/记录改用批准文案；姓名使用相机投影放在各自工位下方，和 960px 窄屏舞台共享滚动；头部再缩10%，眼镜整体缩30%且线宽减半，桌沿按浅深主题使用 #C9D1DC/#3A4658，地面细网格透明度0.035。保留“未知账本”与“已确认空仓”的区别：前者“持仓将在开盘后更新”，真实空数组才显示“还没有持仓”，未把未知改成零。
+
+本轮 Node 全量26文件/190项通过，前后端 typecheck、JS syntax 与 diff 检查通过。机械检测器缺HTML/CSS解析模块，只退化为regex，不能据此称完整对比度审计通过；现有告警样式警告不在本次批准修改范围，未知数字的“—”是事实占位而非文案破折号。根 PRODUCT.md 的旧 Register 字段未参与本轮决定，也未顺带改动。
+
+`.impeccable/review/team-20261021-0444-r3/` 保存1440/1024/400浅深六张真实首页截图、400横滑与真实WEBGL_lose_context降级截图、92帧6.490374秒连续本机synthetic接力/拦截录屏。400px实测页面scrollWidth≤400，舞台960px内部横滑，姓名与工位同动；WebGL丢失后画布隐藏且六人文字降级仍完整。旧IAB标签截图超时，新建同源本机标签后截图正常，没有连接VM。保留原先局部历史/非生产约束；本轮没有独立连续动效终审，也没有新的Claude视觉ACCEPT。真实生产只读API与当天完整数据门仍欠。
+
 当前交付为本机只读 Operate 样板，位于独立 checkout `D:/dev_A股/.team-v2-frontend-20261021`，分支 `codex/frontend-20261021`、起点 `fa2b9b9`。本轮没有 push 或 deploy，没有连接虚拟机或生产数据库。根 DESIGN.md 与既有控制台不在本轮设计范围。
 
 最新视觉合同为 MAIN 的 `artifacts/frontend-role-design-20261019/claude-reference-20261021/{README_REFERENCE.md,HOME_REFERENCE.dc.html,DESIGN_SPEC.dc.html}`，以及 canonical `0441-notice-design-reference.md`、`0441-reply-b-character-professional.md`。它们覆盖冲突的旧 HOME、ROLE_CARDS_2.0 和旧调色决定。六角色 accent 已明确并落地，不再把配色写为待 Claude 选值。Impeccable 按此参考忠实实现与记录，不另选视觉方向。
