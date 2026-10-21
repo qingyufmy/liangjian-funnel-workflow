@@ -185,7 +185,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                     if 'A2:NOMINATION:'+r['symbol'] not in r['supporting_refs']:
                         issues.append('A2_NOMINATION_ORIGINAL_FACT_REFERENCE_REQUIRED')
             return TeamValidation(not issues,tuple(dict.fromkeys(issues)),result.judgments,result.sentinel_count)
-        history=[];provider_history=[];ids=[];output=None;reference_feedback_rounds=0
+        history=[];provider_history=[];canonical_history=[];symbol_audits=[];canonical_audits=[];ids=[];output=None;reference_feedback_rounds=0
         normalization=None;normalizations=[];budget_stop=None
         input_projections=[]
         for attempt in range(3):
@@ -251,21 +251,41 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                 run_id=run_id,model=model,source_trade_date=envelope['source_trade_date'],trade_date=envelope['execution_trade_date'],
                 catalog=values['EVIDENCE_CATALOG'],clock=pipeline.now,session='CLOSE_REVIEW',validator=validate,**budget)
             provider_history.append(list(issues))
-            # Keep the provider's captured JSON and validation immutable.  The
-            # Effective audit/feedback may drop redundant valid NO_FOCUS rows;
-            # 0488 still requires a provider-corrected valid answer. Only a
-            # server-caused policy demotion may generate a server explanation.
-            effective_raw=raw
-            effective_focus={r.get('symbol') for r in raw.get('focus_decisions',[]) if isinstance(r,Mapping) and isinstance(r.get('symbol'),str)} if isinstance(raw,Mapping) else set()
-            projection=drop_focused_rotation(raw,values['EVIDENCE_CATALOG'],directions,
+            from .team_v2_symbol_suffix import canonicalize_a2_symbols
+            effective_raw,symbol_actions=canonicalize_a2_symbols(raw,candidate_ids=symbols,
+                nomination_scope={r['symbol'] for r in sample},direction_symbols=directions,catalog=values['EVIDENCE_CATALOG'])
+            if symbol_actions:
+                canonical_checked=validate(effective_raw)
+                valid=canonical_checked.valid;issues=canonical_checked.issues
+                key='a2-symbol-suffix:'+identity
+                audit=dict(rule_id='SYMBOL_SUFFIX_CANONICAL',authority='0498',actions=symbol_actions,
+                    source_call_id=call_id,provider_raw_sha256=_hash(raw),canonical_sha256=_hash(effective_raw),
+                    strict_raw_issues=provider_history[-1],canonical_issues=list(issues),audit_context_key=key,
+                    provider_capture_unchanged=True,canonical_raw=effective_raw)
+                adapter.store.freeze_control_context(key,source_sha256=request.input_hash,body=audit)
+                symbol_audits.append(audit)
+            # 0501: spelling first, safe contradictory explanation removal
+            # second, then strict validation of the complete effective reply.
+            # Neither step changes or invents any provider FOCUS selection.
+            effective_focus={r.get('symbol') for r in effective_raw.get('focus_decisions',[]) if isinstance(r,Mapping) and isinstance(r.get('symbol'),str) and r['symbol'] in symbols} if isinstance(effective_raw,Mapping) else set()
+            projection=drop_focused_rotation(effective_raw,values['EVIDENCE_CATALOG'],directions,
                 effective_focus_symbols=effective_focus)
             normalization=None
             if projection is not None:
                 effective_raw,audit=projection
                 checked=validate(effective_raw)
-                # An explanatory projection is retained for audit/feedback,
-                # not substituted for a provider-validated corrected answer.
-                valid=False;issues=tuple(provider_history[-1])
+                valid=checked.valid;issues=checked.issues
+            canonical_history.append(list(issues))
+            canonical_actions=symbol_actions+([] if projection is None else audit['actions'])
+            if canonical_actions:
+                key='a2-canonicalization:'+identity
+                canonical_audit=dict(rule_id='A2_IDENTITY_AND_CONTRADICTION_CANONICAL',authority='0501',
+                    component_authorities=['0498','0501'],actions=canonical_actions,source_call_id=call_id,
+                    provider_raw_sha256=_hash(raw),canonical_sha256=_hash(effective_raw),
+                    strict_raw_issues=provider_history[-1],canonical_issues=list(issues),audit_context_key=key,
+                    provider_capture_unchanged=True,canonical_raw=effective_raw)
+                adapter.store.freeze_control_context(key,source_sha256=request.input_hash,body=canonical_audit)
+                canonical_audits.append(canonical_audit)
             output=None
             if valid:
                 policy_audit={}
@@ -300,13 +320,14 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                 symbols=symbols,themes=set(projected['_theme_review_scope']),directions=directions,
                 nomination_scope={r['symbol'] for r in sample},engine_emotion_cycle=engine_emotion,
                 effective_focus_symbols=effective_focus)
+            if canonical_actions:feedback['field_level_canonicalization_applied']=canonical_actions
             if reference_feedback is not None:
                 reference_feedback_rounds+=1
                 feedback['reference_feedback']=reference_feedback
             preview=output if output is not None else policy_preview(effective_raw)
             if preview is not None:
                 feedback['rotation_scope_boundary']='0488: provider corrects coverage against its own focus_decisions intersect exact members, never same-theme labels. Server alone explains its later policy demotions; do not predict them.'
-                feedback['server_demoted_focus_symbols']=sorted(set(r['symbol'] for r in raw['focus_decisions'])-
+                feedback['server_demoted_focus_symbols']=sorted(({r['symbol'] for r in effective_raw['focus_decisions']} & symbols)-
                     set(r['symbol'] for r in preview['focus_pool']))
                 feedback['server_policy_demotions_are_not_provider_omissions']=True
                 feedback['theme_score_status']={theme:record['status'] for theme,record in frozen['themes'].items()}
@@ -317,7 +338,10 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                 row=db.execute('SELECT latency_ms,provider_attempts FROM model_calls WHERE call_id=?',(cid,)).fetchone()
                 if row:metrics.append(row)
         diagnostics=dict(team_call_ids=ids,legacy_checkpoint_reused=False,validation_history=history,
-            provider_validation_history=provider_history,engine_emotion_cycle=engine_emotion,
+            provider_validation_history=provider_history,canonical_validation_history=canonical_history,
+            symbol_suffix_audits=symbol_audits,canonicalization_audits=canonical_audits,
+            first_round_strict_raw_pass=bool(provider_history and not provider_history[0]),
+            first_round_canonical_pass=bool(canonical_history and not canonical_history[0]),engine_emotion_cycle=engine_emotion,
             first_round_failed=bool(history and history[0]),reference_feedback_rounds=reference_feedback_rounds,
             reference_retry_authority='0361_REPLY_B_ALL_VALIDATION_FEEDBACK_MAX_THREE',
             server_normalization=normalization,

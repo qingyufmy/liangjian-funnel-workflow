@@ -204,7 +204,7 @@ def test_missing_coverage_never_creates_server_rows():
         {'D': {'000001.SZ'}}) is None
 
 
-def test_latent_preserved_but_redundant_bank_row_must_be_corrected_by_provider(tmp_path):
+def test_0501_latent_preserved_and_contradictory_bank_row_audited_without_retry(tmp_path):
     def mutate(raw, attempt):
         raw['market_read']['emotion_cycle'] = 'LATENT'
         raw['rotation_reviews'] = [no_focus()] if attempt==1 else []
@@ -212,17 +212,19 @@ def test_latent_preserved_but_redundant_bank_row_must_be_corrected_by_provider(t
     args['snapshot'] = replace(args['snapshot'], data={**args['snapshot'].data,
         'MARKET_EMOTION_SNAPSHOT': {'emotion_cycle_stage': 'LATENT'}})
     result = app._run_stage(**args)
-    assert result.status == 'VALIDATED' and len(seen) == 2
+    assert result.status == 'VALIDATED' and len(seen) == 1
     assert result.output['market_read']['emotion_cycle'] == 'LATENT'
-    assert result.diagnostics['validation_history'] == [['A2_ROTATION_DOMAIN_MISMATCH'],[]]
-    assert result.diagnostics['provider_validation_history'] == [['A2_ROTATION_DOMAIN_MISMATCH'],[]]
+    assert result.diagnostics['validation_history'] == [[]]
+    assert result.diagnostics['provider_validation_history'] == [['A2_ROTATION_DOMAIN_MISMATCH']]
+    assert result.diagnostics['canonical_validation_history'] == [[]]
     with closing(app.team_research_adapter.journal._connect()) as db:
         captures = db.execute('SELECT output_json,validated FROM model_calls ORDER BY captured_at').fetchall()
-    assert [r[1] for r in captures]==[0,1] and json.loads(captures[0][0])['rotation_reviews']==[no_focus()]
+    assert [r[1] for r in captures]==[0] and json.loads(captures[0][0])['rotation_reviews']==[no_focus()]
     audit = result.diagnostics['server_normalizations'][0]
-    assert audit['status'] == 'BLOCKED'
+    assert audit['status'] == 'VALIDATED'
     assert [r['action'] for r in audit['actions']] == ['SERVER_DROPPED_FOCUSED_DIRECTION']
-    assert app._run_stage(**args).output == result.output and len(seen) == 2
+    assert audit['actions'][0]['rule_id']=='CONTRADICTORY_NO_FOCUS_DROPPED'
+    assert app._run_stage(**args).output == result.output and len(seen) == 1
 
 
 @pytest.mark.parametrize('fact,answer,valid', [

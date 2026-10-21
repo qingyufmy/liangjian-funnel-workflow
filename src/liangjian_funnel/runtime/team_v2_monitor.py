@@ -210,6 +210,9 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     reviewed=store.load_morning_risk(ACCOUNT,day,source_call_id='A6:morning:'+day)
     upper=reviewed.envelopes if reviewed is not None else tuple(conservative_envelope(e,consecutive_failures=1)
         for e in _envelopes(morning['envelopes']))
+    if reviewed is None:
+        from .regeneration_data_limits import restrict_unreviewed
+        upper=restrict_unreviewed(upper)
     limits=RiskLimits.from_yaml(settings.root/'config/risk_limits.yaml')
     limits=first_day_limits(limits,first_policy,now=current)
     exception_runtime=RiskExceptionRuntime(store)

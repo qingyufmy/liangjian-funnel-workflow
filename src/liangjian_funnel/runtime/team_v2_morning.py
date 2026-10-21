@@ -176,8 +176,9 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     if result is None:
         # No fabricated A6 response or success label. PM may allocate only the
         # deterministic conservative envelopes, recording the missing meeting.
-        result=RiskMeetingResult('A6_MISSING_CONSERVATIVE',tuple(conservative_envelope(e,consecutive_failures=1)
-            for e in envelopes),D(frozen['engine_utilization_cap']),1,('A6_MORNING_MISSING',))
+        from .regeneration_data_limits import restrict_unreviewed
+        result=RiskMeetingResult('A6_MISSING_CONSERVATIVE',restrict_unreviewed(tuple(conservative_envelope(e,consecutive_failures=1)
+            for e in envelopes)),D(frozen['engine_utilization_cap']),1,('A6_MORNING_MISSING',))
     common.update(envelopes=result.envelopes)
     values['MARKET_STATE']['a6_morning']={'status':result.status,'reason_codes':list(result.reason_codes)}
     bounds=tuple(min(D(v),result.utilization_cap) for v in frozen['baseline_range'])

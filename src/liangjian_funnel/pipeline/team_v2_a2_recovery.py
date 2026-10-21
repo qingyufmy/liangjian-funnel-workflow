@@ -80,9 +80,9 @@ def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, dire
                         engine_emotion_cycle=None,effective_focus_symbols=None):
     """Return concrete offending values plus the unchanged frozen legal domains."""
     source = raw if isinstance(raw, Mapping) else {}
-    focused = {r.get('symbol') for r in _rows(source, 'focus_decisions') if isinstance(r.get('symbol'), str)}
+    focused = {r.get('symbol') for r in _rows(source, 'focus_decisions') if isinstance(r.get('symbol'), str)} & set(symbols)
     from .team_v2_rotation_scope import rotation_coverage
-    coverage=rotation_coverage(focused if effective_focus_symbols is None else effective_focus_symbols,directions)
+    coverage=rotation_coverage(focused if effective_focus_symbols is None else set(effective_focus_symbols)&set(symbols),directions)
     expected=coverage['required_no_focus']
     known_refs = sorted(row['id'] for row in catalog['items'])
     emotion_values = list(_POLICIES)
@@ -116,6 +116,18 @@ def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, dire
     violations = []
     for code in issues:
         prefix, _, path = code.partition(':')
+        if prefix=='A2_SYMBOL_OUTSIDE_FROZEN_DOMAIN' and path in ('focus_decisions','reject_decisions','model_nominations'):
+            from .team_v2_symbol_suffix import canonical_symbol
+            allowed_symbols=set(nomination_scope) if path=='model_nominations' else set(symbols)
+            directory=set(symbols)|set(nomination_scope)
+            for index,row in enumerate(_rows(source,path)):
+                actual=row.get('symbol')
+                if isinstance(actual,str) and actual in allowed_symbols:continue
+                suggestion=canonical_symbol(actual,directory)
+                legal=[suggestion] if suggestion!=actual and suggestion in allowed_symbols else sorted(allowed_symbols)
+                violations.append(dict(code=code,field=f'{path}[{index}].symbol',actual=actual,
+                    allowed=dict(values=legal,rule='Use the exact frozen security ID including exchange suffix; no new security selection is authorized.')))
+            continue
         if prefix == 'A2_STAGE_POLICY_MISMATCH':
             for index, row in enumerate(_rows(source, 'theme_reviews')):
                 stage = row.get('stage'); policy = row.get('new_entry_policy')
@@ -197,7 +209,8 @@ def drop_focused_rotation(raw, catalog, directions,*,effective_focus_symbols=Non
             result['rotation_reviews'].append(deepcopy(row))
         else:
             actions.append(dict(action='SERVER_DROPPED_FOCUSED_DIRECTION',
-                rule_id='A2_ROTATION_REMOVE_ALREADY_FOCUSED_V1',
+                rule_id='CONTRADICTORY_NO_FOCUS_DROPPED',
+                field=f'rotation_reviews[{index}]',raw=deepcopy(row),canonical=None,
                 normalized_row=None, original_index=index,
                 rotation_direction_id=row['rotation_direction_id'], original_row=deepcopy(row)))
     if not actions:

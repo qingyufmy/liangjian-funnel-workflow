@@ -15,6 +15,9 @@ from .team_v2_store import canonical
 from ..pipeline.team_v2_pm_schema import PM_PRIMARY_CLUSTER_CAP
 from ..pipeline.team_v2_cluster_quota import checked_cluster_quota_context,normalize_cluster_quota
 from .team_v2_risk_policy import project_risk_values
+from .regeneration_data_limits import a6_gap_requirements, gap_reviewed_ids, restrict_unreviewed
+from ..pipeline.team_v2_prompts import with_runtime_contract
+from ..pipeline.team_v2_contract import TeamValidation
 
 
 def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,account_id,run_id,model,
@@ -54,11 +57,24 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
     values['RISK_LIMITS']['primary_cluster_cap']=PM_PRIMARY_CLUSTER_CAP
     if quota_context is not None:values['RISK_LIMITS']['server_cluster_capacity']=quota_context
     values=json.loads(canonical(values))
+    gap_requirements=a6_gap_requirements(values['EVIDENCE_CATALOG'],envelopes)
     original_values=values
     values=project_risk_values(values)
     validate_risk_premarket(None,values['EVIDENCE_CATALOG'],**validator_args)
     original_request=repository.prepare_messages('A6',original_values,required_envelope=required_envelope,session='PREMARKET')
     request=repository.prepare_messages('A6',values,required_envelope=required_envelope,session='PREMARKET')
+    if gap_requirements:
+        request=with_runtime_contract(request,dict(authority='0498_REGENERATION_A1_SOURCE_GAPS',
+            data_limited_plan_reviews=gap_requirements, maximum_risk_unit='PROBE',
+            required_adjustment_reason_code='DATA_LIMITED_REVIEWED',
+            review_instruction='For EACH listed plan, explicitly review EACH exact reason_code in '
+                'what_would_change_my_mind and cite its plan_ref in supporting_refs. '
+                'Suspend if insufficient; missing reviews cannot use conservative fallback.'))
+    def validate(raw):
+        checked=validate_risk_premarket(raw,values['EVIDENCE_CATALOG'],**validator_args)
+        missing=set(gap_requirements)-gap_reviewed_ids(raw,gap_requirements)
+        issues=(*checked.issues,*(f'A6_DATA_LIMITED_REVIEW_REQUIRED:{pid}' for pid in sorted(missing)))
+        return TeamValidation(not issues,issues,checked.judgments,checked.sentinel_count)
     binding=hashlib.sha256(canonical(dict(input_hash=request.input_hash,run_id=run_id,model=model,
         trade_date=trade_date,source_trade_date=source_trade_date,context_hash=context_hash)).encode()).hexdigest()
     original_observed=store.claim_risk_session(meeting_id,input_sha256=binding,observed_at=now)
@@ -78,7 +94,7 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
     output=None;valid=False;provider_issues=()
     if captured is not None:
         output=captured['output']
-        checked=validate_risk_premarket(output,values['EVIDENCE_CATALOG'],**validator_args)
+        checked=validate(output)
         valid=captured['validated'] and checked.valid
         provider_issues=tuple(dict.fromkeys((*captured['issues'],*checked.issues)))
     elif journal.load_failed(call_id,request_binding=team_call_binding(request,run_id=run_id,model=model,
@@ -87,8 +103,7 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
             outcome=call_team_model(request,client,journal,call_id=call_id,run_id=run_id,model=model,
                 session='PREMARKET',source_trade_date=source_trade_date,execution_trade_date=trade_date,
                 catalog=values['EVIDENCE_CATALOG'],timeout_seconds=timeout_seconds,
-                max_output_tokens=max_output_tokens,validator=lambda raw:validate_risk_premarket(
-                    raw,values['EVIDENCE_CATALOG'],**validator_args),clock=clock,allow_model_call=True)
+                max_output_tokens=max_output_tokens,validator=validate,clock=clock,allow_model_call=True)
             output=outcome.response.output;valid=outcome.validation.valid
             provider_issues=outcome.validation.issues
         except ValueError as exc:
@@ -97,7 +112,7 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
         projection=normalize_cluster_quota(output,quota_context)
         if projection is not None:
             effective,audit=projection
-            checked=validate_risk_premarket(effective,values['EVIDENCE_CATALOG'],**validator_args)
+            checked=validate(effective)
             # Only capacity arithmetic is repairable. In particular a prior
             # validator exception is not a quota vote, even if revalidation of
             # the derived JSON happens to succeed after restart.
@@ -113,6 +128,13 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
                     effective_validation_issues=list(checked.issues),status='VALIDATED' if effective_valid else 'BLOCKED',
                     quota_context=quota_context))
             output=effective;valid=effective_valid
+    if gap_requirements:
+        reviewed=gap_reviewed_ids(output,gap_requirements) if valid else set()
+        envelopes=restrict_unreviewed(envelopes,reviewed)
+        store.freeze_control_context('a6-source-gap-review:'+meeting_id,source_sha256=request.input_hash,
+            body=dict(authority='0498_REGENERATION_A1_SOURCE_GAPS',source_call_id=call_id,
+                requirements=gap_requirements,provider_validated=bool(valid),
+                reviewed_plan_ids=sorted(reviewed),blocked_plan_ids=sorted(set(gap_requirements)-reviewed)))
     return store.record_premarket(meeting_id=meeting_id,source_call_id=call_id,account_id=account_id,
         trade_date=trade_date,observed_at=original_observed,envelopes=envelopes,output=output,validated=valid,
         engine_utilization_cap=engine_utilization_cap)

@@ -62,3 +62,12 @@
 
 A5按0488以公共策略定义+引用ID进一步无损去重，字段缺失/null/原数值与全文均须逆向一致；不提高250k门。最终HEAD自身VM全量、同HEAD新整链和Claude最终ACCEPT仍缺，不能借9d 6470/0。
 
+## 20:50 0498 / 0501 授权窄修（替代上段对应旧限制）
+
+- 0494三份原始provider JSON按原字节/hash保留；纠错反馈逐行标明symbol字段和合法同代码标识，不在unchanged/server-demoted列表回显非法证券。
+- 0498只对合法目录唯一六位代码规范交易所后缀，逐字段`SYMBOL_SUFFIX_CANONICAL`审计；未知/歧义/外域/重复/其它refs错误仍拒绝。原journal严格校验结果不改。
+- 原第三轮先前在错误后缀处短路，规范后暴露多余NO_FOCUS。0501批准先后缀→删除已由本模型合法focus覆盖方向的矛盾说明→完整严格校验。删除留`CONTRADICTORY_NO_FOCUS_DROPPED` raw→null；不增改focus、不补真正缺失方向、不制造模型判断。三份真实原件最终有效校验分别FAIL/PASS/PASS，首份其它refs错误仍拒绝。
+- 每次冻结`a2-canonicalization:<call>`，分别报告strict原样与canonical通过率；重生成与OPS守卫只认同最后call的0498/0501白名单审计及成功postpolicy，不沿用其它归一化绿。
+- 仅显式重生成从原snapshot_manifest.source_failures派生DATA_LIMITED/缺源明细/PROBE上限；A3选中后几何未发布也独立留小审计。A6末端合同要求逐项缺源审查和原PLAN引用；缺审/坏审/缺晨会只阻断对应缺源计划，不能被conservative fallback或新价刷新绕过。自然研究/正常无缺源计划不变，不改原快照或默认删除证券。
+- 0498发布口径：新HEAD自身VM全量+确定性40、前向回退自身VM全量及一次同HEAD整链；A2仍失败时证明旧3条保留与无异常扩散，核心仍可申请发布，但不正式重生成。最终ACCEPT与实际VM安装验收尚待，非上线记录。
+

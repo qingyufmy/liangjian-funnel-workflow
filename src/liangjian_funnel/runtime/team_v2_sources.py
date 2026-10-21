@@ -144,6 +144,7 @@ def meeting_plan_facts(rows):
         'pressure_reduce_price','reference_price','reference_price_as_of','plan_expiry',
         'market_regime','market_environment','risk_unit','max_batches','plan_priority',
         'A2_UNAVAILABLE','A2_REVIEW_DEGRADED','PATTERN_B','SERVER_FALLBACK','degradation_tags',
+        'DATA_LIMITED','source_data_limits',
         'plan_priority_rank','priority_reasons','trading_plan_brief','trade_plan_brief','trade_brief',
         'handoff_notes','what_would_change_my_mind','supporting_refs','opposing_refs',
         'opposing_search_scope','confirmation_conditions','a4_required_entry_rules',

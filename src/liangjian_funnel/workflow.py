@@ -6994,6 +6994,7 @@ class WorkflowApplication:
             for audit in getattr(lane, 'stages', ()))}
         geometry_observation_pool: list[dict[str, Any]] = []
         geometry_audit: list[dict[str, Any]] = []
+        regeneration_source_gap_audit = []
         settings = getattr(self, "settings", None)
         primary_lane = str(getattr(settings, "research_primary_lane_id", "lane_1"))
         publish_comparisons = bool(getattr(settings, "publish_comparison_lanes", False))
@@ -7050,6 +7051,14 @@ class WorkflowApplication:
                 for raw_index, raw in enumerate(plans):
                     if not isinstance(raw, Mapping):
                         continue
+                    if regeneration is not None:
+                        from .runtime.regeneration_data_limits import source_gap_detail
+                        source_gap = source_gap_detail(snapshot_data, raw.get('symbol'))
+                        if source_gap is not None:
+                            regeneration_source_gap_audit.append(dict(lane=lane.lane,
+                                pool=pool_name, row_index=raw_index, symbol=raw.get('symbol'),
+                                source_data_limits=source_gap,
+                                scope='A3_SELECTION_BEFORE_PUBLICATION_FILTERS_NOT_EXECUTION_PERMISSION'))
                     payload = {
                         **_plan_payload(raw),
                         "source_run_id": result.run_id,
@@ -7211,6 +7220,17 @@ class WorkflowApplication:
         # This projection does not mutate frozen research or feed any prompt.
         from .runtime.shadow_inputs import shadow_inputs_for_publication
         from .runtime.plan_expiry import normalize_publication_expiry
+        regeneration_source_gap_audit_path = None
+        if regeneration is not None and settings is not None:
+            # A3 selections remain auditable even if geometry later isolates
+            # every selected row and the atomic replacement keeps the old batch.
+            regeneration_source_gap_audit_path = (settings.workflow_output_dir / 'runs' /
+                f'{result.run_id}-source-data-limit-audit.json')
+            atomic_write_json(regeneration_source_gap_audit_path, dict(
+                authority='0498_REGENERATION_A1_SOURCE_GAPS',run_id=result.run_id,
+                snapshot_id=result.snapshot_id,snapshot_hash=result.snapshot_hash,
+                selections=regeneration_source_gap_audit,
+                scope='A3_SELECTION_BEFORE_GEOMETRY_NOT_EXECUTION_PERMISSION'))
         geometry_ready = []
         for candidate in batch:
             payload = normalize_publication_expiry(candidate["payload"], candidate["expires_at"])
@@ -7230,6 +7250,9 @@ class WorkflowApplication:
                 payload = projection['payload']
                 from .runtime.plan_cluster_display import project_cluster_display
                 payload = project_cluster_display(payload)
+            if regeneration is not None:
+                from .runtime.regeneration_data_limits import source_gap_detail, project_data_limited
+                payload = project_data_limited(payload, source_gap_detail(snapshot_data, candidate['symbol']))
             candidate["payload"] = payload
             geometry_ready.append(candidate)
             original = original_plans[candidate["plan_id"]]
@@ -7348,6 +7371,8 @@ class WorkflowApplication:
             "activated": activated,
             "blocked": blocked,
             "team_plan_geometry": geometry_audit,
+            "regeneration_source_gap_audit": regeneration_source_gap_audit,
+            "regeneration_source_gap_audit_path": str(regeneration_source_gap_audit_path) if regeneration_source_gap_audit_path else None,
             "observation_pool": geometry_observation_pool,
             "primary_lane": primary_lane,
             "comparison_lanes": comparison_lanes,

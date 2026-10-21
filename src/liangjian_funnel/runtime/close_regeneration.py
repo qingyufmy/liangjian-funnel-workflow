@@ -57,9 +57,18 @@ def require_raw_research_pass(result,primary_lane):
     if result.status!='READY' or lane is None or lane.status!='READY':return False
     stage=next((stage for stage in lane.stages if stage.stage=='A2'),None)
     diagnostics=getattr(stage,'diagnostics',None)
-    # A successful derived/normalized stage is explicitly not a raw pass.
+    # Only 0498/0501's exact identity/contradictory-explanation exceptions are
+    # eligible. Other derived/fallback stage success remains insufficient.
     history=diagnostics.get('provider_validation_history') if isinstance(diagnostics,Mapping) else None
-    return bool(stage is not None and stage.status=='VALIDATED' and history and history[-1]==[])
+    strict=bool(history and history[-1]==[])
+    canonical=diagnostics.get('canonical_validation_history') if isinstance(diagnostics,Mapping) else None
+    audits=diagnostics.get('canonicalization_audits',[]) if isinstance(diagnostics,Mapping) else []
+    calls=diagnostics.get('team_call_ids',[]) if isinstance(diagnostics,Mapping) else []
+    allowed_suffix=bool(canonical and canonical[-1]==[] and audits and audits[-1].get('authority')=='0501'
+        and calls and audits[-1].get('source_call_id')==calls[-1]
+        and audits[-1].get('rule_id')=='A2_IDENTITY_AND_CONTRADICTION_CANONICAL' and audits[-1].get('canonical_issues')==[]
+        and audits[-1].get('actions') and all(a.get('rule_id') in {'SYMBOL_SUFFIX_CANONICAL','CONTRADICTORY_NO_FOCUS_DROPPED'} for a in audits[-1]['actions']))
+    return bool(stage is not None and stage.status=='VALIDATED' and (strict or allowed_suffix))
 
 
 def regeneration_manifest(proof,snapshot,*,raw_pass,created):
