@@ -5445,7 +5445,8 @@ class WorkflowApplication:
         # the publisher owns incident/delivery deduplication independently.
         durable_events.extend(row for row in self.store.list_monitor_events(
             lane_id=primary_lane_id, from_time=current, to_time=current,
-        ) if row.get("action") == "DATA_BLOCK")
+        ) if row.get("action") == "DATA_BLOCK" or row.get("reason_code") in {
+            "T1_RISK_PENDING", "SELLABLE_QUANTITY_UNKNOWN"})
         primary_plans = {
             str(plan.get("plan_id") or ""): plan
             for plan in lane_plans.get(primary_lane_id, ())
@@ -7600,6 +7601,15 @@ class WorkflowApplication:
                 MonitorAction.FORCED_RISK_EXIT.value: "FORCED_RISK_EXIT",
             }[str(event["action"])]
             signal_time = datetime.fromisoformat(str(event["minute_end"]))
+            if action in {"SELL", "REDUCE", "FORCED_RISK_EXIT"} and (
+                signal_time.astimezone(SHANGHAI).date() != bar.bar_end.astimezone(SHANGHAI).date()
+            ):
+                # Historical EXIT_PENDING is not a next-session order. Keep
+                # the original audit row; today's monitor must issue a fresh
+                # decision from today's price before any settled lot is sold.
+                record_business_reasons({"T1_PRIOR_EXIT_REASSESSMENT_REQUIRED": 1},
+                    incident_key=f"{lane_id}:{symbol}:{bar.bar_end.date()}")
+                continue
             contract = payload.get("entry_contract")
             contract = contract if isinstance(contract, Mapping) else None
             new_entry = contract is not None and action in {"BUY", "ADD"}

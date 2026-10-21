@@ -172,7 +172,12 @@ def test_quarantined_position_still_records_hard_stop_without_terminal_reopen(tm
     risk=bar.model_copy(update={'bar_end':at('11:19:00'),'low':14.4,'close':14.45})
     batch=MonitorEngine(store).process_minute('lane_1',{'600621.SH':risk},
         minute_snapshot_id='h1-hard-stop',now=at('11:19:00'),risk_bars={'600621.SH':risk})
-    assert any(event.action=='FORCED_RISK_EXIT' for event in batch.events)
+    assert any(event.action=='NO_ACTION' and event.reason_code=='T1_RISK_PENDING' for event in batch.events)
+    pending = [row for row in store.list_monitor_events(lane_id='lane_1')
+        if row['reason_code']=='T1_RISK_PENDING']
+    assert len(pending)==1 and not pending[0]['effective']
+    import json
+    assert json.loads(pending[0]['payload_json'])['risk_pending']['trigger_action']=='FORCED_RISK_EXIT'
     assert store.get_a4_signal_lifecycle('h1-entry')==original
 
 

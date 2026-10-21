@@ -434,6 +434,7 @@ def test_expired_entry_plan_keeps_type_specific_exit_rules_for_open_position(tmp
     )
     assert bought.reason_code == "FILLED"
     now = datetime(2026, 9, 3, 10, 0, tzinfo=TZ)
+    broker.start_trading_day(now.date())
     start = now.replace(hour=9, minute=31)
     history = tuple(bar(start + timedelta(minutes=index), close=10.2) for index in range(30))
 
@@ -460,7 +461,7 @@ def test_expired_entry_plan_keeps_type_specific_exit_rules_for_open_position(tmp
     assert target.reason_code == "A4_TREND_TOP_RISK_CONFIRMED"
 
 
-def test_invalidated_flag_exits_an_open_position_instead_of_only_invalidating_plan(tmp_path):
+def test_invalidated_same_day_position_records_t1_risk_not_sell_signal(tmp_path):
     store = RuntimeStore(tmp_path / "invalidated-open-position.sqlite3")
     signal_at = datetime(2026, 9, 3, 9, 30, tzinfo=TZ)
     store.create_execution_plan(
@@ -517,5 +518,8 @@ def test_invalidated_flag_exits_an_open_position_instead_of_only_invalidating_pl
     )
 
     target = next(event for event in result.events if event.symbol == "600519.SH")
-    assert target.action == MonitorAction.SELL_SIGNAL.value
-    assert target.reason_code == "PLAN_INVALIDATED"
+    assert target.action == MonitorAction.NO_ACTION.value
+    assert target.reason_code == "T1_RISK_PENDING"
+    pending = store.list_monitor_events(lane_id="lane-a")[-1]
+    assert not pending['effective']
+    assert __import__('json').loads(pending['payload_json'])['risk_pending']['trigger_reason'] == 'PLAN_INVALIDATED'

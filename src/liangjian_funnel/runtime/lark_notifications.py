@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -1400,6 +1401,37 @@ class WorkflowLarkPublisher:
     ) -> list[dict[str, Any]]:
         outputs: list[dict[str, Any]] = []
         for event in events:
+            event_payload = _payload(event)
+            pending_value = event_payload.get("risk_pending")
+            pending = pending_value if isinstance(pending_value, Mapping) else {}
+            strategy_value = event_payload.get("strategy")
+            event_strategy = strategy_value if isinstance(strategy_value, Mapping) else {}
+            eligibility_value = event_strategy.get("execution_eligibility")
+            eligibility = eligibility_value if isinstance(eligibility_value, Mapping) else {}
+            exit_blocked = event.get("action") in {"SELL_SIGNAL", "REDUCE_SIGNAL", "FORCED_RISK_EXIT"} and (
+                not eligibility or eligibility.get("reason") is not None
+                or type(eligibility.get("sellable_qty")) is not int
+                or eligibility.get("sellable_qty", 0) <= 0)
+            if pending or exit_blocked:
+                plan_id = str(event.get("plan_id") or event_payload.get("plan_id") or "")
+                symbol = _stock_code(event.get("symbol") or event_payload.get("symbol"))
+                t1_locked = (event.get("reason_code") == "T1_RISK_PENDING"
+                    or eligibility.get("reason") == "BLOCKED_T1")
+                day = now.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat()
+                source_id = f"{event.get('lane_id') or ''}:{symbol}:{day}:risk-pending"
+                outputs.append(self._send(
+                    delivery_key=f"a4-risk-pending:{source_id}",
+                    kind="A4_RISK_PENDING", source_id=source_id,
+                    title=f"A4 风险提示｜{symbol}｜{'T+1锁定' if t1_locked else '可卖数量未核实'}",
+                    lines=["**风险待办，不是可执行交易信号**",
+                        "当日买入股份受T+1限制，今天不可卖；下一交易日开盘按新价格重新评估，不自动执行旧信号。"
+                        if t1_locked else "可卖数量未核实，禁止执行；核实账户及持仓批次后重新评估。",
+                        f"• 时间：{_time_label(event.get('minute_end') or now.isoformat())}",
+                        f"• 风险观察价：{_number(pending.get('trigger_price'))}；行情时点：{_time_label(pending.get('trigger_bar_end'))}",
+                        f"• 风险原因：{_display_text(pending.get('trigger_reason') or event.get('reason_code'), limit=100)}"],
+                    summary={"plan_id": plan_id, "symbol": symbol, "action": "NO_ACTION",
+                        "reason_code": event.get("reason_code"), "executable": False}, now=now))
+                continue
             if not bool(event.get("effective")) and event.get("action") != "DATA_BLOCK":
                 continue
             action = str(event.get("action") or "")

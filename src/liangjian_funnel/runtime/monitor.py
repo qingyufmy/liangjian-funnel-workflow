@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..data.mootdx import MinuteBar
 from ..reporting import atomic_write_text
 from .strategies import STRATEGY_PROFILES, evaluate_strategy
-from .execution_eligibility import project_exit_eligibility
+from .execution_eligibility import EXIT_ACTIONS, project_exit_eligibility, sellable_qty
 from .a4_explain import build_a4_decision_context
 from .position_data_health import position_data_health
 from .llm_review import freeze_llm_review_request, validate_llm_review_response
@@ -235,7 +235,7 @@ class MonitorEngine:
                     "trigger_pass": True, "eligible": False,
                     "action_candidate": MonitorAction.FORCED_RISK_EXIT.value})
                 events.append(self._emit_effective(lane_id, plan, minute, minute_snapshot_id,
-                    MonitorAction.FORCED_RISK_EXIT.value, "HARD_STOP"))
+                    MonitorAction.FORCED_RISK_EXIT.value, "HARD_STOP", observed_bar=risk_bar))
                 continue
             # If a map is present, it is a complete per-symbol readiness
             # projection.  Only the named plan is blocked; other symbols can
@@ -471,6 +471,7 @@ class MonitorEngine:
                     events.append(self._emit_effective(
                         lane_id, plan, minute, minute_snapshot_id,
                         action, reason, strategy_result=strategy_result,
+                        observed_bar=bar,
                     ))
                     continue
                 if action in {MonitorAction.SELL_SIGNAL.value, MonitorAction.REDUCE_SIGNAL.value}:
@@ -482,15 +483,14 @@ class MonitorEngine:
                             plan_id, symbol, strategy_result=strategy_result,
                         ))
                         continue
-                    # A same-day A-share position may have sellable_qty=0.
-                    # Persist the exit decision now and let the paper broker
-                    # keep it pending until T+1 quantities are released;
-                    # otherwise the decision disappears when today's plan
-                    # expires and can never be audited or settled tomorrow.
+                    # The central emitter records a non-executable T+1 risk
+                    # task when dated lots are locked; never publish an
+                    # effective SELL and rely on the broker to fix the card.
                     self._condition_active.add(key)
                     events.append(self._emit_effective(
                         lane_id, plan, minute, minute_snapshot_id,
                         action, reason, strategy_result=strategy_result,
+                        observed_bar=bar,
                     ))
                     continue
                 if action == MonitorAction.BUY_SIGNAL.value and position is not None:
@@ -602,7 +602,7 @@ class MonitorEngine:
                     events.append(self._emit_internal(lane_id, minute, minute_snapshot_id, MonitorAction.NO_ACTION.value, "EXIT_WITHOUT_POSITION", plan_id, symbol))
                     continue
                 self._condition_active.add(key)
-                events.append(self._emit_effective(lane_id, plan, minute, minute_snapshot_id, action, "DETERMINISTIC_EXIT_TRIGGER"))
+                events.append(self._emit_effective(lane_id, plan, minute, minute_snapshot_id, action, "DETERMINISTIC_EXIT_TRIGGER", observed_bar=bar))
                 continue
             if action in {MonitorAction.BUY_SIGNAL.value, MonitorAction.ADD_SIGNAL.value} and not self._buy_allowed(minute):
                 trigger_results.append(
@@ -808,6 +808,11 @@ class MonitorEngine:
                 llm_reason_code=llm_reason_code,
                 strategy_result=strategy_result,
             ))
+        # The next session re-evaluates held/expired plans above using the
+        # current minute and histories. Old pending actions are audit only,
+        # never fed into settlement as orders. Record the first real attempt.
+        self._record_t1_open_reassessment(
+            lane_id, minute, minute_snapshot_id, durable_events, events, bars_by_symbol, observation_end)
         plan_events = [event for event in events if event.plan_id]
         return MonitorBatchResult(
             lane_id=lane_id,
@@ -822,6 +827,46 @@ class MonitorEngine:
                 event.action == MonitorAction.DATA_BLOCK.value for event in plan_events
             ),
         )
+
+    def _record_t1_open_reassessment(
+        self, lane_id, minute, snapshot_id, prior_events, current_events, bars, observation_end,
+    ):
+        for row in prior_events:
+            if row.get('reason_code') != 'T1_RISK_PENDING':
+                continue
+            try:
+                original_minute = datetime.fromisoformat(row['minute_end'])
+                body = json.loads(row['payload_json'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if original_minute.date() >= minute.date():
+                continue
+            symbol = body.get('symbol')
+            pending = body.get('risk_pending') or {}
+            if pending.get('account_id') != f'paper:{lane_id}':
+                continue
+            outcomes = [e for e in current_events if e.symbol == symbol]
+            if not outcomes:
+                continue
+            bar = bars.get(symbol) or bars.get(str(symbol).split('.')[0])
+            trusted = position_data_health(bar, at=minute,
+                expected_bar_end=observation_end)['current_price_trusted']
+            limited = not trusted or all(e.action == 'DATA_BLOCK' for e in outcomes)
+            status = 'DATA_LIMITED_RETRY_FRESH_RULES' if limited else 'FRESH_RULES_EVALUATED'
+            # An initial missing opening bar must not consume the later
+            # successful reassessment; both are non-executable audit rows.
+            key = f't1-open-reassessment:{lane_id}:{symbol}:{minute.date()}:{status}'
+            self.store.record_monitor_event(event_key=key, lane_id=lane_id,
+                minute_end=minute, action=MonitorAction.NO_ACTION.value,
+                reason_code='T1_OPEN_REASSESSMENT', effective=False,
+                payload={'plan_id': body.get('plan_id'), 'symbol': symbol,
+                    'source_pending_event_id': row.get('event_id'),
+                    'minute_snapshot_id': snapshot_id, 'status': status,
+                    'new_price': bar.close if trusted else None,
+                    'new_price_as_of': bar.bar_end.isoformat() if trusted else None,
+                    'decisions': [{'action': e.action, 'reason_code': e.reason_code,
+                        'effective': e.effective} for e in outcomes],
+                    'old_action_replayed': False})
 
     def process_position_risk(
         self,
@@ -894,6 +939,7 @@ class MonitorEngine:
                     MonitorAction.FORCED_RISK_EXIT.value,
                     "HARD_STOP",
                     strategy_result={"position_data_health": health, "risk_lane": "POSITION_PROTECTION"},
+                    observed_bar=bar,
                 ))
             else:
                 events.append(self._emit_internal(
@@ -1174,9 +1220,42 @@ class MonitorEngine:
         llm_reason_code: str | None = None,
         diagnostic_code: str | None = None,
         strategy_result: Mapping[str, Any] | None = None,
+        observed_bar: MinuteBar | None = None,
     ) -> MonitorEvent:
         plan_id = str(plan["plan_id"])
         symbol = str(plan["symbol"])
+        if action in EXIT_ACTIONS:
+            account = f"paper:{lane_id}"
+            if self.store.get_position(account, symbol) is None:
+                return self._emit_internal(lane_id, minute, snapshot_id,
+                    MonitorAction.NO_ACTION.value, "EXIT_WITHOUT_POSITION", plan_id, symbol)
+            available = sellable_qty(self.store, account, symbol, minute)
+            if available is None or available <= 0:
+                pending_reason = "T1_RISK_PENDING" if available == 0 else "SELLABLE_QUANTITY_UNKNOWN"
+                # A durable non-executable risk task, not an effective SELL.
+                # One row per account/symbol/day survives restarts and all
+                # repeated REDUCE/SELL/hard-stop ticks. Never auto-submit it.
+                key = f"pending-risk:{account}:{symbol}:{minute.date().isoformat()}"
+                self.store.record_monitor_event(
+                    event_key=key, lane_id=lane_id, minute_end=minute,
+                    action=MonitorAction.NO_ACTION.value,
+                    reason_code=pending_reason, effective=False,
+                    payload={"plan_id": plan_id, "symbol": symbol,
+                        "minute_snapshot_id": snapshot_id,
+                        "risk_pending": {"state": "REQUIRES_FRESH_OPEN_REASSESSMENT",
+                            "account_id": account, "trade_date": minute.date().isoformat(),
+                            "sellable_qty": available, "trigger_action": action,
+                            "trigger_reason": reason,
+                            "trigger_price": observed_bar.close if observed_bar is not None else None,
+                            "trigger_bar_end": observed_bar.bar_end.isoformat() if observed_bar is not None else None,
+                            "trigger_low": observed_bar.low if observed_bar is not None else None,
+                            "source_observed_at": minute.isoformat(),
+                            "not_an_executable_order": True},
+                        "strategy": dict(strategy_result or {})},
+                )
+                return MonitorEvent(lane_id=lane_id, plan_id=plan_id, symbol=symbol,
+                    minute_end=minute, action=MonitorAction.NO_ACTION.value,
+                    reason_code=pending_reason, effective=False)
         if action == MonitorAction.DATA_BLOCK.value:
             # Observation identity is per minute. Notification incidents are
             # deduplicated separately; never erase a later failed decision.
@@ -1192,7 +1271,9 @@ class MonitorEngine:
         revisable = action in {MonitorAction.REDUCE_SIGNAL.value, MonitorAction.ADD_SIGNAL.value}
         key = (
             f"effective:{lane_id}:{plan_id}:{action}:{episode_id}"
-            if revisable else f"effective:{lane_id}:{plan_id}:{action}"
+            if revisable else (
+                f"effective:{lane_id}:{plan_id}:{action}:{minute.date().isoformat()}"
+                if action in EXIT_ACTIONS else f"effective:{lane_id}:{plan_id}:{action}")
         )
         from .entry_contract import freeze_entry_contract
         entry_payload = self._payload(plan)

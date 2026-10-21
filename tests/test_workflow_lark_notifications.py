@@ -426,7 +426,7 @@ def test_expected_auxiliary_deferral_does_not_toggle_source_alert(tmp_path):
 
 
 @pytest.mark.parametrize("action", ["SELL_SIGNAL", "REDUCE_SIGNAL", "FORCED_RISK_EXIT"])
-def test_position_risk_events_still_notify_t1_constraint(tmp_path, action):
+def test_position_risk_events_notify_risk_not_executable_t1_trade(tmp_path, action):
     store = RuntimeStore(tmp_path / "state.sqlite3")
     publisher = WorkflowLarkPublisher(store, "https://open.larksuite.com/open-apis/bot/v2/hook/test-token")
     fake = FakeNotifier()
@@ -436,7 +436,10 @@ def test_position_risk_events_still_notify_t1_constraint(tmp_path, action):
             "reason": "BLOCKED_T1", "total_qty": 100, "sellable_qty": 0}}})}
     publisher.publish_a4_events([event], plans={}, now=datetime(2026, 9, 11, 9, 45, tzinfo=SHANGHAI))
     assert len(fake.calls) == 1
-    assert "T+1限制，尚未执行" in "\n".join(fake.calls[0][1])
+    assert "下一交易日开盘按新价格重新评估" in "\n".join(fake.calls[0][1])
+    assert "减仓触发" not in str(fake.calls)
+    assert "卖出触发" not in str(fake.calls)
+    assert store.list_notification_deliveries()[0]["kind"] == "A4_RISK_PENDING"
 
 
 def _a4_health_state(
