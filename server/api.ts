@@ -11,6 +11,7 @@ import { JobRunner } from "./runner.js";
 import { WorkflowScheduler } from "./scheduler.js";
 import { TeamUiReadOnly } from "./team-ui-readonly.js";
 import { createTeamUiRouter } from "./team-ui-router.js";
+import { createTeamUiAccess } from "./team-ui-auth.js";
 import { resolve } from "node:path";
 
 const SAFE_RESEARCH_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
@@ -94,10 +95,11 @@ export function createApp(deps: ApiDependencies): Express {
     });
   });
 
-  app.use("/api", dashboardAuth(deps.config.dashboardToken));
+  const teamAccess = deps.config.teamUiEnabled ? createTeamUiAccess(deps.config.dashboardToken) : null;
   if (deps.config.teamUiEnabled) {
-    app.use("/api/ui", createTeamUiRouter(new TeamUiReadOnly(deps.config.rootDir, deps.config.pythonBin)));
+    app.use("/api/ui", teamAccess!.api, createTeamUiRouter(new TeamUiReadOnly(deps.config.rootDir, deps.config.pythonBin)));
   }
+  app.use("/api", dashboardAuth(deps.config.dashboardToken));
   app.all("/api/shadow/job-runs-readonly", shadowJobRunsReadOnlyRoute(deps.runner, nodeStartedAtEpochMs));
   app.use("/api/settings/lark", express.json({ limit: "4kb", strict: true }));
   app.get("/api/settings/lark", asyncRoute(async (_request, response) => {
@@ -232,10 +234,12 @@ export function createApp(deps: ApiDependencies): Express {
   // console's index for a disabled /team path.
   if (deps.config.teamUiEnabled) {
     const teamRoot = resolve(deps.config.rootDir, "web/team");
+    app.get('/team/login', teamAccess!.loginPage);
+    app.post('/team/login', express.urlencoded({extended:false,limit:'1kb'}), teamAccess!.login);
     app.use("/team", (request, response, next) => {
       if (!["GET", "HEAD"].includes(request.method)) { response.setHeader("Allow", "GET, HEAD"); response.status(405).end(); return; }
       next();
-    }, dashboardAuth(deps.config.dashboardToken), express.static(teamRoot, {index:"index.html", fallthrough:true}));
+    }, teamAccess!.page, express.static(teamRoot, {index:"index.html", fallthrough:true}));
     app.get(/^\/team(?:\/.*)?$/, (_request, response) => {
       response.sendFile("index.html", {root:teamRoot}, error => {
         if (error && !response.headersSent) response.status(404).end();

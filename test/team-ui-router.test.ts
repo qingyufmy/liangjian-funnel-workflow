@@ -50,3 +50,17 @@ test('single switch disables both real UI and API without accessing business dep
     expect((await fetch(url+'/api/ui/settings')).status).toBe(404);
   } finally {isolated.closeAllConnections();await new Promise<void>(done=>isolated.close(()=>done()));}
 });
+test('real app routes login and signed session without falling through legacy header-only auth',async()=>{
+  const config=loadConfig({LIANGJIAN_TEAM_UI_ENABLED:'true',LIANGJIAN_DASHBOARD_TOKEN:'synthetic-app-token'});
+  const isolated=createServer(createApp({config,startedAt:Date.now()} as ApiDependencies));
+  await new Promise<void>(done=>isolated.listen(0,'127.0.0.1',done));const url=`http://127.0.0.1:${(isolated.address() as {port:number}).port}`;
+  try{
+    const page=await fetch(url+'/team',{redirect:'manual'});expect(page.status).toBe(303);expect(page.headers.get('location')).toBe('/team/login');
+    expect(await (await fetch(url+'/api/ui/session')).json()).toEqual({error:'UNAUTHORIZED'});
+    const login=await fetch(url+'/team/login',{method:'POST',body:new URLSearchParams({token:'synthetic-app-token'}),redirect:'manual'});
+    const cookie=login.headers.get('set-cookie')!.split(';')[0]!;
+    expect((await fetch(url+'/team',{headers:{Cookie:cookie}})).status).toBe(200);
+    const session=await fetch(url+'/api/ui/session',{headers:{Cookie:cookie}});expect(session.status).toBe(200);expect((await session.json()).poll).toBe(true);
+    expect((await fetch(url+'/api/ui/session',{method:'POST',headers:{Cookie:cookie}})).status).toBe(405);
+  }finally{isolated.closeAllConnections();await new Promise<void>(done=>isolated.close(()=>done()));}
+});

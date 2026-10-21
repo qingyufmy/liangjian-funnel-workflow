@@ -2,14 +2,16 @@ import {ROLES,STATE_LABELS} from './roles.js';
 import {emptyState,reduceEvent,addedPositions,orderedPlans} from './model.js';
 import {createStage} from './stage.js';
 import {conditionLabel,strategyLabel,planStatusLabel,clusterLabel} from './labels.js';
+import {createPoller} from './poll.js';
 
 const $=id=>document.getElementById(id);
 const number=(v,digits=2)=>typeof v==='number'&&Number.isFinite(v)?v.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits}):'—';
 const text=(node,value)=>{node.textContent=value==null?'—':String(value);};
+const readonlyStatus=message=>{text($('connection'),message);const busy=message==='稍后刷新';$('refresh-status').hidden=!busy;text($('refresh-status'),busy?(state.events?'稍后刷新 · 保留上次数据':'稍后刷新'):'');};
 const role=id=>ROLES.find(r=>r.id===id);
 const taskStatus=value=>({VALIDATED:'校验通过',VALIDATION_FAILED:'校验未通过',ENGINE_TRACKING_NO_REVIEW_CANDIDATE:'引擎跟踪，没有需模型评审的候选'})[value]??'任务状态待说明';
 const byText=(tag,value,className)=>{const el=document.createElement(tag);text(el,value);if(className)el.className=className;return el;};
-let state=emptyState(),scene=null,reviewScene=null,demoTimer=null,sse=null,replay=null,replayIndex=0,expandedPlans=false,previewTimer=null;
+let state=emptyState(),scene=null,reviewScene=null,demoTimer=null,sse=null,replay=null,replayIndex=0,expandedPlans=false,previewTimer=null,livePoller=null;
 function stateIcon(value){
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 20 20');svg.setAttribute('aria-hidden','true');svg.classList.add('state-icon');
   const path=document.createElementNS(svg.namespaceURI,'path');
@@ -152,7 +154,7 @@ $('replay-toggle').onclick=async()=>{
     if(!response.ok)throw Error('FIXTURE_UNAVAILABLE');
     const data=await response.json();
     if(data.schema!=='team-ui-fixture/1'||data.kind!=='PARTIAL_FROZEN_EVIDENCE'||data.trade_date!=='2026-10-20')throw Error('FIXTURE_INVALID');
-    stopDemo();sse?.close();sse=null;replay=data;replayIndex=0;
+    stopDemo();livePoller?.stop();sse?.close();sse=null;replay=data;replayIndex=0;
     $('replay-controls').hidden=false;$('demo-toggle').disabled=true;
     text($('connection'),'历史局部原件 · 非实时');text($('mode-notice'),'10-20 历史局部原件回放，不是当前运行状态。缺失数据仍为「—」。');
     text($('replay-coverage'),`${data.coverage.original_plans} 原计划；${data.coverage.team_sessions} Team时点；${data.coverage.condition_rows} 条件原件。缺口：${data.coverage.missing.join('；')}`);
@@ -169,5 +171,36 @@ function connectEventStream(path){
   sse.onerror=()=>text($('connection'),'事件流断开 · 正在重连');return ()=>{sse?.close();sse=null;};
 }
 window.liangjian=Object.freeze({applyEvent,setRole,bubble,stopDemo,connectEventStream});
+async function startReadonlyPoll(){
+  try{
+    const response=await fetch('/api/ui/session',{credentials:'same-origin',signal:AbortSignal.timeout(2000)});
+    if(response.status===401){location.assign('/team/login');return;}
+    if(!response.ok)return; // Local-only preview has no authenticated session API.
+    const session=await response.json();if(session.schema!=='team-ui-session/1'||!session.poll)return;
+    stopDemo();$('demo-toggle').hidden=true;$('replay-toggle').hidden=true;
+    document.querySelector('.sample-badge').textContent='只读';
+    text($('mode-notice'),'内部模拟盘只读页面；未知数值不作推算。事件来源覆盖见任务证据。');
+    const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+    let plansLoaded=false;
+    $('plans').replaceChildren(byText('p','正在读取计划，繁忙时稍后刷新','empty'));
+    const loadPlans=async()=>{
+      const response=await fetch(`/api/ui/day/${day}/plans?limit=500`,{credentials:'same-origin',signal:AbortSignal.timeout(2000)});
+      if(!response.ok)return response;
+      const plans=await response.json();
+      if(plans.status!=='AVAILABLE'||!Array.isArray(plans.rows))throw Error('PLAN_SOURCE_UNAVAILABLE');
+      applyEvent({type:'plans',rows:plans.rows.map(row=>({...row,zone:Array.isArray(row.zone)?row.zone.join('–'):row.zone,source_id:row.source?.id,source_sha256:row.source?.sha256}))});plansLoaded=true;return response;
+    };
+    livePoller=createPoller({
+      fetchPage:async since=>{if(!plansLoaded){const response=await loadPlans();if(!response.ok)return response;}return fetch(`/api/ui/events?trade_date=${day}&since_id=${since}&limit=100`,{credentials:'same-origin',signal:AbortSignal.timeout(2000)});},
+      onRows:rows=>{for(const row of rows)applyEvent(row);},
+      onStatus:readonlyStatus,onUnauthorized:()=>location.assign('/team/login')
+    });
+    try{const initial=await loadPlans();if(initial.status===401){location.assign('/team/login');return;}if(!initial.ok)readonlyStatus('稍后刷新');}catch{readonlyStatus('稍后刷新');}
+    livePoller.start();
+    document.addEventListener('visibilitychange',()=>document.hidden?livePoller.stop():livePoller.start());
+    addEventListener('pagehide',()=>livePoller.stop(),{once:true});
+  }catch{readonlyStatus('稍后刷新');}
+}
 render();
+void startReadonlyPoll();
 if(document.readyState==='complete')route();else addEventListener('load',route,{once:true});

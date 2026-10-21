@@ -47,6 +47,7 @@ test('reads actual SQLite rows with bounded pagination and excludes raw private 
   const page = read('plans');
   expect(page.status).toBe('AVAILABLE'); expect(page.rows).toHaveLength(2); expect(page.next_offset).toBe(2);
   expect(page.total).toBeNull(); expect(page.rows[0].status).toBe('INVALIDATED');
+  expect(page.rows[1].name).toBe('测试股票');
   expect(page.state_scope).toMatch(/NOT_HISTORICAL/);
   expect(page.rows[1].source.sha256).toMatch(/^[0-9a-f]{64}$/);
   expect(JSON.stringify(page)).not.toMatch(/SENTINEL_SECRET|webhook|https:|\/secret/);

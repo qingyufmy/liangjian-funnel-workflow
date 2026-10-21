@@ -11,6 +11,7 @@ export interface TeamUiQuery {
   readonly limit: number;
   readonly offset: number;
   readonly days: number;
+  readonly since_id?: number;
 }
 export class TeamUiQueryError extends Error {}
 
@@ -34,7 +35,7 @@ export function parseTeamUiQuery(path: string, query: URLSearchParams, today: st
   else if (role) {
     if (!roles.has(role[1]!)) return null;
     person = role[1]!; kind = `role-${role[2]}`;
-  } else if (["/review/scoreboard", "/review/lessons", "/settings"].includes(path)) kind = path.slice(1);
+  } else if (["/events", "/review/scoreboard", "/review/lessons", "/settings"].includes(path)) kind = path.slice(1);
   else return null;
   if (query.getAll("trade_date").length > 1) throw new TeamUiQueryError("INVALID_QUERY");
   if (!day && query.has("trade_date")) tradeDate = query.get("trade_date")!;
@@ -46,8 +47,11 @@ export function parseTeamUiQuery(path: string, query: URLSearchParams, today: st
     if (query.getAll("role").length !== 1 || !roles.has(value) || (person && person !== value)) throw new TeamUiQueryError("INVALID_ROLE");
     person = value;
   }
+  const offset=integer(query,'offset',0,0,1_000_000);
+  if(kind==='events'&&offset!==0)throw new TeamUiQueryError('INVALID_CURSOR');
   return { kind, trade_date: tradeDate, ...(person ? { role: person } : {}),
-    limit: integer(query, "limit", 50, 1, 500), offset: integer(query, "offset", 0, 0, 1_000_000), days: integer(query, "days", 20, 1, 20) };
+    ...(kind === 'events' ? {since_id:integer(query,'since_id',0,0,Number.MAX_SAFE_INTEGER)} : {}),
+    limit: integer(query, "limit", 50, 1, 500), offset, days: integer(query, "days", 20, 1, 20) };
 }
 
 export class TeamUiBusyError extends Error {}
@@ -64,7 +68,7 @@ export class TeamUiReadPool {
 
   read(query: TeamUiQuery): Promise<unknown> {
     // Explicit field order makes semantically equal queries share one worker/cache.
-    const key = JSON.stringify([query.kind,query.trade_date,query.role ?? null,query.limit,query.offset,query.days]);
+    const key = JSON.stringify([query.kind,query.trade_date,query.role ?? null,query.limit,query.offset,query.days,query.since_id ?? 0]);
     const cached = this.cache.get(key);
     if (cached && cached.until > this.now()) { this.hits += 1; return Promise.resolve(cached.value); }
     if (cached) this.cache.delete(key);

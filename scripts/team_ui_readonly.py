@@ -15,7 +15,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 
 ROLE = {"a1": "A1", "a2": "A2", "pm": "PM", "tr": "A4", "rk": "A6", "rv": "A5"}
-KINDS = {"tasks", "feed", "plans", "fills", "role-today", "role-stats", "review/scoreboard", "review/lessons", "settings"}
+KINDS = {"events", "tasks", "feed", "plans", "fills", "role-today", "role-stats", "review/scoreboard", "review/lessons", "settings"}
 
 
 def scalar(value, *, identifier=False):
@@ -67,6 +67,27 @@ def project(root, query):
     if kind in {"feed", "review/scoreboard", "review/lessons", "settings", "role-stats"}:
         return out
     rows = []
+    if kind == "events":
+        since = query.get('since_id', 0)
+        if type(since) is not int or not 0 <= since <= 9007199254740991 or offset:
+            raise ValueError('INVALID_CURSOR')
+        db = connect(root, 'state/team_v2/model.db')
+        try:
+            for row in db.execute('SELECT rowid AS cursor_id,call_id,role,session,captured_at,latency_ms,provider_attempts,validated,output_hash FROM model_calls WHERE rowid>? AND captured_at>=? AND captured_at<? ORDER BY rowid LIMIT ?',
+                                  (since, day, (date.fromisoformat(day)+timedelta(days=1)).isoformat(), limit+1)):
+                original = dict(row)
+                rows.append({'cursor_id': row['cursor_id'], 'type':'task', 'id':scalar(row['call_id'],identifier=True),
+                             'label':'PM' if 'PM' in row['session'] else scalar(row['role'],identifier=True),
+                             'status':'VALIDATED' if row['validated'] else 'VALIDATION_FAILED',
+                             'at':scalar(row['captured_at'],identifier=True), 'latency_ms':row['latency_ms'],
+                             'provenance':source('model_calls',row['call_id'],json.dumps(original,sort_keys=True))})
+        finally:
+            db.close()
+        page = rows[:limit]
+        out.update(status='AVAILABLE',rows=page,next_since_id=page[-1]['cursor_id'] if page else since,
+                   has_more=len(rows)>limit,missing_reason=None,page_count=len(page),
+                   coverage_kind='MODEL_CALL_JOURNAL_ONLY_NOT_PLAN_TRANSITIONS_OR_FULL_EVENT_STREAM')
+        return out
     if kind == "plans":
         db = connect(root, "state/workflow.sqlite3")
         try:
@@ -122,7 +143,8 @@ def main():
     try:
         root = Path(sys.argv[1]).resolve(strict=True)
         query = json.loads(sys.argv[2])
-        print(json.dumps(project(root, query), ensure_ascii=False, allow_nan=False))
+        # ASCII transport preserves Chinese across Windows CP936 and VM UTF-8.
+        print(json.dumps(project(root, query), ensure_ascii=True, allow_nan=False))
     except (OSError, ValueError, KeyError, sqlite3.Error):
         # Stable public code only. Never disclose the database path or raw exception.
         print(json.dumps({"error": "TEAM_UI_SOURCE_UNAVAILABLE"}))

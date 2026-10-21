@@ -17,6 +17,7 @@ export function createTeamUiRouter(reader: TeamUiReader, day = (): string =>
     }
     next();
   });
+  router.get('/session',(_request,response)=>response.json({schema:'team-ui-session/1',poll:true,interval_ms:10000}));
   router.use((request, response) => {
     let query: TeamUiQuery | null;
     try {
