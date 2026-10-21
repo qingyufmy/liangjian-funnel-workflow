@@ -4,6 +4,7 @@ import json
 import pytest
 from liangjian_funnel.runtime.state import RuntimeStore,StateTransitionError
 from liangjian_funnel.runtime.close_regeneration import bind_close_regeneration,require_raw_research_pass
+from liangjian_funnel.runtime.calendar import ExchangeTradingCalendar
 
 NOW=datetime.fromisoformat('2026-10-21T23:00:00+08:00')
 EXP=datetime.fromisoformat('2026-10-22T15:00:00+08:00')
@@ -23,7 +24,7 @@ def app_fixture(tmp_path):
     (out/'runs/old.json').write_text(json.dumps(source))
     generation=NS(as_of=NOW.replace(hour=18),snapshot_id='fresh-a1',snapshot_hash='b'*64)
     app=NS(store=store,settings=NS(workflow_output_dir=out,research_primary_lane_id='lane_1'),
-        trading_calendar=NS(is_trading_day=lambda _:True),a1_registry=NS(require_active=lambda **_:generation))
+        trading_calendar=ExchangeTradingCalendar(),a1_registry=NS(require_active=lambda **_:generation))
     return app,generation,source
 
 
@@ -70,8 +71,11 @@ def test_old_a1_or_cross_day_or_changed_batch_cannot_start_regeneration(tmp_path
     generation.as_of=NOW.replace(day=16)
     with pytest.raises(ValueError,match='REGEN_FRESH_A1_REQUIRED'):bind_close_regeneration(app,'old',now=NOW,head=HEAD)
     generation.as_of=NOW.replace(hour=18)
-    with pytest.raises(ValueError,match='REGEN_CLOSE_WINDOW_REQUIRED'):
-        bind_close_regeneration(app,'old',now=NOW.replace(day=22,hour=0),head=HEAD)
+    midnight=bind_close_regeneration(app,'old',now=NOW.replace(day=22,hour=0),head=HEAD)
+    assert midnight.trade_date=='2026-10-21' and midnight.target_trade_date=='2026-10-22'
+    assert midnight.wall_clock.date().isoformat()=='2026-10-22'
+    with pytest.raises(ValueError,match='CLOSE_RESEARCH_PUBLICATION_DEADLINE_REACHED'):
+        bind_close_regeneration(app,'old',now=NOW.replace(day=22,hour=6,minute=30),head=HEAD)
     app.store.publish_plan_batch([row('extra')])
     with pytest.raises(ValueError,match='REGEN_SOURCE_PENDING_SCOPE_CHANGED'):bind_close_regeneration(app,'old',now=NOW,head=HEAD)
 

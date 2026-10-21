@@ -1,0 +1,2947 @@
+{
+  "source_bundle": "A2_SWEEP_ORIGINALS_0515.json",
+  "rounds": [
+    {
+      "captured": {
+        "call_id": "A2:CLOSE_REVIEW:46d936b3d08910db16b7a81d305ff021cb2efc2423f22dc4e5a4d997de26f292",
+        "run_id": "ISOLATED_R2_0505_5dd7b53",
+        "input_hash": "1130f65587404defb07b7c8925f7e7294ac02805ce4cc6670757bca0e116a4ee",
+        "output_json": "{\"envelope\":{\"as_of\":\"2026-10-20T23:08:55.182899+08:00\",\"config_hash\":\"40b41a7326cde68342ed60a28a416b8cdd9dd7a487114d4c2de42aa8083f6b12\",\"config_version\":\"LIANGJIAN_FUNNEL_V2/2.0.0\",\"execution_trade_date\":\"2026-10-21\",\"input_snapshot_ids\":[\"snapshot-20261020T230415+0800-be48d39896c1:a2:6a7d0d7e6674:rotation-policy:a2-bottleneck:cdf36f843552\"],\"knowledge_cutoff\":\"2026-10-20T23:08:55.182899+08:00\",\"market_regime\":\"ROTATION_NO_MAINLINE\",\"model_name\":\"deepseek-v4-pro\",\"prompt_version\":\"agent-2/3.0.8\",\"reason_codes\":[],\"run_id\":\"ISOLATED_R2_0505_5dd7b53\",\"schema_version\":\"team-research-envelope/1\",\"source_trade_date\":\"2026-10-20\",\"stage_id\":\"A2\",\"status\":\"OK\"},\"focus_decisions\":[{\"opposing_refs\":[\"A2:QUANT:002262.SZ\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:000423.SZ\"],\"symbol\":\"000423.SZ\"},{\"opposing_refs\":[\"A2:QUANT:002530.SZ\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:002164.SZ\"],\"symbol\":\"002164.SZ\"},{\"opposing_refs\":[\"A2:QUANT:002712.SZ\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:300378.SZ\"],\"symbol\":\"300378.SZ\"},{\"opposing_refs\":[\"A2:QUANT:300556.SZ\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"support_codes\":[\"A2_EMOTION_FIRST_BOARD_OBSERVED\"],\"supporting_refs\":[\"A2:QUANT:603236.SH\"],\"symbol\":\"603236.SH\"},{\"opposing_refs\":[\"A2:QUANT:301002.SZ\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:688036.SH\"],\"symbol\":\"688036.SH\"}],\"handoff_notes\":{\"to_a3\":[\"机器人方向已聚焦 002164.SZ，明日重点盯其连板梯队是否延续及板块广度能否维持40以上\",\"AI应用方向已聚焦 300378.SZ，明日重点盯其MA20支撑与板块主力净流入是否转正\",\"消费电子方向已聚焦 688036.SH，明日重点盯其趋势结构是否延续及板块广度变化\"]},\"market_read\":{\"dominant_themes\":[\"ROBOTICS_ADVANCED_MANUFACTURING\",\"AI_APPLICATIONS_DIGITAL_ECONOMY\",\"CONSUMER_ELECTRONICS\"],\"emotion_cycle\":\"IGNITION\",\"opposing_refs\":[\"A2:NEWS\"],\"regime\":\"ROTATION_NO_MAINLINE\",\"supporting_refs\":[\"A2:MARKET\"]},\"model_nominations\":[{\"falsifiers\":[\"个股跌破MA20且相对强度回落\",\"板块持续无资金流入且广度进一步走弱\"],\"nomination_thesis\":\"20日相对强度极高且趋势结构完整，量化过滤主要因资金流缺失，题材处于潜伏期但个股强度突出。\",\"opposing_refs\":[\"A2:QUANT:605488.SH\"],\"quant_filter_reason\":\"A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD\",\"supporting_refs\":[\"A2:NOMINATION:301190.SZ\"],\"symbol\":\"301190.SZ\",\"theme_id\":\"CHEMICAL_NEW_MATERIALS\",\"why_i_disagree\":\"个股趋势结构与相对强度均强，过滤主因是板块资金流缺失而非个股结构缺陷。\"},{\"falsifiers\":[\"个股跌破MA20且相对强度回落\",\"AI应用板块广度回落至40以下\"],\"nomination_thesis\":\"AI应用方向内相对强度突出，趋势结构完整，量化过滤主因资金流缺失。\",\"opposing_refs\":[\"A2:QUANT:300378.SZ\"],\"quant_filter_reason\":\"A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD\",\"supporting_refs\":[\"A2:NOMINATION:301608.SZ\"],\"symbol\":\"301608.SZ\",\"theme_id\":\"AI_APPLICATIONS_DIGITAL_ECONOMY\",\"why_i_disagree\":\"个股趋势结构与相对强度均强，过滤主因是板块资金流缺失而非个股结构缺陷。\"},{\"falsifiers\":[\"个股跌破MA20且相对强度回落\",\"机器人板块广度回落至40以下\"],\"nomination_thesis\":\"机器人方向内相对强度突出，趋势结构完整，量化过滤主因资金流缺失。\",\"opposing_refs\":[\"A2:QUANT:002164.SZ\"],\"quant_filter_reason\":\"A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD\",\"supporting_refs\":[\"A2:NOMINATION:300984.SZ\"],\"symbol\":\"300984.SZ\",\"theme_id\":\"ROBOTICS_ADVANCED_MANUFACTURING\",\"why_i_disagree\":\"个股趋势结构与相对强度均强，过滤主因是板块资金流缺失而非个股结构缺陷。\"}],\"reason_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\",\"A2_OPTIONAL_FACTS_DEGRADED\",\"A2_ROTATION_COVERAGE_MISMATCH\",\"TEAM_OPPOSING_REFS_INVALID\"],\"reject_decisions\":[{\"opposing_refs\":[\"A2:QUANT:000423.SZ\"],\"risk_codes\":[\"A2_IDENTIFIABILITY_BELOW_MINIMUM\"],\"supporting_refs\":[\"A2:QUANT:002262.SZ\"],\"symbol\":\"002262.SZ\"},{\"opposing_refs\":[\"A2:QUANT:300378.SZ\"],\"risk_codes\":[\"A2_IDENTIFIABILITY_BELOW_MINIMUM\"],\"supporting_refs\":[\"A2:QUANT:002712.SZ\"],\"symbol\":\"002712.SZ\"},{\"opposing_refs\":[\"A2:QUANT:000423.SZ\"],\"risk_codes\":[\"A2_IDENTIFIABILITY_BELOW_MINIMUM\"],\"supporting_refs\":[\"A2:QUANT:300181.SZ\"],\"symbol\":\"300181.SZ\"}],\"rotation_reviews\":[{\"decision\":\"NO_FOCUS\",\"explanation\":\"该方向成员整体趋势结构虽已确认，但板块广度偏低（300556.SZ 广度 51.79、300839.SZ 广度 25.0、600406.SH 广度 28.0），且主力资金流数据缺失，无法验证资金承接；相对机器人、AI应用方向缺乏情绪梯队与首板确认，暂不聚焦。\",\"opposing_refs\":[\"A2:QUANT:600406.SH\"],\"reason_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\",\"A2_OPTIONAL_FACTS_DEGRADED\"],\"reviewed_symbols\":[\"300556.SZ\",\"300839.SZ\",\"600406.SH\"],\"rotation_direction_id\":\"SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE\",\"supporting_refs\":[\"A2:QUANT:300556.SZ\",\"A2:QUANT:300839.SZ\"]},{\"decision\":\"NO_FOCUS\",\"explanation\":\"该方向成员虽多处于趋势通道，但除已聚焦的 002164.SZ 外，其余代表股（000333.SZ 广度 43.24、000682.SZ 广度 28.0、002270.SZ 广度 24.19）板块广度与梯队结构均偏弱，且资金流数据缺失，无法确认板块级承接，暂不扩大聚焦。\",\"opposing_refs\":[\"A2:QUANT:002270.SZ\"],\"reason_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\",\"A2_OPTIONAL_FACTS_DEGRADED\"],\"reviewed_symbols\":[\"000333.SZ\",\"000682.SZ\",\"002270.SZ\"],\"rotation_direction_id\":\"SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING\",\"supporting_refs\":[\"A2:QUANT:000333.SZ\",\"A2:QUANT:000682.SZ\"]}],\"theme_reviews\":[{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:300999.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:001313.SZ\"],\"theme_id\":\"AGRICULTURE_FOOD_SECURITY\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"ALLOW\",\"opposing_refs\":[\"A2:QUANT:002712.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"CONFIRMATION\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:300378.SZ\"],\"theme_id\":\"AI_APPLICATIONS_DIGITAL_ECONOMY\",\"what_would_change_my_mind\":[\"核心股跌破MA20且板块广度回落至40以下\",\"板块主力净流入连续两日转负\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:300556.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:603236.SH\"],\"theme_id\":\"AI_COMPUTE_INFRASTRUCTURE\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:NOMINATION:603276.SH\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:605488.SH\"],\"theme_id\":\"CHEMICAL_NEW_MATERIALS\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"ALLOW\",\"opposing_refs\":[\"A2:QUANT:301002.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"CONFIRMATION\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:688036.SH\"],\"theme_id\":\"CONSUMER_ELECTRONICS\",\"what_would_change_my_mind\":[\"核心股跌破MA20且板块广度回落至40以下\",\"板块主力净流入连续两日转负\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:000729.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:000858.SZ\"],\"theme_id\":\"CONSUMER_SERVICES\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:601398.SH\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:601288.SH\"],\"theme_id\":\"FINANCIAL_HIGH_DIVIDEND\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:001965.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:002811.SZ\"],\"theme_id\":\"INFRASTRUCTURE_DOMESTIC_DEMAND\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"ALLOW\",\"opposing_refs\":[\"A2:QUANT:002262.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"CONFIRMATION\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:000423.SZ\"],\"theme_id\":\"INNOVATIVE_MEDICINE_HEALTHCARE\",\"what_would_change_my_mind\":[\"核心股跌破MA20且板块广度回落至40以下\",\"板块主力净流入连续两日转负\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:NOMINATION:002674.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:605189.SH\"],\"theme_id\":\"LIGHT_TEXTILE_CONSUMER_MANUFACTURING\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:688522.SH\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:300733.SZ\"],\"theme_id\":\"NATIONAL_DEFENSE\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:000682.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:301487.SZ\"],\"theme_id\":\"POWER_EQUIPMENT_NEW_ENERGY\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:600968.SH\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:300839.SZ\"],\"theme_id\":\"RESOURCES_ENERGY\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"ALLOW\",\"opposing_refs\":[\"A2:QUANT:002530.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"CONFIRMATION\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:002164.SZ\"],\"theme_id\":\"ROBOTICS_ADVANCED_MANUFACTURING\",\"what_would_change_my_mind\":[\"核心股跌破MA20且板块广度回落至40以下\",\"板块主力净流入连续两日转负\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:603068.SH\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:688018.SH\"],\"theme_id\":\"SEMICONDUCTOR_LOCALIZATION\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]}],\"unresolved_questions\":[],\"what_would_change_my_mind\":[\"若机器人、AI应用、消费电子任一聚焦股跌破MA20且板块广度回落至40以下，则下调对应主题阶段\",\"若市场情绪周期从IGNITION转入RETREAT或FADE，则全面收紧新开仓政策\"]}",
+        "output_hash": "c37e367c4c822be32fa795217f508ec447a07862448986e9c89f6010c427029a",
+        "validated": 0,
+        "issues_json": "[\"A2_SCORE_PENALTY_CODE_UNKNOWN\"]",
+        "latency_ms": 73986
+      },
+      "source_context_sha256": "5350078b687089d9636359a7147491c5c6d64fdc9954f559731be611b5cc93af",
+      "catalog": {
+        "categories": [
+          "MARKET",
+          "NEWS",
+          "QUANT"
+        ],
+        "items": [
+          {
+            "category": "MARKET",
+            "id": "A2:MARKET",
+            "sha256": "c3f30d7720317742190cb6881719734dbc0708c749e3aeaefe69d4d220394d84"
+          },
+          {
+            "category": "NEWS",
+            "id": "A2:NEWS",
+            "sha256": "186b7ce70a3aff7ff36298dfbb02d163e4ec967baf5c2e62506004723595e665"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000333.SZ",
+            "sha256": "d9594ce509e0aded8b328e899f3e7faa3bf652ee4e2451f32d244164c4af5fb0"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000423.SZ",
+            "sha256": "e8b2557beb31005987b0dc283635c8e4c0fc3b8c16bea85f626b929d5ca1dfe2"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000538.SZ",
+            "sha256": "570bc7e1e8710922da7678d1cc3a891baa5f9b7c76bd32676d600e5133540efe"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000682.SZ",
+            "sha256": "c7f1b726ac8eee6d0cbfdec1760c3917730370e4f9e3f78d6b07e4d285bbc17c"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000729.SZ",
+            "sha256": "8873d4302f3ea0865e6e353ea8e079235f36e21573f8851eb8a7f420fcaab991"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000848.SZ",
+            "sha256": "794d31938052807a78546d3ddfc067d29850be3b76da76d5f950b6c012a5d9ef"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000858.SZ",
+            "sha256": "3439108656425b182353d86ba3dee83de41921a9ab3d64061c2538accef23cc1"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000963.SZ",
+            "sha256": "67d67986e81284c84daa34ab61ff27a243519b78cb323a0261dde5ed9ab5196a"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000989.SZ",
+            "sha256": "5b2f890dd76cf405180bee63b05338bf483f8c0a7603d4c83e3897ac37f963a0"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:001266.SZ",
+            "sha256": "f595c8f20f30b7a0542a33e6be586e23a0df30e350dc419abeae439977ae33b7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:001313.SZ",
+            "sha256": "a836179b69801e390767dd9dea36198dd30c0d56fd344adfa959dcf18afce751"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:001965.SZ",
+            "sha256": "4b720e79a868c74454c58c51459a8fef212c3f985edf94a4ed94b36bfed27500"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002001.SZ",
+            "sha256": "b0082aa6c23760954951febf4465684119c3164c66d510b185bd12214e3f6fd7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002164.SZ",
+            "sha256": "eb8cf4a20bfd6aac7abecf015df3f6e63cf6b01af41a4f29a98d229dec461560"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002262.SZ",
+            "sha256": "7a932a2132255edf4dbf419a70f4a21c1a76dc4a3ed1405cde755ec4634f2efe"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002270.SZ",
+            "sha256": "fec4cf176c410f6e09f19017bb3e8d9d435293d5e5a221d300b97c0d9f9146c3"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002292.SZ",
+            "sha256": "baef527329b8d67b3478ffa815a94cf1302da63dd07905de10e261fe22c6c583"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002294.SZ",
+            "sha256": "69a19137b8f33b49a3798637f771ea7b5e28468cf34157acee3756f864daf3ce"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002322.SZ",
+            "sha256": "0d9f88a8a1980519dea729b996897033b1fb59df277dfebc5848eee29fc98e21"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002354.SZ",
+            "sha256": "91bc033d8c1310cddb649f7b13e3691281f9899e66b0d71bebbbb77e679af183"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002425.SZ",
+            "sha256": "65eaca60bc90f71241e3a29897bc9d1a916c21ad9f3987c990ee3937dd71b448"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002439.SZ",
+            "sha256": "c111a1067af52a2f164723c2f8cce54cf273aba84cb89146a6beb966532dc773"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002530.SZ",
+            "sha256": "3f62b160fddb22a63cfe181d378b2b1910fb1371ddaf65276f20c27e9da05cf9"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002541.SZ",
+            "sha256": "63fe1b3a83e510d99dbefa2b5ee5b4b24455154ba6a0056e3e0b0a816d95d0e4"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002590.SZ",
+            "sha256": "afd7c77de3845b44d4c4bc7d2f75c2c4964b4aa7edeae14111abb15317e4f002"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002603.SZ",
+            "sha256": "d0fa83ebd982124edda64ab7b9cc22652b9033da3a146f26131128ec3f744a52"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002712.SZ",
+            "sha256": "d6e59bda93d6b0950abd910ead56eb292f558bedce5a6d737279eb656228366a"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002811.SZ",
+            "sha256": "9042bc31922e27596a8766c6feb37f6feab284ed338cfe0894192328bf1cf96f"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002833.SZ",
+            "sha256": "dbd14d5f02e43dfc6a03adaf0c3f2eb561b01bd212e046f759fbc58c560dc0ed"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002946.SZ",
+            "sha256": "036bf561b455b9d1460d995f0437dbadb3a27b9cc702f5886872aa5bb6d062b0"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002990.SZ",
+            "sha256": "7df23afd5472260e845239251deab12c6498f17d7aa674e799a387abeb12cf8d"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300012.SZ",
+            "sha256": "59fc57cf5d44202f58da2931358963341bf814df70464ead530a21311a9b9d6c"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300031.SZ",
+            "sha256": "9484d75a9dccb532d17e7b7f212e8ef45d98551d40c82e55151c95b4e5b29062"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300143.SZ",
+            "sha256": "9b2fc36028b025798d2bccb98e8d9f9bb5cfee10d9c5544a3fe33d34dd9b162f"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300181.SZ",
+            "sha256": "58fa4c94d748a395383d3e0dbbcc1c79e73097c8861c72590d4c90917bc5da2b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300199.SZ",
+            "sha256": "9455edd85917b1881c0892f907e08b1b51d96da770ad0f4fe46dfeb2e08cf304"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300226.SZ",
+            "sha256": "331a9c042fd23e54926fb84513cd0f712d90fc7cdeb3757703aa80fef317da1e"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300298.SZ",
+            "sha256": "e85003f9a7b89c7d8ef35ee072f004d8b885359749d771a01425c9673ebe960d"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300299.SZ",
+            "sha256": "9a272bad759fd4d437fbcfb2c0a0a0ac7c176e4c35742246b49d452b15e37f50"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300378.SZ",
+            "sha256": "f801f87f6bb0d6ca75cabbb37c15a148046e229ca8926f989d4ad14a9c79ab63"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300406.SZ",
+            "sha256": "6352bc0ee688ae9305af9fe326f0ee6243359047ed77f05bffbc3cc1189638cd"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300426.SZ",
+            "sha256": "cd12f7e57ecc3c5360c63b5f32e3314b4dc86208b79ce3ed74f04f926a434117"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300432.SZ",
+            "sha256": "69f5276e4f24ba9fc1fb75d5bf4096fb857e765d8a08457e0a2c9972eb906173"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300453.SZ",
+            "sha256": "74568fb76b9dd637fcbfd7f6c1b3d6a958ac37301d3d657e3c694dd542a65c10"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300556.SZ",
+            "sha256": "80e10033cdd0cf10db2b1ae08eb3a200a288c374f7d7e80a181d1e39a54c13a7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300678.SZ",
+            "sha256": "5e7490cba4f5f14225cc6ca01418894f1a06f7e9f26d8753438d4f05337013f4"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300733.SZ",
+            "sha256": "13dd6253ae3b51e27fd327c468d90100ee4855da848b5c65a189c54d21db8915"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300756.SZ",
+            "sha256": "a7d326b72828fb8c5338ce17c87c8548c8b266f778f13b168c79fcebe5559b3a"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300765.SZ",
+            "sha256": "b8b875aad41974a7e698818aba674b5f5163e1e17d5077ec7291cd73939c5095"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300771.SZ",
+            "sha256": "be8ed7b4f60ac3a8c550bcef055ac366ee4144fd1ac0bbdf5f69a7bd74d98d49"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300832.SZ",
+            "sha256": "e74827bcfd465a4d9f4d026083772763c9c8d3cb8c395761bf79e01281baffb7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300839.SZ",
+            "sha256": "fd0e6ebc403aa87817e611b5711749514f946d076903bca35a5383c44c088146"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300852.SZ",
+            "sha256": "4dc01022c756b5704977b7d27bbe8b07dfad7bdf3e3c4e2587e7e8933c5af831"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300957.SZ",
+            "sha256": "df91f085dd4498638510559ae4270aca8b5efbc0c36544dce71aefeb0603077d"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300999.SZ",
+            "sha256": "824a2bb7fe839591c427655aa321774596d57b0b79eca40523de1b45f0e0db38"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301002.SZ",
+            "sha256": "5786f4a60277dc81ea941a1ced200d67299cf51f19ba28da3e191f734a460817"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301025.SZ",
+            "sha256": "614fc1c673960b7a328a4a71470cf3e153812b46fdd24d5f6af6941af8c97a7c"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301108.SZ",
+            "sha256": "d642b965c4d3078defe449fe13b7c0937423152c533bc64481219cd5cc2bde4c"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301110.SZ",
+            "sha256": "c044412e3282053b3590c7640ef0c477603e78a9399e57071be4b8b98bf2e680"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301122.SZ",
+            "sha256": "5f637154fd7bb9a01da31a0f0886b5c6adea3874ce9509084125e844c85bcf19"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301230.SZ",
+            "sha256": "e5536f02e971dd4142486b91a09ab072825d3e56455af005ee8d58d256444229"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301239.SZ",
+            "sha256": "4a45c89c1242992c6f66922c2c5b1f8ff4d88fe170f789346ba96260ff51b1ee"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301282.SZ",
+            "sha256": "2147d12bcff132ba63c721706e046d2ae48fb42925252d01621530207a4245d5"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301310.SZ",
+            "sha256": "c1b06382812680d47b9a297167e1910549be8c0abb34a28d4811890632e3b747"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301487.SZ",
+            "sha256": "2004db8f7597722826433c5a5afac173b6df8367af617cfc01177f3aa1106947"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600189.SH",
+            "sha256": "fcc4e29ea9811e752663daeb063b736af3acabe43a847dd9817d140493b12872"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600196.SH",
+            "sha256": "5771509672e734096a149371c9a81996a7869b8ecdbd864eaa160c14fa53eacf"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600201.SH",
+            "sha256": "f6463d06b72c03571512ab52d34c0f5e501237e4f163a2fbbeec15479c859248"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600285.SH",
+            "sha256": "cbe992a5be7f5e4405dc4ca70d10f6ae5ae6fa8afba826b19746abc4094b7244"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600351.SH",
+            "sha256": "af54c5a710f73cbda2e1dbf53add2cf582f8376460795193721bc998589a6b96"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600406.SH",
+            "sha256": "8972c044963049607fc2f22052a763d265cfc9572ebb4346a79c5915bb413ca2"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600521.SH",
+            "sha256": "56736cddf1fafa030d9274914a7edb707561df84d90e85c8a1ed7aa2aad47ee8"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600557.SH",
+            "sha256": "ca47e44a62cef7b0781f0f65edbcf04fff094827e8afaaaa3f75fdabe646e7d3"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600573.SH",
+            "sha256": "b1e9769597a40e751dd28bacc5f732187e6607a07d2cae6447fc4d0fa3594368"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600771.SH",
+            "sha256": "d697afcdd6496ec20481f8cc5c07a89206173f82fd316211b6f630a1bda971ce"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600968.SH",
+            "sha256": "24ee1f80fc6269245492b4c6af91992ac32940862315a46e58e0619a59cbfee3"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600993.SH",
+            "sha256": "20a83a7525190e26505fe9c5a19a5e116278b6071fb6fe68e9f120a58ce7bd75"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601006.SH",
+            "sha256": "c4f44288dd1c476665704b25b4c3b1044b46af427d9aa3bc346654ec85cf1f48"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601222.SH",
+            "sha256": "746c270d9b2e4063b564ba9ec1ceca029d12f0845caf99a661d06b5b39133b33"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601288.SH",
+            "sha256": "0f6ffbcebaee595efa5562c60d9201f35ccc84a59eafb92923b5e4a4bd97379d"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601328.SH",
+            "sha256": "0ab5499b6de746d813c2395cb5472c3683b03713b51367b6125dc26f806a5438"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601398.SH",
+            "sha256": "252f829bc3901064a7f4ff8003ccd0eb1b2a445fcc0e7ad23bcdeafb250fe0be"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601658.SH",
+            "sha256": "297fc263fda87954e36ef2b2a076e32c6ebc56798f04caea1a72d6d5421e6d01"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601766.SH",
+            "sha256": "32ff65d77dfc31062f6099ec2b0c4a34375152aa0936e0e4f5b9588ab17735b1"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601816.SH",
+            "sha256": "825ef09073afb74b5d0dfbf1e1cbbbb0603beddb50031d870719a3caa0f86fbc"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601877.SH",
+            "sha256": "4b649851bc9e5edd1f78b513aa91a437873d342995a6fd45c70e0502941fa7dd"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601939.SH",
+            "sha256": "450d94c027b06f19c5fea6522f1b8a0a3401dd25320bc489e9f4db66be3cacf1"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601965.SH",
+            "sha256": "e6f4a5006aaf1ca49313df8fa294c44151d0d362722fe1068195924a0e105a8b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601988.SH",
+            "sha256": "499b454a4fe6afea3e6d8af14be52a69977e8adbdd94b62943fae199d78ed36d"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603025.SH",
+            "sha256": "1d4105b8a8db31d903c75738e07cb48fde292916064d7d777af44d7aa897d43f"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603068.SH",
+            "sha256": "4cbed855943824026e0da0d3ae46e00f8d139e8f9eb2407c8930c2b8038437f6"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603127.SH",
+            "sha256": "772851506ce02ad474c49ff9915d180ca1db84e4462d65e3de8f8b4595f5c7b7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603171.SH",
+            "sha256": "1e5b80f878da07f827657822d5b40ffff18c8728d68489ad17d4a708abb3d841"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603198.SH",
+            "sha256": "c2418fd1e41ad5cd46c1c51f92d7ba8f19351d8976f4ee04cbe25e1b096fc2ca"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603236.SH",
+            "sha256": "3a59dae4137e6d6ef4ee5c190a0c1716e38152ee9ccd39725cba8fb2d1813389"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603301.SH",
+            "sha256": "8f19cd5c7186ab48e3c8daa2a58a25fccb2dd1fd8918fc3ab8d0de7f3aae1f7c"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603337.SH",
+            "sha256": "0adfb278f99d8ebf8e18bf157c569041299e5b58b32fbcdce826061872eefef9"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603383.SH",
+            "sha256": "7dea7400740be2cef76ecdbd3d3cd2b1570585a55d7e24ac387b334dd4c7b782"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603418.SH",
+            "sha256": "5fdd2be12d364e366b19cb9336a98df91285caa13408f05685af02686ce87c31"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603598.SH",
+            "sha256": "a4eb5ae96eeffb273d698b0eb33b80769b2ce3d4f58c35c5922beead2dc39e92"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603602.SH",
+            "sha256": "1a8202fdcac908ab7fead22d71f8c10f528a26493d01a56808c399aba115f40b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603630.SH",
+            "sha256": "35f277df95e87cf4c63b4f65dccd5269546c67d0a2feb97522a441068070174e"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603656.SH",
+            "sha256": "6fb078cef57a1995bb156c49d5d91960efcb7c2f463244ded33919b613174c2f"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603669.SH",
+            "sha256": "c0ef25b5a2970e152b41adf3c26c8edbcdb1ad87d62123a658240b8cc24a6c46"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603728.SH",
+            "sha256": "dbd4129be5db98221b2bbf82cb720cf0e219b1d0be728a3ea06fa8d0a438338f"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603809.SH",
+            "sha256": "10c9fff522b838c47b1873c81a8d2b569e6be36a478ff37f722a4047bb144948"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603883.SH",
+            "sha256": "f403087aec6c921b6851c1eb0742047d9014451306c99003d16da8af8feefbcf"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603893.SH",
+            "sha256": "041a7d70a8bf24b3549185cbd742df503d9b5db4255dafa7bdff06084759a1fb"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603939.SH",
+            "sha256": "491305c2ff8fbdeed589953ce81ad07c39b1d895efd6d320e4a32739453154bd"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603992.SH",
+            "sha256": "710a2e51eaf6d0d20f53895ead098666e4642e1b0cf70ede0d98a2d41ec69096"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603998.SH",
+            "sha256": "73e5b244da098c5fe6767464e05aa6fbda59184b9f244aac7ba82bb862569356"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:605189.SH",
+            "sha256": "d185cae5c4b07f37fe3855123efce0fea56a1a16115e357a2b089ab0d74723db"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:605488.SH",
+            "sha256": "b77da62a690311baf3c97163845268d46955899166b74003607537800b0e4eab"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688018.SH",
+            "sha256": "e6804240d3392a582b0d1a584c4c3469ce4388a7c2a8c92f1b7e7dcdba881fa8"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688036.SH",
+            "sha256": "94b3aff16ccd863b9fc4d9eec42b3760ed93ebd0287d2715f363fa6e7377440b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688071.SH",
+            "sha256": "c0476c40b564116762e04dae4b2acf812f49b4043f20d794ce046fc091623e72"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688095.SH",
+            "sha256": "abc9081ff87f675b2e5cede7882c057cd7559b79b27e29ca706c3536d02a73ac"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688097.SH",
+            "sha256": "3a5e8694ddcfe19b700e3326d1611b90825be709c44dd36bd89fc56ccd13179c"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688099.SH",
+            "sha256": "bc27f65bc9f8369ed55aaebb9628609956544d75fc2a03d4cf1ae5a7b68c50cd"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688111.SH",
+            "sha256": "a6d6e0ef8f7a58f397ba3e2fc293f0c964e40000ab0544297c18dd18f916a855"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688151.SH",
+            "sha256": "44a6963c13190d57efd9989dcc37a0a70039c4e825daff78a54d5ac3fb330d9b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688156.SH",
+            "sha256": "5e3acaac20f25513083d61eaf211c76613720f3a393b85107f00afb5aa0d18f5"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688187.SH",
+            "sha256": "5d0ae0a2f75b2b2053065a56eef3a7b9ae39e9dd8793917c845763b023b075dc"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688188.SH",
+            "sha256": "f32f1ed634a5f30e61c167d916e1ab524cba72c8f9f8a32123c1814778165df7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688213.SH",
+            "sha256": "72a12f622016782d019c9c54f99231beb40448c1ac6c76b24a2c62f868a5b599"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688235.SH",
+            "sha256": "b36eb8e85132dc1a6ee6555b9c60ff88ae46402ff27223cadf45dead8b17852b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688365.SH",
+            "sha256": "5f086d65a772f30bfef3c26aed6dfce0637e6a4ebd790060654bae71cc95a71e"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688475.SH",
+            "sha256": "bfbab36a50f2ee2996b6d1f27fe3d9cc1a8617ad5e1461f46cdcda4793d01570"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688499.SH",
+            "sha256": "41fa14c2d8575b97e8ebb3a9d3741c8de9adf1b88c2ed36d284d80379f5e6018"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688522.SH",
+            "sha256": "f12b037dd0ab6ad753a48b30b120ae6c5bb9aa11648046f921a9859b9055123e"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688575.SH",
+            "sha256": "d353f32bf1add6932ecf721d77b24f9ea275962169cce49777a04664dd763452"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688615.SH",
+            "sha256": "e04876520d09aadefa1056f40d9666a7e6c434995e9e24e4d2b7328a102571d2"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688617.SH",
+            "sha256": "9d6aa2ca366f5a23a5519eabfe191bbfd8657f2b800755b632e7d875ad752c46"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688626.SH",
+            "sha256": "7cf80a741cfddfbba62e500aa8688ac88780518eb28ac1f4112fe49561731cbe"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:301190.SZ",
+            "sha256": "4c04c7390ae2e09d8babdd24f735a9f432f5d62d1e061999cab70e1277ccf0e6"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:301608.SZ",
+            "sha256": "c9b72fd80af8c2b677714a19b28af60b524c02e05a99e0f005622534e51be371"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:300984.SZ",
+            "sha256": "cf0dc01ad35453ffb6b2c6e2b8d960fbae2b07b5d76ddc82aa3bfc2ee955b527"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:001326.SZ",
+            "sha256": "c30839470d00f9da0c378e01ea60d60291afda9dc0d91ce1bc14b0fe33c468b2"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:605100.SH",
+            "sha256": "24250c9ad8cd25fd9b5f9bcdaf5192a1a056453c21b52566857a3001472c2ed0"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:001368.SZ",
+            "sha256": "196bdb521aee5a49a801bd33a14fb33656e4864dfb578612c1531a274569aa88"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:002956.SZ",
+            "sha256": "823d7695d8ffad10e198e43ce3f5e3ba4d922ad98cf6dcff214ee6f1a8dc1ef7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:301529.SZ",
+            "sha256": "0170f810dadef78b6fb7b1ad7f94575c4aeef46ff5eb7789a84a355eabd9017f"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603276.SH",
+            "sha256": "880996685eaa9280f7140a6f88f409dfcf60cf1d93005303d4e009ab2cbcd4d5"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603978.SH",
+            "sha256": "f86f89a3a2f4c5a4730605625b1a68a96be93722478e4ddd8110e9c76bf5d1a1"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:301286.SZ",
+            "sha256": "f870c370c3e0f356ef8d742f1ddf8f08076713c1ec99809aeaa68b9837e996f3"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:600641.SH",
+            "sha256": "c2d3cada429023a66b30db56f2d6fa7af6b1d99e94d3fdb40c08eebd782e9a3b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:002674.SZ",
+            "sha256": "874c9a2c572513e5688cd97f8cbb609ef1db3c13fd59ea13be1bb312f3d57e0b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603155.SH",
+            "sha256": "167f6c9bfd488027d03b6553bef42c7dc42cee7537a4666e26e78192e37e12c8"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:300990.SZ",
+            "sha256": "1bc7b1df180020e379750c4e5246998f08ce2a56b2644f80911b6767304ca78a"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:688787.SH",
+            "sha256": "8d9509f7c558a78c92ba3f00ef0d1f46b49ef2e876f86754a633bd688ef3d8f2"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:601857.SH",
+            "sha256": "1688858d1e49f7983d31e5b852a7f05794a1fa8e052f6829ebf59c00ea9effb2"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:300821.SZ",
+            "sha256": "44bcdd486379bb5098f8f25c79da0742fafe6f1197d1c3facd9e238e3f813fd9"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:300107.SZ",
+            "sha256": "2adf68b5ca177c4ae614ebdff2faa621f61517690823de566dc34549e5fac468"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603500.SH",
+            "sha256": "4437c862dc88963b8570e60f15bfce9bbb1bd161a0d09000061113b4da724a03"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:301210.SZ",
+            "sha256": "1109d1fbeb2ed4bfdda049ad8af2179e7e357d0f040206d13ff3909e61d90f34"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:601579.SH",
+            "sha256": "48263bf63613e8cbe0783cde926a3ca64c0c3c9efe5884b986fb05b5dde33b3e"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:688199.SH",
+            "sha256": "c24a87d9b440890be811505c35d5467c372426c93964269058e08b1426f28260"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:688112.SH",
+            "sha256": "bb13818b5ceecd9a2d46ef6435475caf34d43292c53e23af952879d886c2dddc"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:600316.SH",
+            "sha256": "44352e6241e91c42f9bbca522bd533893b54df13618ac8bada28cf5ff6bc073d"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603980.SH",
+            "sha256": "b2a75aa4e4261abec68212cafc8c007b10520e3097762396eca0eecb6761ee7a"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:002780.SZ",
+            "sha256": "4c52888b1f7638777fe8b2e73206f1d4c9ef1e034b23c4b83abc6466f228f5f9"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603188.SH",
+            "sha256": "df2d5a0de92a96c876210f910da340de79830cece0b511056359b8bfcd7a245b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603373.SH",
+            "sha256": "dd57159035972271a6fe47243b1423c28da5b3ea2bba4d1b6f4ab406fe6785d7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:301069.SZ",
+            "sha256": "757d81d2f351e2d3e43a90475f71d3c14dd153509cfa3c33c64535a05e576edf"
+          }
+        ]
+      },
+      "envelope": {
+        "as_of": "2026-10-20T23:08:55.182899+08:00",
+        "config_hash": "40b41a7326cde68342ed60a28a416b8cdd9dd7a487114d4c2de42aa8083f6b12",
+        "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+        "execution_trade_date": "2026-10-21",
+        "input_snapshot_ids": [
+          "snapshot-20261020T230415+0800-be48d39896c1:a2:6a7d0d7e6674:rotation-policy:a2-bottleneck:cdf36f843552"
+        ],
+        "knowledge_cutoff": "2026-10-20T23:08:55.182899+08:00",
+        "market_regime": "ROTATION_NO_MAINLINE",
+        "model_name": "deepseek-v4-pro",
+        "prompt_version": "agent-2/3.0.8",
+        "reason_codes": [],
+        "run_id": "ISOLATED_R2_0505_5dd7b53",
+        "schema_version": "team-research-envelope/1",
+        "source_trade_date": "2026-10-20",
+        "stage_id": "A2",
+        "status": "OK"
+      },
+      "candidate_ids": [
+        "000333.SZ",
+        "000423.SZ",
+        "000538.SZ",
+        "000682.SZ",
+        "000729.SZ",
+        "000848.SZ",
+        "000858.SZ",
+        "000963.SZ",
+        "000989.SZ",
+        "001266.SZ",
+        "001313.SZ",
+        "001965.SZ",
+        "002001.SZ",
+        "002164.SZ",
+        "002262.SZ",
+        "002270.SZ",
+        "002292.SZ",
+        "002294.SZ",
+        "002322.SZ",
+        "002354.SZ",
+        "002425.SZ",
+        "002439.SZ",
+        "002530.SZ",
+        "002541.SZ",
+        "002590.SZ",
+        "002603.SZ",
+        "002712.SZ",
+        "002811.SZ",
+        "002833.SZ",
+        "002946.SZ",
+        "002990.SZ",
+        "300012.SZ",
+        "300031.SZ",
+        "300143.SZ",
+        "300181.SZ",
+        "300199.SZ",
+        "300226.SZ",
+        "300298.SZ",
+        "300299.SZ",
+        "300378.SZ",
+        "300406.SZ",
+        "300426.SZ",
+        "300432.SZ",
+        "300453.SZ",
+        "300556.SZ",
+        "300678.SZ",
+        "300733.SZ",
+        "300756.SZ",
+        "300765.SZ",
+        "300771.SZ",
+        "300832.SZ",
+        "300839.SZ",
+        "300852.SZ",
+        "300957.SZ",
+        "300999.SZ",
+        "301002.SZ",
+        "301025.SZ",
+        "301108.SZ",
+        "301110.SZ",
+        "301122.SZ",
+        "301230.SZ",
+        "301239.SZ",
+        "301282.SZ",
+        "301310.SZ",
+        "301487.SZ",
+        "600189.SH",
+        "600196.SH",
+        "600201.SH",
+        "600285.SH",
+        "600351.SH",
+        "600406.SH",
+        "600521.SH",
+        "600557.SH",
+        "600573.SH",
+        "600771.SH",
+        "600968.SH",
+        "600993.SH",
+        "601006.SH",
+        "601222.SH",
+        "601288.SH",
+        "601328.SH",
+        "601398.SH",
+        "601658.SH",
+        "601766.SH",
+        "601816.SH",
+        "601877.SH",
+        "601939.SH",
+        "601965.SH",
+        "601988.SH",
+        "603025.SH",
+        "603068.SH",
+        "603127.SH",
+        "603171.SH",
+        "603198.SH",
+        "603236.SH",
+        "603301.SH",
+        "603337.SH",
+        "603383.SH",
+        "603418.SH",
+        "603598.SH",
+        "603602.SH",
+        "603630.SH",
+        "603656.SH",
+        "603669.SH",
+        "603728.SH",
+        "603809.SH",
+        "603883.SH",
+        "603893.SH",
+        "603939.SH",
+        "603992.SH",
+        "603998.SH",
+        "605189.SH",
+        "605488.SH",
+        "688018.SH",
+        "688036.SH",
+        "688071.SH",
+        "688095.SH",
+        "688097.SH",
+        "688099.SH",
+        "688111.SH",
+        "688151.SH",
+        "688156.SH",
+        "688187.SH",
+        "688188.SH",
+        "688213.SH",
+        "688235.SH",
+        "688365.SH",
+        "688475.SH",
+        "688499.SH",
+        "688522.SH",
+        "688575.SH",
+        "688615.SH",
+        "688617.SH",
+        "688626.SH"
+      ],
+      "symbol_themes": {
+        "000333.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "000423.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "000538.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "000682.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+        "000729.SZ": "CONSUMER_SERVICES",
+        "000848.SZ": "CONSUMER_SERVICES",
+        "000858.SZ": "CONSUMER_SERVICES",
+        "000963.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "000989.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "001266.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "001313.SZ": "AGRICULTURE_FOOD_SECURITY",
+        "001965.SZ": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "002001.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "002164.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "002262.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "002270.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+        "002292.SZ": "CONSUMER_SERVICES",
+        "002294.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "002322.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "002354.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "002425.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "002439.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "002530.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "002541.SZ": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "002590.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "002603.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "002712.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "002811.SZ": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "002833.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "002946.SZ": "CONSUMER_SERVICES",
+        "002990.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300012.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300031.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300143.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300181.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300199.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300226.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300298.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300299.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300378.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300406.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300426.SZ": "CONSUMER_SERVICES",
+        "300432.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "300453.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300556.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300678.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300733.SZ": "NATIONAL_DEFENSE",
+        "300756.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "300765.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300771.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300832.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300839.SZ": "RESOURCES_ENERGY",
+        "300852.SZ": "AI_COMPUTE_INFRASTRUCTURE",
+        "300957.SZ": "CONSUMER_SERVICES",
+        "300999.SZ": "AGRICULTURE_FOOD_SECURITY",
+        "301002.SZ": "CONSUMER_ELECTRONICS",
+        "301025.SZ": "CONSUMER_SERVICES",
+        "301108.SZ": "CONSUMER_SERVICES",
+        "301110.SZ": "CONSUMER_SERVICES",
+        "301122.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "301230.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "301239.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "301282.SZ": "AI_COMPUTE_INFRASTRUCTURE",
+        "301310.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "301487.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+        "600189.SH": "CONSUMER_SERVICES",
+        "600196.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "600201.SH": "AGRICULTURE_FOOD_SECURITY",
+        "600285.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "600351.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "600406.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+        "600521.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "600557.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "600573.SH": "CONSUMER_SERVICES",
+        "600771.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "600968.SH": "RESOURCES_ENERGY",
+        "600993.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "601006.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "601222.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+        "601288.SH": "FINANCIAL_HIGH_DIVIDEND",
+        "601328.SH": "FINANCIAL_HIGH_DIVIDEND",
+        "601398.SH": "FINANCIAL_HIGH_DIVIDEND",
+        "601658.SH": "FINANCIAL_HIGH_DIVIDEND",
+        "601766.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "601816.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "601877.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+        "601939.SH": "FINANCIAL_HIGH_DIVIDEND",
+        "601965.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "601988.SH": "FINANCIAL_HIGH_DIVIDEND",
+        "603025.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "603068.SH": "SEMICONDUCTOR_LOCALIZATION",
+        "603127.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "603171.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "603198.SH": "CONSUMER_SERVICES",
+        "603236.SH": "AI_COMPUTE_INFRASTRUCTURE",
+        "603301.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "603337.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "603383.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "603418.SH": "CONSUMER_ELECTRONICS",
+        "603598.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "603602.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "603630.SH": "CONSUMER_SERVICES",
+        "603656.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "603669.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "603728.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "603809.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "603883.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "603893.SH": "SEMICONDUCTOR_LOCALIZATION",
+        "603939.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "603992.SH": "CONSUMER_SERVICES",
+        "603998.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "605189.SH": "LIGHT_TEXTILE_CONSUMER_MANUFACTURING",
+        "605488.SH": "CHEMICAL_NEW_MATERIALS",
+        "688018.SH": "SEMICONDUCTOR_LOCALIZATION",
+        "688036.SH": "CONSUMER_ELECTRONICS",
+        "688071.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "688095.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "688097.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "688099.SH": "SEMICONDUCTOR_LOCALIZATION",
+        "688111.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "688151.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "688156.SH": "AGRICULTURE_FOOD_SECURITY",
+        "688187.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "688188.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "688213.SH": "SEMICONDUCTOR_LOCALIZATION",
+        "688235.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "688365.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "688475.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "688499.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+        "688522.SH": "NATIONAL_DEFENSE",
+        "688575.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "688615.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "688617.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "688626.SH": "INNOVATIVE_MEDICINE_HEALTHCARE"
+      },
+      "allowed_theme_ids": [
+        "AGRICULTURE_FOOD_SECURITY",
+        "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "AI_COMPUTE_INFRASTRUCTURE",
+        "CHEMICAL_NEW_MATERIALS",
+        "CONSUMER_ELECTRONICS",
+        "CONSUMER_SERVICES",
+        "FINANCIAL_HIGH_DIVIDEND",
+        "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "LIGHT_TEXTILE_CONSUMER_MANUFACTURING",
+        "NATIONAL_DEFENSE",
+        "POWER_EQUIPMENT_NEW_ENERGY",
+        "RESOURCES_ENERGY",
+        "ROBOTICS_ADVANCED_MANUFACTURING",
+        "SEMICONDUCTOR_LOCALIZATION"
+      ],
+      "direction_symbols": {
+        "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY": [
+          "002322.SZ",
+          "002425.SZ",
+          "002712.SZ",
+          "002811.SZ",
+          "300226.SZ",
+          "300378.SZ",
+          "300426.SZ",
+          "300957.SZ",
+          "301110.SZ",
+          "301230.SZ",
+          "603171.SH",
+          "603383.SH",
+          "603598.SH",
+          "603602.SH",
+          "688095.SH",
+          "688111.SH",
+          "688365.SH",
+          "688522.SH"
+        ],
+        "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE": [
+          "300556.SZ",
+          "300839.SZ",
+          "600406.SH",
+          "601222.SH"
+        ],
+        "SELECTED_BOARD:CONSUMER_ELECTRONICS": [
+          "688036.SH"
+        ],
+        "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE": [
+          "000423.SZ",
+          "000538.SZ",
+          "000963.SZ",
+          "000989.SZ",
+          "002001.SZ",
+          "002262.SZ",
+          "002294.SZ",
+          "002603.SZ",
+          "300181.SZ",
+          "300199.SZ",
+          "300298.SZ",
+          "300406.SZ",
+          "300453.SZ",
+          "300765.SZ",
+          "300832.SZ",
+          "301122.SZ",
+          "301239.SZ",
+          "600285.SH",
+          "600351.SH",
+          "600521.SH",
+          "600557.SH",
+          "600771.SH",
+          "600993.SH",
+          "603127.SH",
+          "603301.SH",
+          "603669.SH",
+          "603883.SH",
+          "603939.SH",
+          "603998.SH",
+          "688235.SH",
+          "688575.SH",
+          "688617.SH"
+        ],
+        "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING": [
+          "000333.SZ",
+          "000682.SZ",
+          "001266.SZ",
+          "002270.SZ",
+          "002354.SZ",
+          "002439.SZ",
+          "002530.SZ",
+          "002541.SZ",
+          "002590.SZ",
+          "002833.SZ",
+          "002990.SZ",
+          "300012.SZ",
+          "300031.SZ",
+          "300143.SZ",
+          "300299.SZ",
+          "300432.SZ",
+          "300678.SZ",
+          "300733.SZ",
+          "300756.SZ",
+          "300771.SZ",
+          "300852.SZ",
+          "301002.SZ",
+          "301282.SZ",
+          "301310.SZ",
+          "301487.SZ",
+          "600196.SH",
+          "600968.SH",
+          "601766.SH",
+          "601877.SH",
+          "601965.SH",
+          "603025.SH",
+          "603337.SH",
+          "603418.SH",
+          "603656.SH",
+          "603728.SH",
+          "603809.SH",
+          "603992.SH",
+          "605189.SH",
+          "688018.SH",
+          "688071.SH",
+          "688097.SH",
+          "688099.SH",
+          "688151.SH",
+          "688187.SH",
+          "688188.SH",
+          "688213.SH",
+          "688475.SH",
+          "688499.SH",
+          "688615.SH",
+          "688626.SH"
+        ]
+      },
+      "nomination_scope": [
+        "301190.SZ",
+        "301608.SZ",
+        "300984.SZ",
+        "001326.SZ",
+        "605100.SH",
+        "001368.SZ",
+        "002956.SZ",
+        "301529.SZ",
+        "603276.SH",
+        "603978.SH",
+        "301286.SZ",
+        "600641.SH",
+        "002674.SZ",
+        "603155.SH",
+        "300990.SZ",
+        "688787.SH",
+        "601857.SH",
+        "300821.SZ",
+        "300107.SZ",
+        "603500.SH",
+        "301210.SZ",
+        "601579.SH",
+        "688199.SH",
+        "688112.SH",
+        "600316.SH",
+        "603980.SH",
+        "002780.SZ",
+        "603188.SH",
+        "603373.SH",
+        "301069.SZ"
+      ],
+      "nomination_sample": [
+        {
+          "symbol": "301190.SZ",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "301608.SZ",
+          "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "300984.SZ",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "001326.SZ",
+          "theme_id": "CONSUMER_ELECTRONICS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "605100.SH",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "001368.SZ",
+          "theme_id": "CONSUMER_SERVICES",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "002956.SZ",
+          "theme_id": "CONSUMER_SERVICES",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "301529.SZ",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603276.SH",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603978.SH",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_ROLE_EVIDENCE_INSUFFICIENT;A2_ROLE_KNOWN_NEGATIVE;A2_BEHAVIOR_UNRESOLVED"
+        },
+        {
+          "symbol": "301286.SZ",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "600641.SH",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_ROLE_EVIDENCE_INSUFFICIENT;A2_ROLE_KNOWN_NEGATIVE;A2_BEHAVIOR_UNRESOLVED"
+        },
+        {
+          "symbol": "002674.SZ",
+          "theme_id": "LIGHT_TEXTILE_CONSUMER_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603155.SH",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "300990.SZ",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "688787.SH",
+          "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "601857.SH",
+          "theme_id": "RESOURCES_ENERGY",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "300821.SZ",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "300107.SZ",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603500.SH",
+          "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "301210.SZ",
+          "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "601579.SH",
+          "theme_id": "CONSUMER_SERVICES",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_ROLE_EVIDENCE_INSUFFICIENT;A2_ROLE_KNOWN_NEGATIVE;A2_BEHAVIOR_UNRESOLVED"
+        },
+        {
+          "symbol": "688199.SH",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "688112.SH",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_ROLE_EVIDENCE_INSUFFICIENT;A2_ROLE_KNOWN_NEGATIVE;A2_BEHAVIOR_UNRESOLVED"
+        },
+        {
+          "symbol": "600316.SH",
+          "theme_id": "NATIONAL_DEFENSE",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603980.SH",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "002780.SZ",
+          "theme_id": "LIGHT_TEXTILE_CONSUMER_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603188.SH",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603373.SH",
+          "theme_id": "NATIONAL_DEFENSE",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_ROLE_EVIDENCE_INSUFFICIENT;A2_ROLE_KNOWN_NEGATIVE;A2_BEHAVIOR_UNRESOLVED"
+        },
+        {
+          "symbol": "301069.SZ",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        }
+      ],
+      "penalty_points": {
+        "high_crowding": -12,
+        "insufficient_capacity": -10,
+        "laggard_spread_core_weak": -12,
+        "news_hot_capital_out": -10,
+        "single_limit_up_driven": -10,
+        "volume_up_return_down": -12
+      },
+      "engine_emotion_cycle": "IGNITION",
+      "final_user_sha256": "3cfb7e991811340410551574f035b486fd169a633f5da143fbc74c2301bbf3a8"
+    },
+    {
+      "captured": {
+        "call_id": "A2:CLOSE_REVIEW:1bad969c6fb85ae552f20092d533ab3cd174d452581079c4ddae6f07652cff82",
+        "run_id": "ISOLATED_R2_0505_5dd7b53",
+        "input_hash": "38eb6f5e24b2fd47d9eb7be1923ca658a00421fa4a688d6948990f467f4c2c1d",
+        "output_json": "{\"envelope\":{\"as_of\":\"2026-10-20T23:08:55.182899+08:00\",\"config_hash\":\"40b41a7326cde68342ed60a28a416b8cdd9dd7a487114d4c2de42aa8083f6b12\",\"config_version\":\"LIANGJIAN_FUNNEL_V2/2.0.0\",\"execution_trade_date\":\"2026-10-21\",\"input_snapshot_ids\":[\"snapshot-20261020T230415+0800-be48d39896c1:a2:6a7d0d7e6674:rotation-policy:a2-bottleneck:cdf36f843552\"],\"knowledge_cutoff\":\"2026-10-20T23:08:55.182899+08:00\",\"market_regime\":\"ROTATION_NO_MAINLINE\",\"model_name\":\"deepseek-v4-pro\",\"prompt_version\":\"agent-2/3.0.8\",\"reason_codes\":[],\"run_id\":\"ISOLATED_R2_0505_5dd7b53\",\"schema_version\":\"team-research-envelope/1\",\"source_trade_date\":\"2026-10-20\",\"stage_id\":\"A2\",\"status\":\"OK\"},\"focus_decisions\":[{\"opposing_refs\":[\"A2:QUANT:002262.SZ\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:000423.SZ\"],\"symbol\":\"000423.SZ\"},{\"opposing_refs\":[\"A2:QUANT:002530.SZ\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"support_codes\":[\"A2_EMOTION_LADDER_LEADER_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:002164.SZ\"],\"symbol\":\"002164.SZ\"},{\"opposing_refs\":[\"A2:QUANT:002712.SZ\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:300378.SZ\"],\"symbol\":\"300378.SZ\"},{\"opposing_refs\":[\"A2:QUANT:300556.SZ\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"support_codes\":[\"A2_EMOTION_FIRST_BOARD_OBSERVED\"],\"supporting_refs\":[\"A2:QUANT:603236.SH\"],\"symbol\":\"603236.SH\"},{\"opposing_refs\":[\"A2:QUANT:301002.SZ\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:688036.SH\"],\"symbol\":\"688036.SH\"}],\"handoff_notes\":{\"to_a3\":[\"AI应用、消费电子、创新药三个确认期主题的核心股（300378.SZ、688036.SH、000423.SZ）明日最需盯MA20支撑与板块广度是否维持40以上\",\"机器人方向002164.SZ为情绪龙头，需盯连板梯队是否延续及异常波动公告后的承接力度\",\"AI算力与机器人方向整体无聚焦，若明日出现首板且主力净流入转正需重新评估\"]},\"market_read\":{\"dominant_themes\":[\"ROBOTICS_ADVANCED_MANUFACTURING\",\"AI_APPLICATIONS_DIGITAL_ECONOMY\",\"INNOVATIVE_MEDICINE_HEALTHCARE\"],\"emotion_cycle\":\"IGNITION\",\"opposing_refs\":[\"A2:QUANT:601288.SH\"],\"regime\":\"ROTATION_NO_MAINLINE\",\"supporting_refs\":[\"A2:MARKET\"]},\"model_nominations\":[{\"falsifiers\":[\"MA20斜率转负且收盘跌破MA20\",\"板块广度连续两日回落至40以下\"],\"nomination_thesis\":\"AI应用方向处于确认期，该股趋势结构完整且相对强度居前，量化过滤主要因资金流缺失，值得跟踪。\",\"opposing_refs\":[\"A2:QUANT:300378.SZ\"],\"quant_filter_reason\":\"A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD\",\"supporting_refs\":[\"A2:NOMINATION:301608.SZ\"],\"symbol\":\"301608.SZ\",\"theme_id\":\"AI_APPLICATIONS_DIGITAL_ECONOMY\",\"why_i_disagree\":\"资金流缺失是数据源问题而非个股缺陷，趋势结构与相对强度均确认，不应因单一维度缺失而完全排除。\"},{\"falsifiers\":[\"MA20斜率转负且收盘跌破MA20\",\"板块广度连续两日回落至40以下\"],\"nomination_thesis\":\"机器人方向处于确认期，该股趋势结构完整且相对强度高，量化过滤主要因资金流缺失。\",\"opposing_refs\":[\"A2:QUANT:002164.SZ\"],\"quant_filter_reason\":\"A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD\",\"supporting_refs\":[\"A2:NOMINATION:300984.SZ\"],\"symbol\":\"300984.SZ\",\"theme_id\":\"ROBOTICS_ADVANCED_MANUFACTURING\",\"why_i_disagree\":\"资金流缺失是数据源问题，趋势结构与相对强度均确认，不应因单一维度缺失而完全排除。\"},{\"falsifiers\":[\"MA20斜率转负且收盘跌破MA20\",\"板块广度连续两日回落至40以下\"],\"nomination_thesis\":\"消费电子方向处于确认期，该股趋势结构完整且相对强度高，量化过滤主要因资金流缺失。\",\"opposing_refs\":[\"A2:QUANT:688036.SH\"],\"quant_filter_reason\":\"A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD\",\"supporting_refs\":[\"A2:NOMINATION:001326.SZ\"],\"symbol\":\"001326.SZ\",\"theme_id\":\"CONSUMER_ELECTRONICS\",\"why_i_disagree\":\"资金流缺失是数据源问题，趋势结构与相对强度均确认，不应因单一维度缺失而完全排除。\"}],\"reason_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\",\"A2_OPTIONAL_FACTS_DEGRADED\",\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"reject_decisions\":[{\"opposing_refs\":[\"A2:QUANT:000423.SZ\"],\"risk_codes\":[\"A2_IDENTIFIABILITY_BELOW_MINIMUM\"],\"supporting_refs\":[\"A2:QUANT:002262.SZ\"],\"symbol\":\"002262.SZ\"},{\"opposing_refs\":[\"A2:QUANT:300378.SZ\"],\"risk_codes\":[\"A2_IDENTIFIABILITY_BELOW_MINIMUM\"],\"supporting_refs\":[\"A2:QUANT:002712.SZ\"],\"symbol\":\"002712.SZ\"},{\"opposing_refs\":[\"A2:QUANT:002164.SZ\"],\"risk_codes\":[\"A2_IDENTIFIABILITY_BELOW_MINIMUM\"],\"supporting_refs\":[\"A2:QUANT:300143.SZ\"],\"symbol\":\"300143.SZ\"}],\"rotation_reviews\":[{\"decision\":\"NO_FOCUS\",\"explanation\":\"该方向成员整体处于趋势通道但无情绪梯队确认：300556.SZ 与 600406.SH 的可识别度低于最低门槛，300839.SZ 虽趋势结构完整但板块广度仅25且无首板梯队，缺乏右侧接力确认，故不聚焦。\",\"opposing_refs\":[\"A2:QUANT:603236.SH\"],\"reason_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\",\"A2_OPTIONAL_FACTS_DEGRADED\"],\"reviewed_symbols\":[\"300556.SZ\",\"300839.SZ\",\"600406.SH\"],\"rotation_direction_id\":\"SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE\",\"supporting_refs\":[\"A2:QUANT:300556.SZ\",\"A2:QUANT:300839.SZ\"]},{\"decision\":\"NO_FOCUS\",\"explanation\":\"该方向成员多为趋势通道股但缺乏情绪梯队结构：000333.SZ 与 000682.SZ 的 tier_structure 为0且无首板确认，001266.SZ 虽趋势强度高但无连板梯队支撑，未达到聚焦所需的右侧确认条件。\",\"opposing_refs\":[\"A2:QUANT:002164.SZ\"],\"reason_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\",\"A2_OPTIONAL_FACTS_DEGRADED\"],\"reviewed_symbols\":[\"000333.SZ\",\"000682.SZ\",\"001266.SZ\"],\"rotation_direction_id\":\"SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING\",\"supporting_refs\":[\"A2:QUANT:000333.SZ\",\"A2:QUANT:000682.SZ\"]}],\"theme_reviews\":[{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:300999.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:001313.SZ\"],\"theme_id\":\"AGRICULTURE_FOOD_SECURITY\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"ALLOW\",\"opposing_refs\":[\"A2:QUANT:002712.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"CONFIRMATION\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:300378.SZ\"],\"theme_id\":\"AI_APPLICATIONS_DIGITAL_ECONOMY\",\"what_would_change_my_mind\":[\"核心股跌破MA20且板块广度回落至40以下\",\"板块主力净流入连续两日转负\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:300556.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:603236.SH\"],\"theme_id\":\"AI_COMPUTE_INFRASTRUCTURE\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:NOMINATION:603276.SH\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:605488.SH\"],\"theme_id\":\"CHEMICAL_NEW_MATERIALS\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"ALLOW\",\"opposing_refs\":[\"A2:QUANT:301002.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"CONFIRMATION\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:688036.SH\"],\"theme_id\":\"CONSUMER_ELECTRONICS\",\"what_would_change_my_mind\":[\"核心股跌破MA20且板块广度回落至40以下\",\"板块主力净流入连续两日转负\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:000729.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:000858.SZ\"],\"theme_id\":\"CONSUMER_SERVICES\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:601398.SH\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:601288.SH\"],\"theme_id\":\"FINANCIAL_HIGH_DIVIDEND\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:001965.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:002811.SZ\"],\"theme_id\":\"INFRASTRUCTURE_DOMESTIC_DEMAND\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"ALLOW\",\"opposing_refs\":[\"A2:QUANT:002262.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"CONFIRMATION\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:000423.SZ\"],\"theme_id\":\"INNOVATIVE_MEDICINE_HEALTHCARE\",\"what_would_change_my_mind\":[\"核心股跌破MA20且板块广度回落至40以下\",\"板块主力净流入连续两日转负\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:NOMINATION:002674.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:605189.SH\"],\"theme_id\":\"LIGHT_TEXTILE_CONSUMER_MANUFACTURING\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:688522.SH\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:300733.SZ\"],\"theme_id\":\"NATIONAL_DEFENSE\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:000682.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:301487.SZ\"],\"theme_id\":\"POWER_EQUIPMENT_NEW_ENERGY\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:600968.SH\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:300839.SZ\"],\"theme_id\":\"RESOURCES_ENERGY\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]},{\"new_entry_policy\":\"ALLOW\",\"opposing_refs\":[\"A2:QUANT:002530.SZ\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"CONFIRMATION\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:002164.SZ\"],\"theme_id\":\"ROBOTICS_ADVANCED_MANUFACTURING\",\"what_would_change_my_mind\":[\"核心股跌破MA20且板块广度回落至40以下\",\"板块主力净流入连续两日转负\"]},{\"new_entry_policy\":\"WATCH_ONLY\",\"opposing_refs\":[\"A2:QUANT:603068.SH\"],\"penalty_codes\":[\"A2_CAPITAL_FLOW_UNAVAILABLE\"],\"risk_codes\":[\"A2_OPTIONAL_FACTS_DEGRADED\"],\"stage\":\"LATENT\",\"support_codes\":[\"A2_MEDIUM_TERM_TREND_CONFIRMED\"],\"supporting_refs\":[\"A2:QUANT:688018.SH\"],\"theme_id\":\"SEMICONDUCTOR_LOCALIZATION\",\"what_would_change_my_mind\":[\"板块出现首板且主力净流入转正\",\"核心股突破MA20且板块广度突破40\"]}],\"unresolved_questions\":[],\"what_would_change_my_mind\":[\"若确认期主题的核心股集体跌破MA20且板块广度回落至40以下，则下调至WATCH_ONLY\",\"若AI算力或机器人方向出现首板且主力净流入转正，则重新评估聚焦\"]}",
+        "output_hash": "af3aff08fbfd2a3b421ce2325129f2cf80b12d5619d2c975dbc8855427b88be2",
+        "validated": 0,
+        "issues_json": "[\"A2_SCORE_PENALTY_CODE_UNKNOWN\"]",
+        "latency_ms": 71757
+      },
+      "source_context_sha256": "2333948671f9adf0569bc8f60f50bca2b1feee6a22d687a9941cc510a208d521",
+      "catalog": {
+        "categories": [
+          "MARKET",
+          "NEWS",
+          "QUANT"
+        ],
+        "items": [
+          {
+            "category": "MARKET",
+            "id": "A2:MARKET",
+            "sha256": "c3f30d7720317742190cb6881719734dbc0708c749e3aeaefe69d4d220394d84"
+          },
+          {
+            "category": "NEWS",
+            "id": "A2:NEWS",
+            "sha256": "186b7ce70a3aff7ff36298dfbb02d163e4ec967baf5c2e62506004723595e665"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000333.SZ",
+            "sha256": "d9594ce509e0aded8b328e899f3e7faa3bf652ee4e2451f32d244164c4af5fb0"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000423.SZ",
+            "sha256": "e8b2557beb31005987b0dc283635c8e4c0fc3b8c16bea85f626b929d5ca1dfe2"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000538.SZ",
+            "sha256": "570bc7e1e8710922da7678d1cc3a891baa5f9b7c76bd32676d600e5133540efe"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000682.SZ",
+            "sha256": "c7f1b726ac8eee6d0cbfdec1760c3917730370e4f9e3f78d6b07e4d285bbc17c"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000729.SZ",
+            "sha256": "8873d4302f3ea0865e6e353ea8e079235f36e21573f8851eb8a7f420fcaab991"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000848.SZ",
+            "sha256": "794d31938052807a78546d3ddfc067d29850be3b76da76d5f950b6c012a5d9ef"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000858.SZ",
+            "sha256": "3439108656425b182353d86ba3dee83de41921a9ab3d64061c2538accef23cc1"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000963.SZ",
+            "sha256": "67d67986e81284c84daa34ab61ff27a243519b78cb323a0261dde5ed9ab5196a"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:000989.SZ",
+            "sha256": "5b2f890dd76cf405180bee63b05338bf483f8c0a7603d4c83e3897ac37f963a0"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:001266.SZ",
+            "sha256": "f595c8f20f30b7a0542a33e6be586e23a0df30e350dc419abeae439977ae33b7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:001313.SZ",
+            "sha256": "a836179b69801e390767dd9dea36198dd30c0d56fd344adfa959dcf18afce751"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:001965.SZ",
+            "sha256": "4b720e79a868c74454c58c51459a8fef212c3f985edf94a4ed94b36bfed27500"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002001.SZ",
+            "sha256": "b0082aa6c23760954951febf4465684119c3164c66d510b185bd12214e3f6fd7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002164.SZ",
+            "sha256": "eb8cf4a20bfd6aac7abecf015df3f6e63cf6b01af41a4f29a98d229dec461560"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002262.SZ",
+            "sha256": "7a932a2132255edf4dbf419a70f4a21c1a76dc4a3ed1405cde755ec4634f2efe"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002270.SZ",
+            "sha256": "fec4cf176c410f6e09f19017bb3e8d9d435293d5e5a221d300b97c0d9f9146c3"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002292.SZ",
+            "sha256": "baef527329b8d67b3478ffa815a94cf1302da63dd07905de10e261fe22c6c583"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002294.SZ",
+            "sha256": "69a19137b8f33b49a3798637f771ea7b5e28468cf34157acee3756f864daf3ce"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002322.SZ",
+            "sha256": "0d9f88a8a1980519dea729b996897033b1fb59df277dfebc5848eee29fc98e21"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002354.SZ",
+            "sha256": "91bc033d8c1310cddb649f7b13e3691281f9899e66b0d71bebbbb77e679af183"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002425.SZ",
+            "sha256": "65eaca60bc90f71241e3a29897bc9d1a916c21ad9f3987c990ee3937dd71b448"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002439.SZ",
+            "sha256": "c111a1067af52a2f164723c2f8cce54cf273aba84cb89146a6beb966532dc773"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002530.SZ",
+            "sha256": "3f62b160fddb22a63cfe181d378b2b1910fb1371ddaf65276f20c27e9da05cf9"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002541.SZ",
+            "sha256": "63fe1b3a83e510d99dbefa2b5ee5b4b24455154ba6a0056e3e0b0a816d95d0e4"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002590.SZ",
+            "sha256": "afd7c77de3845b44d4c4bc7d2f75c2c4964b4aa7edeae14111abb15317e4f002"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002603.SZ",
+            "sha256": "d0fa83ebd982124edda64ab7b9cc22652b9033da3a146f26131128ec3f744a52"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002712.SZ",
+            "sha256": "d6e59bda93d6b0950abd910ead56eb292f558bedce5a6d737279eb656228366a"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002811.SZ",
+            "sha256": "9042bc31922e27596a8766c6feb37f6feab284ed338cfe0894192328bf1cf96f"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002833.SZ",
+            "sha256": "dbd14d5f02e43dfc6a03adaf0c3f2eb561b01bd212e046f759fbc58c560dc0ed"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002946.SZ",
+            "sha256": "036bf561b455b9d1460d995f0437dbadb3a27b9cc702f5886872aa5bb6d062b0"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:002990.SZ",
+            "sha256": "7df23afd5472260e845239251deab12c6498f17d7aa674e799a387abeb12cf8d"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300012.SZ",
+            "sha256": "59fc57cf5d44202f58da2931358963341bf814df70464ead530a21311a9b9d6c"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300031.SZ",
+            "sha256": "9484d75a9dccb532d17e7b7f212e8ef45d98551d40c82e55151c95b4e5b29062"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300143.SZ",
+            "sha256": "9b2fc36028b025798d2bccb98e8d9f9bb5cfee10d9c5544a3fe33d34dd9b162f"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300181.SZ",
+            "sha256": "58fa4c94d748a395383d3e0dbbcc1c79e73097c8861c72590d4c90917bc5da2b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300199.SZ",
+            "sha256": "9455edd85917b1881c0892f907e08b1b51d96da770ad0f4fe46dfeb2e08cf304"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300226.SZ",
+            "sha256": "331a9c042fd23e54926fb84513cd0f712d90fc7cdeb3757703aa80fef317da1e"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300298.SZ",
+            "sha256": "e85003f9a7b89c7d8ef35ee072f004d8b885359749d771a01425c9673ebe960d"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300299.SZ",
+            "sha256": "9a272bad759fd4d437fbcfb2c0a0a0ac7c176e4c35742246b49d452b15e37f50"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300378.SZ",
+            "sha256": "f801f87f6bb0d6ca75cabbb37c15a148046e229ca8926f989d4ad14a9c79ab63"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300406.SZ",
+            "sha256": "6352bc0ee688ae9305af9fe326f0ee6243359047ed77f05bffbc3cc1189638cd"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300426.SZ",
+            "sha256": "cd12f7e57ecc3c5360c63b5f32e3314b4dc86208b79ce3ed74f04f926a434117"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300432.SZ",
+            "sha256": "69f5276e4f24ba9fc1fb75d5bf4096fb857e765d8a08457e0a2c9972eb906173"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300453.SZ",
+            "sha256": "74568fb76b9dd637fcbfd7f6c1b3d6a958ac37301d3d657e3c694dd542a65c10"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300556.SZ",
+            "sha256": "80e10033cdd0cf10db2b1ae08eb3a200a288c374f7d7e80a181d1e39a54c13a7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300678.SZ",
+            "sha256": "5e7490cba4f5f14225cc6ca01418894f1a06f7e9f26d8753438d4f05337013f4"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300733.SZ",
+            "sha256": "13dd6253ae3b51e27fd327c468d90100ee4855da848b5c65a189c54d21db8915"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300756.SZ",
+            "sha256": "a7d326b72828fb8c5338ce17c87c8548c8b266f778f13b168c79fcebe5559b3a"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300765.SZ",
+            "sha256": "b8b875aad41974a7e698818aba674b5f5163e1e17d5077ec7291cd73939c5095"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300771.SZ",
+            "sha256": "be8ed7b4f60ac3a8c550bcef055ac366ee4144fd1ac0bbdf5f69a7bd74d98d49"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300832.SZ",
+            "sha256": "e74827bcfd465a4d9f4d026083772763c9c8d3cb8c395761bf79e01281baffb7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300839.SZ",
+            "sha256": "fd0e6ebc403aa87817e611b5711749514f946d076903bca35a5383c44c088146"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300852.SZ",
+            "sha256": "4dc01022c756b5704977b7d27bbe8b07dfad7bdf3e3c4e2587e7e8933c5af831"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300957.SZ",
+            "sha256": "df91f085dd4498638510559ae4270aca8b5efbc0c36544dce71aefeb0603077d"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:300999.SZ",
+            "sha256": "824a2bb7fe839591c427655aa321774596d57b0b79eca40523de1b45f0e0db38"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301002.SZ",
+            "sha256": "5786f4a60277dc81ea941a1ced200d67299cf51f19ba28da3e191f734a460817"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301025.SZ",
+            "sha256": "614fc1c673960b7a328a4a71470cf3e153812b46fdd24d5f6af6941af8c97a7c"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301108.SZ",
+            "sha256": "d642b965c4d3078defe449fe13b7c0937423152c533bc64481219cd5cc2bde4c"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301110.SZ",
+            "sha256": "c044412e3282053b3590c7640ef0c477603e78a9399e57071be4b8b98bf2e680"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301122.SZ",
+            "sha256": "5f637154fd7bb9a01da31a0f0886b5c6adea3874ce9509084125e844c85bcf19"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301230.SZ",
+            "sha256": "e5536f02e971dd4142486b91a09ab072825d3e56455af005ee8d58d256444229"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301239.SZ",
+            "sha256": "4a45c89c1242992c6f66922c2c5b1f8ff4d88fe170f789346ba96260ff51b1ee"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301282.SZ",
+            "sha256": "2147d12bcff132ba63c721706e046d2ae48fb42925252d01621530207a4245d5"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301310.SZ",
+            "sha256": "c1b06382812680d47b9a297167e1910549be8c0abb34a28d4811890632e3b747"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:301487.SZ",
+            "sha256": "2004db8f7597722826433c5a5afac173b6df8367af617cfc01177f3aa1106947"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600189.SH",
+            "sha256": "fcc4e29ea9811e752663daeb063b736af3acabe43a847dd9817d140493b12872"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600196.SH",
+            "sha256": "5771509672e734096a149371c9a81996a7869b8ecdbd864eaa160c14fa53eacf"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600201.SH",
+            "sha256": "f6463d06b72c03571512ab52d34c0f5e501237e4f163a2fbbeec15479c859248"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600285.SH",
+            "sha256": "cbe992a5be7f5e4405dc4ca70d10f6ae5ae6fa8afba826b19746abc4094b7244"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600351.SH",
+            "sha256": "af54c5a710f73cbda2e1dbf53add2cf582f8376460795193721bc998589a6b96"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600406.SH",
+            "sha256": "8972c044963049607fc2f22052a763d265cfc9572ebb4346a79c5915bb413ca2"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600521.SH",
+            "sha256": "56736cddf1fafa030d9274914a7edb707561df84d90e85c8a1ed7aa2aad47ee8"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600557.SH",
+            "sha256": "ca47e44a62cef7b0781f0f65edbcf04fff094827e8afaaaa3f75fdabe646e7d3"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600573.SH",
+            "sha256": "b1e9769597a40e751dd28bacc5f732187e6607a07d2cae6447fc4d0fa3594368"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600771.SH",
+            "sha256": "d697afcdd6496ec20481f8cc5c07a89206173f82fd316211b6f630a1bda971ce"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600968.SH",
+            "sha256": "24ee1f80fc6269245492b4c6af91992ac32940862315a46e58e0619a59cbfee3"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:600993.SH",
+            "sha256": "20a83a7525190e26505fe9c5a19a5e116278b6071fb6fe68e9f120a58ce7bd75"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601006.SH",
+            "sha256": "c4f44288dd1c476665704b25b4c3b1044b46af427d9aa3bc346654ec85cf1f48"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601222.SH",
+            "sha256": "746c270d9b2e4063b564ba9ec1ceca029d12f0845caf99a661d06b5b39133b33"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601288.SH",
+            "sha256": "0f6ffbcebaee595efa5562c60d9201f35ccc84a59eafb92923b5e4a4bd97379d"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601328.SH",
+            "sha256": "0ab5499b6de746d813c2395cb5472c3683b03713b51367b6125dc26f806a5438"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601398.SH",
+            "sha256": "252f829bc3901064a7f4ff8003ccd0eb1b2a445fcc0e7ad23bcdeafb250fe0be"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601658.SH",
+            "sha256": "297fc263fda87954e36ef2b2a076e32c6ebc56798f04caea1a72d6d5421e6d01"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601766.SH",
+            "sha256": "32ff65d77dfc31062f6099ec2b0c4a34375152aa0936e0e4f5b9588ab17735b1"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601816.SH",
+            "sha256": "825ef09073afb74b5d0dfbf1e1cbbbb0603beddb50031d870719a3caa0f86fbc"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601877.SH",
+            "sha256": "4b649851bc9e5edd1f78b513aa91a437873d342995a6fd45c70e0502941fa7dd"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601939.SH",
+            "sha256": "450d94c027b06f19c5fea6522f1b8a0a3401dd25320bc489e9f4db66be3cacf1"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601965.SH",
+            "sha256": "e6f4a5006aaf1ca49313df8fa294c44151d0d362722fe1068195924a0e105a8b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:601988.SH",
+            "sha256": "499b454a4fe6afea3e6d8af14be52a69977e8adbdd94b62943fae199d78ed36d"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603025.SH",
+            "sha256": "1d4105b8a8db31d903c75738e07cb48fde292916064d7d777af44d7aa897d43f"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603068.SH",
+            "sha256": "4cbed855943824026e0da0d3ae46e00f8d139e8f9eb2407c8930c2b8038437f6"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603127.SH",
+            "sha256": "772851506ce02ad474c49ff9915d180ca1db84e4462d65e3de8f8b4595f5c7b7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603171.SH",
+            "sha256": "1e5b80f878da07f827657822d5b40ffff18c8728d68489ad17d4a708abb3d841"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603198.SH",
+            "sha256": "c2418fd1e41ad5cd46c1c51f92d7ba8f19351d8976f4ee04cbe25e1b096fc2ca"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603236.SH",
+            "sha256": "3a59dae4137e6d6ef4ee5c190a0c1716e38152ee9ccd39725cba8fb2d1813389"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603301.SH",
+            "sha256": "8f19cd5c7186ab48e3c8daa2a58a25fccb2dd1fd8918fc3ab8d0de7f3aae1f7c"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603337.SH",
+            "sha256": "0adfb278f99d8ebf8e18bf157c569041299e5b58b32fbcdce826061872eefef9"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603383.SH",
+            "sha256": "7dea7400740be2cef76ecdbd3d3cd2b1570585a55d7e24ac387b334dd4c7b782"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603418.SH",
+            "sha256": "5fdd2be12d364e366b19cb9336a98df91285caa13408f05685af02686ce87c31"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603598.SH",
+            "sha256": "a4eb5ae96eeffb273d698b0eb33b80769b2ce3d4f58c35c5922beead2dc39e92"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603602.SH",
+            "sha256": "1a8202fdcac908ab7fead22d71f8c10f528a26493d01a56808c399aba115f40b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603630.SH",
+            "sha256": "35f277df95e87cf4c63b4f65dccd5269546c67d0a2feb97522a441068070174e"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603656.SH",
+            "sha256": "6fb078cef57a1995bb156c49d5d91960efcb7c2f463244ded33919b613174c2f"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603669.SH",
+            "sha256": "c0ef25b5a2970e152b41adf3c26c8edbcdb1ad87d62123a658240b8cc24a6c46"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603728.SH",
+            "sha256": "dbd4129be5db98221b2bbf82cb720cf0e219b1d0be728a3ea06fa8d0a438338f"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603809.SH",
+            "sha256": "10c9fff522b838c47b1873c81a8d2b569e6be36a478ff37f722a4047bb144948"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603883.SH",
+            "sha256": "f403087aec6c921b6851c1eb0742047d9014451306c99003d16da8af8feefbcf"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603893.SH",
+            "sha256": "041a7d70a8bf24b3549185cbd742df503d9b5db4255dafa7bdff06084759a1fb"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603939.SH",
+            "sha256": "491305c2ff8fbdeed589953ce81ad07c39b1d895efd6d320e4a32739453154bd"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603992.SH",
+            "sha256": "710a2e51eaf6d0d20f53895ead098666e4642e1b0cf70ede0d98a2d41ec69096"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:603998.SH",
+            "sha256": "73e5b244da098c5fe6767464e05aa6fbda59184b9f244aac7ba82bb862569356"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:605189.SH",
+            "sha256": "d185cae5c4b07f37fe3855123efce0fea56a1a16115e357a2b089ab0d74723db"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:605488.SH",
+            "sha256": "b77da62a690311baf3c97163845268d46955899166b74003607537800b0e4eab"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688018.SH",
+            "sha256": "e6804240d3392a582b0d1a584c4c3469ce4388a7c2a8c92f1b7e7dcdba881fa8"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688036.SH",
+            "sha256": "94b3aff16ccd863b9fc4d9eec42b3760ed93ebd0287d2715f363fa6e7377440b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688071.SH",
+            "sha256": "c0476c40b564116762e04dae4b2acf812f49b4043f20d794ce046fc091623e72"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688095.SH",
+            "sha256": "abc9081ff87f675b2e5cede7882c057cd7559b79b27e29ca706c3536d02a73ac"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688097.SH",
+            "sha256": "3a5e8694ddcfe19b700e3326d1611b90825be709c44dd36bd89fc56ccd13179c"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688099.SH",
+            "sha256": "bc27f65bc9f8369ed55aaebb9628609956544d75fc2a03d4cf1ae5a7b68c50cd"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688111.SH",
+            "sha256": "a6d6e0ef8f7a58f397ba3e2fc293f0c964e40000ab0544297c18dd18f916a855"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688151.SH",
+            "sha256": "44a6963c13190d57efd9989dcc37a0a70039c4e825daff78a54d5ac3fb330d9b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688156.SH",
+            "sha256": "5e3acaac20f25513083d61eaf211c76613720f3a393b85107f00afb5aa0d18f5"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688187.SH",
+            "sha256": "5d0ae0a2f75b2b2053065a56eef3a7b9ae39e9dd8793917c845763b023b075dc"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688188.SH",
+            "sha256": "f32f1ed634a5f30e61c167d916e1ab524cba72c8f9f8a32123c1814778165df7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688213.SH",
+            "sha256": "72a12f622016782d019c9c54f99231beb40448c1ac6c76b24a2c62f868a5b599"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688235.SH",
+            "sha256": "b36eb8e85132dc1a6ee6555b9c60ff88ae46402ff27223cadf45dead8b17852b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688365.SH",
+            "sha256": "5f086d65a772f30bfef3c26aed6dfce0637e6a4ebd790060654bae71cc95a71e"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688475.SH",
+            "sha256": "bfbab36a50f2ee2996b6d1f27fe3d9cc1a8617ad5e1461f46cdcda4793d01570"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688499.SH",
+            "sha256": "41fa14c2d8575b97e8ebb3a9d3741c8de9adf1b88c2ed36d284d80379f5e6018"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688522.SH",
+            "sha256": "f12b037dd0ab6ad753a48b30b120ae6c5bb9aa11648046f921a9859b9055123e"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688575.SH",
+            "sha256": "d353f32bf1add6932ecf721d77b24f9ea275962169cce49777a04664dd763452"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688615.SH",
+            "sha256": "e04876520d09aadefa1056f40d9666a7e6c434995e9e24e4d2b7328a102571d2"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688617.SH",
+            "sha256": "9d6aa2ca366f5a23a5519eabfe191bbfd8657f2b800755b632e7d875ad752c46"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:QUANT:688626.SH",
+            "sha256": "7cf80a741cfddfbba62e500aa8688ac88780518eb28ac1f4112fe49561731cbe"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:301190.SZ",
+            "sha256": "4c04c7390ae2e09d8babdd24f735a9f432f5d62d1e061999cab70e1277ccf0e6"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:301608.SZ",
+            "sha256": "c9b72fd80af8c2b677714a19b28af60b524c02e05a99e0f005622534e51be371"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:300984.SZ",
+            "sha256": "cf0dc01ad35453ffb6b2c6e2b8d960fbae2b07b5d76ddc82aa3bfc2ee955b527"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:001326.SZ",
+            "sha256": "c30839470d00f9da0c378e01ea60d60291afda9dc0d91ce1bc14b0fe33c468b2"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:605100.SH",
+            "sha256": "24250c9ad8cd25fd9b5f9bcdaf5192a1a056453c21b52566857a3001472c2ed0"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:001368.SZ",
+            "sha256": "196bdb521aee5a49a801bd33a14fb33656e4864dfb578612c1531a274569aa88"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:002956.SZ",
+            "sha256": "823d7695d8ffad10e198e43ce3f5e3ba4d922ad98cf6dcff214ee6f1a8dc1ef7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:301529.SZ",
+            "sha256": "0170f810dadef78b6fb7b1ad7f94575c4aeef46ff5eb7789a84a355eabd9017f"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603276.SH",
+            "sha256": "880996685eaa9280f7140a6f88f409dfcf60cf1d93005303d4e009ab2cbcd4d5"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603978.SH",
+            "sha256": "f86f89a3a2f4c5a4730605625b1a68a96be93722478e4ddd8110e9c76bf5d1a1"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:301286.SZ",
+            "sha256": "f870c370c3e0f356ef8d742f1ddf8f08076713c1ec99809aeaa68b9837e996f3"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:600641.SH",
+            "sha256": "c2d3cada429023a66b30db56f2d6fa7af6b1d99e94d3fdb40c08eebd782e9a3b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:002674.SZ",
+            "sha256": "874c9a2c572513e5688cd97f8cbb609ef1db3c13fd59ea13be1bb312f3d57e0b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603155.SH",
+            "sha256": "167f6c9bfd488027d03b6553bef42c7dc42cee7537a4666e26e78192e37e12c8"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:300990.SZ",
+            "sha256": "1bc7b1df180020e379750c4e5246998f08ce2a56b2644f80911b6767304ca78a"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:688787.SH",
+            "sha256": "8d9509f7c558a78c92ba3f00ef0d1f46b49ef2e876f86754a633bd688ef3d8f2"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:601857.SH",
+            "sha256": "1688858d1e49f7983d31e5b852a7f05794a1fa8e052f6829ebf59c00ea9effb2"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:300821.SZ",
+            "sha256": "44bcdd486379bb5098f8f25c79da0742fafe6f1197d1c3facd9e238e3f813fd9"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:300107.SZ",
+            "sha256": "2adf68b5ca177c4ae614ebdff2faa621f61517690823de566dc34549e5fac468"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603500.SH",
+            "sha256": "4437c862dc88963b8570e60f15bfce9bbb1bd161a0d09000061113b4da724a03"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:301210.SZ",
+            "sha256": "1109d1fbeb2ed4bfdda049ad8af2179e7e357d0f040206d13ff3909e61d90f34"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:601579.SH",
+            "sha256": "48263bf63613e8cbe0783cde926a3ca64c0c3c9efe5884b986fb05b5dde33b3e"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:688199.SH",
+            "sha256": "c24a87d9b440890be811505c35d5467c372426c93964269058e08b1426f28260"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:688112.SH",
+            "sha256": "bb13818b5ceecd9a2d46ef6435475caf34d43292c53e23af952879d886c2dddc"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:600316.SH",
+            "sha256": "44352e6241e91c42f9bbca522bd533893b54df13618ac8bada28cf5ff6bc073d"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603980.SH",
+            "sha256": "b2a75aa4e4261abec68212cafc8c007b10520e3097762396eca0eecb6761ee7a"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:002780.SZ",
+            "sha256": "4c52888b1f7638777fe8b2e73206f1d4c9ef1e034b23c4b83abc6466f228f5f9"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603188.SH",
+            "sha256": "df2d5a0de92a96c876210f910da340de79830cece0b511056359b8bfcd7a245b"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:603373.SH",
+            "sha256": "dd57159035972271a6fe47243b1423c28da5b3ea2bba4d1b6f4ab406fe6785d7"
+          },
+          {
+            "category": "QUANT",
+            "id": "A2:NOMINATION:301069.SZ",
+            "sha256": "757d81d2f351e2d3e43a90475f71d3c14dd153509cfa3c33c64535a05e576edf"
+          }
+        ]
+      },
+      "envelope": {
+        "as_of": "2026-10-20T23:08:55.182899+08:00",
+        "config_hash": "40b41a7326cde68342ed60a28a416b8cdd9dd7a487114d4c2de42aa8083f6b12",
+        "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+        "execution_trade_date": "2026-10-21",
+        "input_snapshot_ids": [
+          "snapshot-20261020T230415+0800-be48d39896c1:a2:6a7d0d7e6674:rotation-policy:a2-bottleneck:cdf36f843552"
+        ],
+        "knowledge_cutoff": "2026-10-20T23:08:55.182899+08:00",
+        "market_regime": "ROTATION_NO_MAINLINE",
+        "model_name": "deepseek-v4-pro",
+        "prompt_version": "agent-2/3.0.8",
+        "reason_codes": [],
+        "run_id": "ISOLATED_R2_0505_5dd7b53",
+        "schema_version": "team-research-envelope/1",
+        "source_trade_date": "2026-10-20",
+        "stage_id": "A2",
+        "status": "OK"
+      },
+      "candidate_ids": [
+        "000333.SZ",
+        "000423.SZ",
+        "000538.SZ",
+        "000682.SZ",
+        "000729.SZ",
+        "000848.SZ",
+        "000858.SZ",
+        "000963.SZ",
+        "000989.SZ",
+        "001266.SZ",
+        "001313.SZ",
+        "001965.SZ",
+        "002001.SZ",
+        "002164.SZ",
+        "002262.SZ",
+        "002270.SZ",
+        "002292.SZ",
+        "002294.SZ",
+        "002322.SZ",
+        "002354.SZ",
+        "002425.SZ",
+        "002439.SZ",
+        "002530.SZ",
+        "002541.SZ",
+        "002590.SZ",
+        "002603.SZ",
+        "002712.SZ",
+        "002811.SZ",
+        "002833.SZ",
+        "002946.SZ",
+        "002990.SZ",
+        "300012.SZ",
+        "300031.SZ",
+        "300143.SZ",
+        "300181.SZ",
+        "300199.SZ",
+        "300226.SZ",
+        "300298.SZ",
+        "300299.SZ",
+        "300378.SZ",
+        "300406.SZ",
+        "300426.SZ",
+        "300432.SZ",
+        "300453.SZ",
+        "300556.SZ",
+        "300678.SZ",
+        "300733.SZ",
+        "300756.SZ",
+        "300765.SZ",
+        "300771.SZ",
+        "300832.SZ",
+        "300839.SZ",
+        "300852.SZ",
+        "300957.SZ",
+        "300999.SZ",
+        "301002.SZ",
+        "301025.SZ",
+        "301108.SZ",
+        "301110.SZ",
+        "301122.SZ",
+        "301230.SZ",
+        "301239.SZ",
+        "301282.SZ",
+        "301310.SZ",
+        "301487.SZ",
+        "600189.SH",
+        "600196.SH",
+        "600201.SH",
+        "600285.SH",
+        "600351.SH",
+        "600406.SH",
+        "600521.SH",
+        "600557.SH",
+        "600573.SH",
+        "600771.SH",
+        "600968.SH",
+        "600993.SH",
+        "601006.SH",
+        "601222.SH",
+        "601288.SH",
+        "601328.SH",
+        "601398.SH",
+        "601658.SH",
+        "601766.SH",
+        "601816.SH",
+        "601877.SH",
+        "601939.SH",
+        "601965.SH",
+        "601988.SH",
+        "603025.SH",
+        "603068.SH",
+        "603127.SH",
+        "603171.SH",
+        "603198.SH",
+        "603236.SH",
+        "603301.SH",
+        "603337.SH",
+        "603383.SH",
+        "603418.SH",
+        "603598.SH",
+        "603602.SH",
+        "603630.SH",
+        "603656.SH",
+        "603669.SH",
+        "603728.SH",
+        "603809.SH",
+        "603883.SH",
+        "603893.SH",
+        "603939.SH",
+        "603992.SH",
+        "603998.SH",
+        "605189.SH",
+        "605488.SH",
+        "688018.SH",
+        "688036.SH",
+        "688071.SH",
+        "688095.SH",
+        "688097.SH",
+        "688099.SH",
+        "688111.SH",
+        "688151.SH",
+        "688156.SH",
+        "688187.SH",
+        "688188.SH",
+        "688213.SH",
+        "688235.SH",
+        "688365.SH",
+        "688475.SH",
+        "688499.SH",
+        "688522.SH",
+        "688575.SH",
+        "688615.SH",
+        "688617.SH",
+        "688626.SH"
+      ],
+      "symbol_themes": {
+        "000333.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "000423.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "000538.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "000682.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+        "000729.SZ": "CONSUMER_SERVICES",
+        "000848.SZ": "CONSUMER_SERVICES",
+        "000858.SZ": "CONSUMER_SERVICES",
+        "000963.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "000989.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "001266.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "001313.SZ": "AGRICULTURE_FOOD_SECURITY",
+        "001965.SZ": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "002001.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "002164.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "002262.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "002270.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+        "002292.SZ": "CONSUMER_SERVICES",
+        "002294.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "002322.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "002354.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "002425.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "002439.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "002530.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "002541.SZ": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "002590.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "002603.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "002712.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "002811.SZ": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "002833.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "002946.SZ": "CONSUMER_SERVICES",
+        "002990.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300012.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300031.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300143.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300181.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300199.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300226.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300298.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300299.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300378.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300406.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300426.SZ": "CONSUMER_SERVICES",
+        "300432.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "300453.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300556.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300678.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300733.SZ": "NATIONAL_DEFENSE",
+        "300756.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "300765.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300771.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "300832.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "300839.SZ": "RESOURCES_ENERGY",
+        "300852.SZ": "AI_COMPUTE_INFRASTRUCTURE",
+        "300957.SZ": "CONSUMER_SERVICES",
+        "300999.SZ": "AGRICULTURE_FOOD_SECURITY",
+        "301002.SZ": "CONSUMER_ELECTRONICS",
+        "301025.SZ": "CONSUMER_SERVICES",
+        "301108.SZ": "CONSUMER_SERVICES",
+        "301110.SZ": "CONSUMER_SERVICES",
+        "301122.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "301230.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "301239.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "301282.SZ": "AI_COMPUTE_INFRASTRUCTURE",
+        "301310.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "301487.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+        "600189.SH": "CONSUMER_SERVICES",
+        "600196.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "600201.SH": "AGRICULTURE_FOOD_SECURITY",
+        "600285.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "600351.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "600406.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+        "600521.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "600557.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "600573.SH": "CONSUMER_SERVICES",
+        "600771.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "600968.SH": "RESOURCES_ENERGY",
+        "600993.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "601006.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "601222.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+        "601288.SH": "FINANCIAL_HIGH_DIVIDEND",
+        "601328.SH": "FINANCIAL_HIGH_DIVIDEND",
+        "601398.SH": "FINANCIAL_HIGH_DIVIDEND",
+        "601658.SH": "FINANCIAL_HIGH_DIVIDEND",
+        "601766.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "601816.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "601877.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+        "601939.SH": "FINANCIAL_HIGH_DIVIDEND",
+        "601965.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "601988.SH": "FINANCIAL_HIGH_DIVIDEND",
+        "603025.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "603068.SH": "SEMICONDUCTOR_LOCALIZATION",
+        "603127.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "603171.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "603198.SH": "CONSUMER_SERVICES",
+        "603236.SH": "AI_COMPUTE_INFRASTRUCTURE",
+        "603301.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "603337.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "603383.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "603418.SH": "CONSUMER_ELECTRONICS",
+        "603598.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "603602.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "603630.SH": "CONSUMER_SERVICES",
+        "603656.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "603669.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "603728.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "603809.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "603883.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "603893.SH": "SEMICONDUCTOR_LOCALIZATION",
+        "603939.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "603992.SH": "CONSUMER_SERVICES",
+        "603998.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "605189.SH": "LIGHT_TEXTILE_CONSUMER_MANUFACTURING",
+        "605488.SH": "CHEMICAL_NEW_MATERIALS",
+        "688018.SH": "SEMICONDUCTOR_LOCALIZATION",
+        "688036.SH": "CONSUMER_ELECTRONICS",
+        "688071.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "688095.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "688097.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "688099.SH": "SEMICONDUCTOR_LOCALIZATION",
+        "688111.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "688151.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "688156.SH": "AGRICULTURE_FOOD_SECURITY",
+        "688187.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "688188.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "688213.SH": "SEMICONDUCTOR_LOCALIZATION",
+        "688235.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "688365.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "688475.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "688499.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+        "688522.SH": "NATIONAL_DEFENSE",
+        "688575.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "688615.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "688617.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "688626.SH": "INNOVATIVE_MEDICINE_HEALTHCARE"
+      },
+      "allowed_theme_ids": [
+        "AGRICULTURE_FOOD_SECURITY",
+        "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "AI_COMPUTE_INFRASTRUCTURE",
+        "CHEMICAL_NEW_MATERIALS",
+        "CONSUMER_ELECTRONICS",
+        "CONSUMER_SERVICES",
+        "FINANCIAL_HIGH_DIVIDEND",
+        "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "LIGHT_TEXTILE_CONSUMER_MANUFACTURING",
+        "NATIONAL_DEFENSE",
+        "POWER_EQUIPMENT_NEW_ENERGY",
+        "RESOURCES_ENERGY",
+        "ROBOTICS_ADVANCED_MANUFACTURING",
+        "SEMICONDUCTOR_LOCALIZATION"
+      ],
+      "direction_symbols": {
+        "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY": [
+          "002322.SZ",
+          "002425.SZ",
+          "002712.SZ",
+          "002811.SZ",
+          "300226.SZ",
+          "300378.SZ",
+          "300426.SZ",
+          "300957.SZ",
+          "301110.SZ",
+          "301230.SZ",
+          "603171.SH",
+          "603383.SH",
+          "603598.SH",
+          "603602.SH",
+          "688095.SH",
+          "688111.SH",
+          "688365.SH",
+          "688522.SH"
+        ],
+        "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE": [
+          "300556.SZ",
+          "300839.SZ",
+          "600406.SH",
+          "601222.SH"
+        ],
+        "SELECTED_BOARD:CONSUMER_ELECTRONICS": [
+          "688036.SH"
+        ],
+        "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE": [
+          "000423.SZ",
+          "000538.SZ",
+          "000963.SZ",
+          "000989.SZ",
+          "002001.SZ",
+          "002262.SZ",
+          "002294.SZ",
+          "002603.SZ",
+          "300181.SZ",
+          "300199.SZ",
+          "300298.SZ",
+          "300406.SZ",
+          "300453.SZ",
+          "300765.SZ",
+          "300832.SZ",
+          "301122.SZ",
+          "301239.SZ",
+          "600285.SH",
+          "600351.SH",
+          "600521.SH",
+          "600557.SH",
+          "600771.SH",
+          "600993.SH",
+          "603127.SH",
+          "603301.SH",
+          "603669.SH",
+          "603883.SH",
+          "603939.SH",
+          "603998.SH",
+          "688235.SH",
+          "688575.SH",
+          "688617.SH"
+        ],
+        "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING": [
+          "000333.SZ",
+          "000682.SZ",
+          "001266.SZ",
+          "002270.SZ",
+          "002354.SZ",
+          "002439.SZ",
+          "002530.SZ",
+          "002541.SZ",
+          "002590.SZ",
+          "002833.SZ",
+          "002990.SZ",
+          "300012.SZ",
+          "300031.SZ",
+          "300143.SZ",
+          "300299.SZ",
+          "300432.SZ",
+          "300678.SZ",
+          "300733.SZ",
+          "300756.SZ",
+          "300771.SZ",
+          "300852.SZ",
+          "301002.SZ",
+          "301282.SZ",
+          "301310.SZ",
+          "301487.SZ",
+          "600196.SH",
+          "600968.SH",
+          "601766.SH",
+          "601877.SH",
+          "601965.SH",
+          "603025.SH",
+          "603337.SH",
+          "603418.SH",
+          "603656.SH",
+          "603728.SH",
+          "603809.SH",
+          "603992.SH",
+          "605189.SH",
+          "688018.SH",
+          "688071.SH",
+          "688097.SH",
+          "688099.SH",
+          "688151.SH",
+          "688187.SH",
+          "688188.SH",
+          "688213.SH",
+          "688475.SH",
+          "688499.SH",
+          "688615.SH",
+          "688626.SH"
+        ]
+      },
+      "nomination_scope": [
+        "301190.SZ",
+        "301608.SZ",
+        "300984.SZ",
+        "001326.SZ",
+        "605100.SH",
+        "001368.SZ",
+        "002956.SZ",
+        "301529.SZ",
+        "603276.SH",
+        "603978.SH",
+        "301286.SZ",
+        "600641.SH",
+        "002674.SZ",
+        "603155.SH",
+        "300990.SZ",
+        "688787.SH",
+        "601857.SH",
+        "300821.SZ",
+        "300107.SZ",
+        "603500.SH",
+        "301210.SZ",
+        "601579.SH",
+        "688199.SH",
+        "688112.SH",
+        "600316.SH",
+        "603980.SH",
+        "002780.SZ",
+        "603188.SH",
+        "603373.SH",
+        "301069.SZ"
+      ],
+      "nomination_sample": [
+        {
+          "symbol": "301190.SZ",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "301608.SZ",
+          "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "300984.SZ",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "001326.SZ",
+          "theme_id": "CONSUMER_ELECTRONICS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "605100.SH",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "001368.SZ",
+          "theme_id": "CONSUMER_SERVICES",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "002956.SZ",
+          "theme_id": "CONSUMER_SERVICES",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "301529.SZ",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603276.SH",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603978.SH",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_ROLE_EVIDENCE_INSUFFICIENT;A2_ROLE_KNOWN_NEGATIVE;A2_BEHAVIOR_UNRESOLVED"
+        },
+        {
+          "symbol": "301286.SZ",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "600641.SH",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_ROLE_EVIDENCE_INSUFFICIENT;A2_ROLE_KNOWN_NEGATIVE;A2_BEHAVIOR_UNRESOLVED"
+        },
+        {
+          "symbol": "002674.SZ",
+          "theme_id": "LIGHT_TEXTILE_CONSUMER_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603155.SH",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "300990.SZ",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "688787.SH",
+          "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "601857.SH",
+          "theme_id": "RESOURCES_ENERGY",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "300821.SZ",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "300107.SZ",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603500.SH",
+          "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "301210.SZ",
+          "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "601579.SH",
+          "theme_id": "CONSUMER_SERVICES",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_ROLE_EVIDENCE_INSUFFICIENT;A2_ROLE_KNOWN_NEGATIVE;A2_BEHAVIOR_UNRESOLVED"
+        },
+        {
+          "symbol": "688199.SH",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "688112.SH",
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_ROLE_EVIDENCE_INSUFFICIENT;A2_ROLE_KNOWN_NEGATIVE;A2_BEHAVIOR_UNRESOLVED"
+        },
+        {
+          "symbol": "600316.SH",
+          "theme_id": "NATIONAL_DEFENSE",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603980.SH",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "002780.SZ",
+          "theme_id": "LIGHT_TEXTILE_CONSUMER_MANUFACTURING",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603188.SH",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        },
+        {
+          "symbol": "603373.SH",
+          "theme_id": "NATIONAL_DEFENSE",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_ROLE_EVIDENCE_INSUFFICIENT;A2_ROLE_KNOWN_NEGATIVE;A2_BEHAVIOR_UNRESOLVED"
+        },
+        {
+          "symbol": "301069.SZ",
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD"
+        }
+      ],
+      "penalty_points": {
+        "high_crowding": -12,
+        "insufficient_capacity": -10,
+        "laggard_spread_core_weak": -12,
+        "news_hot_capital_out": -10,
+        "single_limit_up_driven": -10,
+        "volume_up_return_down": -12
+      },
+      "engine_emotion_cycle": "IGNITION",
+      "final_user_sha256": "ccd0cd7c302aa1f80fbf20fd3bb141d2b6c58096ebaa62f0b0d978d1ff1fdb50"
+    }
+  ]
+}

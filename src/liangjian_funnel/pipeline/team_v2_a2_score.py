@@ -23,6 +23,14 @@ POLICY=dict(version='FROZEN_QUANT_THEME_MEAN_V1',minimum_valid_members=3,
 def _hash(body):return hashlib.sha256(canonical(body).encode()).hexdigest()
 
 
+def penalty_code_domain(policy,penalty_rules):
+    """Exact case-sensitive score-validator domain, also used in model contract."""
+    if (not isinstance(policy,Mapping) or not isinstance(policy.get('penalty_points'),Mapping)
+            or not isinstance(penalty_rules,Mapping)):
+        raise ValueError('A2_SCORE_PENALTY_DOMAIN_INVALID')
+    return tuple(sorted(set(policy['penalty_points']) & set(penalty_rules)))
+
+
 def _number(value):
     if value is None or isinstance(value,bool) or not isinstance(value,(str,int,float,Decimal)):return None
     try:result=Decimal(str(value))
@@ -106,7 +114,7 @@ def score_with_penalties(frozen, theme_id, penalty_codes, penalty_rules):
             or any(not isinstance(c,str) or not c for c in penalty_codes) or not isinstance(penalty_rules,Mapping)):
         raise ValueError('A2_SCORE_PENALTY_CODES_INVALID')
     fixed=frozen['policy']['penalty_points']
-    unknown=set(penalty_codes)-(set(penalty_rules)&set(fixed))
+    unknown=set(penalty_codes)-set(penalty_code_domain(frozen['policy'],penalty_rules))
     if unknown:raise ValueError('A2_SCORE_PENALTY_CODE_UNKNOWN')
     theme=frozen['themes'][theme_id];points=Decimal(0);applied=[];unresolved=[]
     for code in sorted(set(penalty_codes)):

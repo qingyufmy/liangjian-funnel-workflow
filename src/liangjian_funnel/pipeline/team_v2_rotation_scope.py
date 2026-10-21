@@ -14,8 +14,8 @@ ENTRY_GATE_ONLY_REASON_CODES = frozenset({
 def rotation_reason_contract(direction_members):
     """No positive enum exists in the posterior; expose its actual constraints.
 
-    SELECTED_BOARD is the approved Release-2 scope. Other legacy schemas are
-    untouched. Codes are model judgments, never synthesized by the service.
+    Codes are model judgments, never synthesized by the service. 0515 aligns
+    every frozen direction with the same existing posterior minItems=1 rule.
     """
     rotation_coverage(set(),direction_members)
     return {direction:dict(minItems=1,maxItems=4,uniqueItems=True,
@@ -25,7 +25,7 @@ def rotation_reason_contract(direction_members):
             'a list consisting ONLY of the excluded entry-gate codes is invalid. '
             'The existing posterior has no positive reason-code enum. '
             'The service never invents a model reason.')
-        for direction in sorted(direction_members) if direction.startswith('SELECTED_BOARD:')}
+        for direction in sorted(direction_members)}
 
 
 def rotation_reason_issues(direction,reason_codes,direction_members):

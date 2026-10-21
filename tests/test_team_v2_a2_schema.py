@@ -40,7 +40,7 @@ def test_authored_a2_response_valid_and_unchanged():
 def test_0283_no_focus_still_requires_every_frozen_theme_once():
     raw=packet();raw['focus_decisions']=[]
     raw['rotation_reviews']=[dict(rotation_direction_id='D',decision='NO_FOCUS',
-        reviewed_symbols=['000001.SZ'],reason_codes=[],explanation='frozen weak structure',**REFS)]
+        reviewed_symbols=['000001.SZ'],reason_codes=['LOW_CONVICTION'],explanation='frozen weak structure',**REFS)]
     assert validate(raw).valid
     raw['theme_reviews']=raw['theme_reviews'][:1]
     assert not validate(raw).valid
@@ -85,7 +85,7 @@ def test_empty_rotation_domain_requires_empty_review_not_a_summary_placeholder()
 
 def test_direction_without_focus_requires_exact_review_and_in_domain_symbols():
     raw = packet(); raw["rotation_reviews"] = [{"rotation_direction_id": "E", "decision": "NO_FOCUS",
-        "reviewed_symbols": ["000002.SZ"], "reason_codes": [], "explanation": "frozen weak breadth", **REFS}]
+        "reviewed_symbols": ["000002.SZ"], "reason_codes": ['LOW_CONVICTION'], "explanation": "frozen weak breadth", **REFS}]
     directions = {"D": {"000001.SZ"}, "E": {"000002.SZ"}}
     assert validate(raw, direction_symbols=directions).valid
     raw["rotation_reviews"][0]["reviewed_symbols"] = ["000001.SZ"]

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
+from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 from typing import Any
 
 
@@ -97,4 +99,33 @@ class ExchangeTradingCalendar:
         raise TradingCalendarError("TRADING_CALENDAR_PREVIOUS_SESSION_UNAVAILABLE")
 
 
-__all__ = ["ExchangeTradingCalendar", "TradingCalendarError"]
+@dataclass(frozen=True)
+class ClosedResearchSession:
+    source_trade_date: date
+    target_trade_date: date
+    market_close: datetime
+    publication_deadline: datetime
+    wall_clock: datetime
+
+
+def closed_research_session(now: datetime, calendar) -> ClosedResearchSession:
+    """Date authority is the exchange calendar, never a midnight boundary.
+
+    Data time and the actual clock stay distinct. The next session's 06:30
+    publication deadline is checked both before work and before publication.
+    """
+    if not isinstance(now, datetime) or now.utcoffset() is None:
+        raise ValueError('CLOSE_RESEARCH_CLOCK_INVALID')
+    current=now.astimezone(ZoneInfo('Asia/Shanghai'))
+    source=(current.date() if calendar.is_trading_day(current.date())
+            and current.time().replace(tzinfo=None)>=time(15)
+            else calendar.previous_trading_day(current.date()))
+    target=calendar.next_trading_day(source)
+    deadline=datetime.combine(target,time(6,30),tzinfo=current.tzinfo)
+    if current>=deadline:
+        raise ValueError('CLOSE_RESEARCH_PUBLICATION_DEADLINE_REACHED')
+    return ClosedResearchSession(source,target,
+        datetime.combine(source,time(15),tzinfo=current.tzinfo),deadline,current)
+
+
+__all__ = ["ExchangeTradingCalendar", "TradingCalendarError", "ClosedResearchSession", "closed_research_session"]

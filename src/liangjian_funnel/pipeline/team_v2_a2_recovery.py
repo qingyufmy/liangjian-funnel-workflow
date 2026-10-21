@@ -77,7 +77,7 @@ def bind_a2_retry_feedback(request, feedback, *, correction_attempt, engine_emot
 
 
 def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, directions, nomination_scope,
-                        engine_emotion_cycle=None,effective_focus_symbols=None):
+                        engine_emotion_cycle=None,effective_focus_symbols=None,output_contract=None):
     """Return concrete offending values plus the unchanged frozen legal domains."""
     source = raw if isinstance(raw, Mapping) else {}
     focused = {r.get('symbol') for r in _rows(source, 'focus_decisions') if isinstance(r.get('symbol'), str)} & set(symbols)
@@ -192,6 +192,19 @@ def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, dire
         elif field == 'theme_reviews':
             allowed = dict(stage_policy=dict(_POLICIES), allowed_theme_ids=sorted(themes))
         violations.append(dict(code=code, field=field, actual=deepcopy(actual), allowed=allowed))
+    # The runtime supplies the identical first-request contract, including its
+    # exact penalty and nomination source domains. Never infer an enum from
+    # the previous model answer, and never replace an unknown code ourselves.
+    from .team_v2_a2_schema import a2_output_contract,a2_field_violations
+    contract=output_contract or a2_output_contract(required_envelope=envelope,candidate_ids=symbols,
+        nomination_scope=nomination_scope,symbol_themes={},allowed_theme_ids=themes,
+        direction_symbols=directions,catalog=catalog,engine_emotion_cycle=engine_emotion_cycle)
+    precise=[v for v in a2_field_violations(raw,contract,effective_focus_symbols=effective_focus_symbols)
+        if v['code'] in issues]
+    if precise:
+        covered={row['code'] for row in precise}
+        violations=precise+[v for v in violations if v['code'] not in covered]
+    laws['complete_output_contract']=contract
     return dict(validation_errors=list(issues), violations=violations, legal_values=laws,
         unchanged_focus_symbols=coverage['final_focus_symbols'],provider_raw_focus_symbols=sorted(focused),
         coverage_domain=coverage,required_no_focus_if_focus_unchanged=expected,

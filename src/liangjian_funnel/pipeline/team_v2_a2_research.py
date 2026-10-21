@@ -10,7 +10,7 @@ from dataclasses import replace
 import time
 
 from ..runtime.team_v2_eod import _response
-from .team_v2_a2_schema import validate_a2_response
+from .team_v2_a2_schema import validate_a2_response,a2_output_contract
 from .team_v2_a2_score import freeze_theme_scores,canonicalize_team_scores
 from .team_v2_contract import TeamValidation
 from .team_v2_model import team_call_binding
@@ -157,6 +157,13 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         directions={d:set(ss) for d,ss in projected['_rotation_review_scope'].items()}
         emotion=snapshot.data.get('MARKET_EMOTION_SNAPSHOT')
         engine_emotion=emotion.get('emotion_cycle_stage') if isinstance(emotion,Mapping) else None
+        from .team_v2_a2_score import penalty_code_domain
+        legal_penalties=penalty_code_domain(frozen['policy'],snapshot.data['PENALTY_RULES'])
+        output_contract=a2_output_contract(required_envelope=envelope,candidate_ids=symbols,
+            nomination_scope={r['symbol'] for r in sample},symbol_themes=domain,
+            allowed_theme_ids=set(projected['_theme_review_scope']),direction_symbols=directions,
+            catalog=values['EVIDENCE_CATALOG'],engine_emotion_cycle=engine_emotion,
+            penalty_codes=legal_penalties,nomination_facts=sample)
         policy_previews={}
         def policy_preview(raw):
             if not isinstance(raw,Mapping):return None
@@ -170,11 +177,11 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             result=validate_a2_response(raw,values['EVIDENCE_CATALOG'],required_envelope=envelope,
                 candidate_ids=symbols,nomination_scope={r['symbol'] for r in sample},symbol_themes=domain,
                 allowed_theme_ids=set(projected['_theme_review_scope']),direction_symbols=directions,
-                engine_emotion_cycle=engine_emotion)
+                engine_emotion_cycle=engine_emotion,penalty_codes=legal_penalties,nomination_facts=sample)
             issues=list(result.issues)
             if result.valid:
                 if raw['market_read']['regime']!=envelope['market_regime']:issues.append('A2_MARKET_REGIME_BINDING_MISMATCH')
-                known=frozen['policy']['penalty_points']
+                known=legal_penalties
                 if any(set(r['penalty_codes'])-set(known) for r in raw['theme_reviews']):issues.append('A2_SCORE_PENALTY_CODE_UNKNOWN')
                 by_symbol={r['symbol']:r for r in sample}
                 for r in raw['model_nominations']:
@@ -196,8 +203,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             input_projection['nomination_evidence_projection']=nomination_evidence
             request=adapter.repository.prepare_messages('A2',transport_values,required_envelope=envelope,session='CLOSE_REVIEW')
             from .team_v2_prompts import with_runtime_contract
-            from .team_v2_rotation_scope import rotation_output_contract
-            request=with_runtime_contract(request,rotation_output_contract(directions))
+            request=with_runtime_contract(request,output_contract)
             if attempt:
                 request=bind_a2_retry_feedback(request,projected['_rotation_review_contract'].get('retry_feedback'),
                     correction_attempt=attempt+1,engine_emotion_cycle=engine_emotion)
@@ -319,7 +325,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             feedback=validation_feedback(effective_raw,values['EVIDENCE_CATALOG'],issues,envelope=envelope,
                 symbols=symbols,themes=set(projected['_theme_review_scope']),directions=directions,
                 nomination_scope={r['symbol'] for r in sample},engine_emotion_cycle=engine_emotion,
-                effective_focus_symbols=effective_focus)
+                effective_focus_symbols=effective_focus,output_contract=output_contract)
             if canonical_actions:feedback['field_level_canonicalization_applied']=canonical_actions
             if reference_feedback is not None:
                 reference_feedback_rounds+=1
@@ -349,7 +355,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             input_projections=input_projections,
             budget_stop=budget_stop,
             original_rotation_domain={d:sorted(ss) for d,ss in sorted(directions.items())},
-            rotation_output_contract=rotation_output_contract(directions),
+            rotation_output_contract=output_contract,
             original_theme_review_domain=sorted(projected['_theme_review_scope']),
             score_snapshot_sha256=frozen['score_snapshot_sha256'],
             nomination_source=snapshot.data['_TEAM_A2_NOMINATION_FREEZE'])

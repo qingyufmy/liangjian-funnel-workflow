@@ -3121,14 +3121,29 @@ class WorkflowApplication:
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
+        formal_close_session = None
+        if (normalized_slot=='close' and as_of is None and regeneration is None
+                and not historical_replay and not comparison_run and target_trade_date is None
+                and not allow_non_trading_source):
+            from .runtime.calendar import closed_research_session
+            formal_close_session=closed_research_session(current,self.trading_calendar)
+            if current.date()!=formal_close_session.source_trade_date:
+                # Source-data cutoff only; datetime.now and the caller's real
+                # clock are never patched. The result keeps the true clock.
+                current=datetime.combine(formal_close_session.source_trade_date,
+                    datetime.strptime('23:59:59','%H:%M:%S').time(),tzinfo=SHANGHAI)
         if regeneration is not None:
-            from .runtime.close_regeneration import CloseRegenerationBinding
+            from .runtime.close_regeneration import CloseRegenerationBinding,require_regeneration_publication_window
             if (not isinstance(regeneration,CloseRegenerationBinding) or normalized_slot!='close'
                     or regeneration.trade_date!=current.date().isoformat() or historical_replay
                     or comparison_run or auction_refresh or not primary_only or not from_active_a1
                     or run_id_override!=regeneration.run_id or not publish_plans or snapshot_id
                     or frozen_a2_stock_news is not None or target_trade_date is not None):
                 raise WorkflowError('REGEN_ARGUMENTS_INVALID')
+            if current!=regeneration.source_data_as_of:
+                raise WorkflowError('REGEN_DATA_TIMESTAMP_MISMATCH')
+            require_regeneration_publication_window(regeneration,self.trading_calendar,
+                now=datetime.now(SHANGHAI))
         if frozen_a2_stock_news is not None:
             from .pipeline.research_overlay_resume import require_resume_arguments
             require_resume_arguments(normalized_slot=normalized_slot,from_active_a1=from_active_a1,
@@ -3230,7 +3245,9 @@ class WorkflowApplication:
         if not next_session_prep:
             self._ensure_trading_day(
                 current,
-                synchronize_accounts=not historical_replay and not comparison_run and frozen_a2_stock_news is None,
+                synchronize_accounts=not historical_replay and not comparison_run and frozen_a2_stock_news is None
+                    and regeneration is None and not (formal_close_session is not None
+                        and current.date()!=formal_close_session.wall_clock.date()),
             )
         if normalized_slot == "morning" and current.hour == 9 and current.minute < 26:
             time.sleep(max(0.0, (_at_time(current, 9, 26) - current).total_seconds()))
@@ -3488,15 +3505,22 @@ class WorkflowApplication:
         )
         regeneration_raw_pass=True
         if regeneration is not None:
-            from .runtime.close_regeneration import require_raw_research_pass
+            from .runtime.close_regeneration import require_raw_research_pass,require_regeneration_publication_window
             regeneration_raw_pass=require_raw_research_pass(result,primary_lane_id)
+            require_regeneration_publication_window(regeneration,self.trading_calendar,now=datetime.now(SHANGHAI))
+        if formal_close_session is not None:
+            from .runtime.calendar import closed_research_session
+            final_session=closed_research_session(datetime.now(SHANGHAI),self.trading_calendar)
+            if final_session.source_trade_date!=formal_close_session.source_trade_date:
+                raise WorkflowError('CLOSE_RESEARCH_SOURCE_SESSION_CHANGED')
         publication = (
             self._publish_plans(
                 result,
                 normalized_slot,
                 current,
                 snapshot_data=prepared.snapshot.data,
-                minimum_trade_date=(target_trade_date or (self.trading_calendar.next_trading_day(current.date())
+                minimum_trade_date=((date.fromisoformat(regeneration.target_trade_date) if regeneration is not None else None)
+                                    or target_trade_date or (self.trading_calendar.next_trading_day(current.date())
                                     if normalized_slot == "close" else current.date())),
                 same_day_recovery=same_day_recovery,
                 publication_snapshot_path=prepared.path,
@@ -3531,7 +3555,10 @@ class WorkflowApplication:
             "models": [lane.model for lane in result.lanes],
             "primary_lane_ids": list(result.primary_lane_ids),
             "source_as_of": current.isoformat(),
+            "research_wall_clock": wall_now.isoformat(),
             "target_trade_date": (
+                regeneration.target_trade_date if regeneration is not None else
+                formal_close_session.target_trade_date.isoformat() if formal_close_session is not None else
                 target_trade_date.isoformat()
                 if target_trade_date is not None
                 else current.date().isoformat()

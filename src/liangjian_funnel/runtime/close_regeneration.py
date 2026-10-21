@@ -4,7 +4,7 @@ No clock override, manual model runner, direct production SQL, or latch unlock.
 An old batch is retained when input, raw model, or geometry proof is missing.
 """
 from dataclasses import dataclass
-from datetime import datetime,time
+from datetime import datetime,date
 from pathlib import Path
 from collections.abc import Mapping
 from zoneinfo import ZoneInfo
@@ -20,15 +20,23 @@ class CloseRegenerationBinding:
     snapshot_id:str
     snapshot_hash:str
     source_summary_sha256:str
+    source_data_as_of:datetime
+    target_trade_date:str
+    wall_clock:datetime
+    publication_deadline:datetime
+    caller:str
 
 
-def bind_close_regeneration(app,source_run_id,*,now,head):
+def bind_close_regeneration(app,source_run_id,*,now,head,source_trade_date=None,caller='cli:run-close'):
     if (not isinstance(source_run_id,str) or re.fullmatch(r'[A-Za-z0-9_.-]+',source_run_id) is None
             or re.fullmatch(r'[0-9a-f]{40}',head) is None or now.utcoffset() is None):
         raise ValueError('REGEN_ARGUMENTS_INVALID')
-    current=now.astimezone(ZoneInfo('Asia/Shanghai'));day=current.date().isoformat()
-    if current.time().replace(tzinfo=None)<time(15,10) or not app.trading_calendar.is_trading_day(current.date()):
-        raise ValueError('REGEN_CLOSE_WINDOW_REQUIRED')
+    from .calendar import closed_research_session
+    current=now.astimezone(ZoneInfo('Asia/Shanghai'));session=closed_research_session(current,app.trading_calendar)
+    day=session.source_trade_date.isoformat()
+    if source_trade_date is not None and source_trade_date!=day:
+        raise ValueError('REGEN_SOURCE_TRADE_DATE_MISMATCH')
+    if caller!='cli:run-close':raise ValueError('REGEN_CALLER_INVALID')
     path=app.settings.workflow_output_dir/'runs'/f'{source_run_id}.json'
     if path.is_symlink() or path.stat().st_size>1024*1024:raise ValueError('REGEN_SOURCE_SUMMARY_UNPROVEN')
     raw=path.read_bytes();summary=json.loads(raw)
@@ -43,13 +51,23 @@ def bind_close_regeneration(app,source_run_id,*,now,head):
         raise ValueError('REGEN_SOURCE_PENDING_SCOPE_CHANGED')
     generation=app.a1_registry.require_active(as_of=current)
     a1_at=generation.as_of.astimezone(ZoneInfo('Asia/Shanghai'))
-    if a1_at.date()!=current.date() or a1_at.hour<15:
+    if a1_at.date()!=session.source_trade_date or a1_at.hour<15 or a1_at>current:
         raise ValueError('REGEN_FRESH_A1_REQUIRED')
-    run_id='regen-'+current.strftime('%Y%m%d')+'-'+head
+    run_id='regen-'+session.source_trade_date.strftime('%Y%m%d')+'-'+head
     if (app.settings.workflow_output_dir/'runs'/f'{run_id}.json').exists():
         raise ValueError('REGEN_RUN_ALREADY_RECORDED')
     return CloseRegenerationBinding(source_run_id,run_id,day,ids,generation.snapshot_id,
-        generation.snapshot_hash,hashlib.sha256(raw).hexdigest())
+        generation.snapshot_hash,hashlib.sha256(raw).hexdigest(),a1_at,
+        session.target_trade_date.isoformat(),current,session.publication_deadline,caller)
+
+
+def require_regeneration_publication_window(proof,calendar,*,now):
+    from .calendar import closed_research_session
+    session=closed_research_session(now,calendar)
+    if (session.source_trade_date.isoformat()!=proof.trade_date
+            or session.target_trade_date.isoformat()!=proof.target_trade_date
+            or session.publication_deadline!=proof.publication_deadline):
+        raise ValueError('REGEN_SOURCE_SESSION_CHANGED')
 
 
 def require_raw_research_pass(result,primary_lane):
@@ -83,13 +101,30 @@ def regeneration_manifest(proof,snapshot,*,raw_pass,created):
         reused_snapshot_as_of=snapshot.as_of.isoformat(),reused_datasets=datasets,
         raw_a2_pass=raw_pass,status='REPLACED' if raw_pass and created else 'OLD_BATCH_PRESERVED',
         replaced_plan_ids=list(proof.old_plan_ids) if raw_pass and created else [],new_plan_ids=list(created),
-        clock_override=False,snapshot_reuse_basis='SEALED_FRESH_A1_SAME_DAY_HASH_VERIFIED',
+        source_trade_date=proof.trade_date,target_trade_date=proof.target_trade_date,
+        source_data_as_of=proof.source_data_as_of.isoformat(),wall_clock=proof.wall_clock.isoformat(),
+        completed_wall_clock=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
+        publication_deadline=proof.publication_deadline.isoformat(),caller=proof.caller,
+        clock_override=False,snapshot_reuse_basis='SEALED_A1_LATEST_CLOSED_SESSION_HASH_VERIFIED',
         no_full_data_resync_in_this_run=True)
 
 
-def run_close_regeneration(app,source_run_id):
+def run_close_regeneration(app,source_run_id,*,source_trade_date=None):
     current=datetime.now(ZoneInfo('Asia/Shanghai'))
     head=subprocess.check_output(['git','-C',str(app.settings.root),'rev-parse','HEAD'],text=True).strip()
-    proof=bind_close_regeneration(app,source_run_id,now=current,head=head)
-    return app.run_research('close',as_of=current,primary_only=True,from_active_a1=True,
+    proof=bind_close_regeneration(app,source_run_id,now=current,head=head,source_trade_date=source_trade_date)
+    audit=app.settings.workflow_output_dir/'runs'/f'{proof.run_id}.binding.json'
+    try:
+        with audit.open('x',encoding='utf-8') as stream:
+            json.dump(dict(run_id=proof.run_id,source_run_id=proof.source_run_id,head=head,
+                source_trade_date=proof.trade_date,target_trade_date=proof.target_trade_date,
+                wall_clock=proof.wall_clock.isoformat(),source_data_as_of=proof.source_data_as_of.isoformat(),
+                publication_deadline=proof.publication_deadline.isoformat(),caller=proof.caller,
+                source_summary_sha256=proof.source_summary_sha256,snapshot_id=proof.snapshot_id,
+                snapshot_hash=proof.snapshot_hash,clock_override=False),stream,ensure_ascii=False,indent=2)
+    except FileExistsError:
+        raise ValueError('REGEN_RUN_ALREADY_STARTED') from None
+    # This is the sealed data timestamp, not a replacement for the wall clock.
+    # The real clock remains recorded and is checked again at publication.
+    return app.run_research('close',as_of=proof.source_data_as_of,primary_only=True,from_active_a1=True,
         schedule_comparison=False,run_id_override=proof.run_id,regeneration=proof)

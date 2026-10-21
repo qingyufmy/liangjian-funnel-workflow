@@ -476,7 +476,9 @@ def build_parser() -> argparse.ArgumentParser:
                                  help="explicit operator rerun using the current session time, not the 09:26 auction cutoff")
     close=sub.add_parser("run-close", help="dispatch only the due 15:10 close workflow")
     close.add_argument('--regenerate-from',default=None,
-        help='explicit same-day post-fix regeneration from one published close run; requires fresh sealed A1')
+        help='post-fix regeneration for the latest closed exchange session; requires its fresh sealed A1')
+    close.add_argument('--source-trade-date',default=None,
+        help='optional audit assertion for --regenerate-from; must match the calendar-derived source date')
     sub.add_parser("run-a5-midday", help="run the read-only A5 review using facts closed by 11:30")
     sub.add_parser("run-a5-close", help="run the read-only A5 review using facts closed by 15:00")
     sub.add_parser(
@@ -1273,8 +1275,15 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             from .runtime.scheduler import ScheduleKind
             if args.regenerate_from:
                 from .runtime.close_regeneration import run_close_regeneration
-                payload=run_close_regeneration(application,args.regenerate_from)
+                try:
+                    payload=run_close_regeneration(application,args.regenerate_from,
+                        source_trade_date=args.source_trade_date)
+                except ValueError as exc:
+                    reason=str(exc)
+                    raise WorkflowError(reason if _SAFE_REASON_CODE.fullmatch(reason) else 'REGEN_INPUT_INVALID') from None
             else:
+                if args.source_trade_date is not None:
+                    raise WorkflowError('SOURCE_TRADE_DATE_REQUIRES_REGENERATE_FROM')
                 payload = application.run_scheduled(ScheduleKind.CLOSE_1510)
         elif args.command == "run-auction-base":
             from .runtime.auction_base import run_auction_base
