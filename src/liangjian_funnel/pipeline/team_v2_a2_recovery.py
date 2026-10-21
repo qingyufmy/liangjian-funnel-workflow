@@ -196,7 +196,9 @@ def drop_focused_rotation(raw, catalog, directions,*,effective_focus_symbols=Non
         if row['rotation_direction_id'] in expected:
             result['rotation_reviews'].append(deepcopy(row))
         else:
-            actions.append(dict(action='SERVER_DROPPED_FOCUSED_DIRECTION', original_index=index,
+            actions.append(dict(action='SERVER_DROPPED_FOCUSED_DIRECTION',
+                rule_id='A2_ROTATION_REMOVE_ALREADY_FOCUSED_V1',
+                normalized_row=None, original_index=index,
                 rotation_direction_id=row['rotation_direction_id'], original_row=deepcopy(row)))
     if not actions:
         return None

@@ -194,6 +194,9 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             transport_values,input_projection=prepare_a2_transport_values(model_values)
             input_projection['nomination_evidence_projection']=nomination_evidence
             request=adapter.repository.prepare_messages('A2',transport_values,required_envelope=envelope,session='CLOSE_REVIEW')
+            from .team_v2_prompts import with_runtime_contract
+            from .team_v2_rotation_scope import rotation_output_contract
+            request=with_runtime_contract(request,rotation_output_contract(directions))
             if attempt:
                 request=bind_a2_retry_feedback(request,projected['_rotation_review_contract'].get('retry_feedback'),
                     correction_attempt=attempt+1,engine_emotion_cycle=engine_emotion)
@@ -329,6 +332,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             input_projections=input_projections,
             budget_stop=budget_stop,
             original_rotation_domain={d:sorted(ss) for d,ss in sorted(directions.items())},
+            rotation_output_contract=rotation_output_contract(directions),
             original_theme_review_domain=sorted(projected['_theme_review_scope']),
             score_snapshot_sha256=frozen['score_snapshot_sha256'],
             nomination_source=snapshot.data['_TEAM_A2_NOMINATION_FREEZE'])

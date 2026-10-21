@@ -19,3 +19,12 @@
 开发测试阶段：先前316项定向、后续T1原件/次日27项、WP1+WP6合并127项、A5/A6相关133项、内部37项均有本地通过；是有重叠的不同轮次，不能相加冒充全量。增加新的真实边界测试后仍需重验。
 
 剩余：新候选commit及VM自身全量、回退VM自身全量（串行）；真实A5一次、A6异常一次待预算答复、A2一次依0474；生产入口隔离整链及安装后验收；内部实际拒绝根因与单次真实投递；最终批准。WP2-4 A2原始轮动域RECUR、R11 context字节、9→7发布前差额2、CNINFO52分钟根因另交。没有把非核心待交项写成已完成。
+# 17:11 追加核验（尚未发布）
+
+- 内部配置由 Tony 更新后，17:00:51 单次新验证 SENT/HTTP200/code0；不重发旧19001失败项。
+- A1 active pointer 仍是 `a1-incremental-20261016T180003192023Z-824999b48c32`；按0475须刷新，不能以旧周更口径结案。现有同日快照 selected1578/research3577，不能直接用于要求全研究域的 A1 snapshot reuse。
+- A2 同一事实域共7个方向，最终有效FOCUS覆盖4个，正确 NO_FOCUS 集仅液冷/先进封装/航运3个；原回复4行多了 `SELECTED_BOARD:AI_CPO`。该行说明自身已承认300852为FOCUS。不是大小写或别名，更不是外域ID；服务端只删除矛盾行，绝不改ID。新增删除审计rule_id/raw-row/normalized-null；最后user请求由同一direction_members生成条件式目录，首轮即可见，校验不变。定向65通过。
+- R11：A2真实请求286074字符/估算81547 tokens；输入持久上下文1417759字节（含原始值和传输投影），不把它说成小于1MB；收盘summary67833字节。投影从426957缩为278015字符，65.1%，尚未达到历史60%目标。
+- selected9到geometry7少的2只是002313、603236，既有 `A3_EMOTION_RESEARCH_ONLY_NO_ENTRY` 隔离，不是几何静默丢失。
+- 精确phase timing更正：EARLY_DISCOVERY_DAILY_SYNC1995.38s、COMPANY_FACT_SYNC419.30s、CNINFO_SYNC790.70s、PDF14.82s；此前把15:25的阶段累计3103s称为CNINFO单阶段不准确。总4046s仍成立，未完成增量优化不称达标。
+- VM独立回退HEAD fa2b9b9自身full已启动，使用独立源码/Node依赖副本和核SHA的规则原件；未改生产。
