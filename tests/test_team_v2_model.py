@@ -21,19 +21,21 @@ CATALOG = {"categories": ["MARKET", "NEWS"], "items": [
 NOW = datetime.fromisoformat("2026-10-16T18:40:00+08:00")
 
 
-def setup(tmp_path, *, bad_output=False, failure=False):
+def setup(tmp_path, *, bad_output=False, failure=False, bad_regime=False):
     envelope = {key: "FROZEN" for key in _ENVELOPE_KEYS}
     envelope.update(stage_id="A2", model_name=MODEL, run_id="local-team-test",
-                    source_trade_date="2026-10-16", execution_trade_date="2026-10-19")
+                    source_trade_date="2026-10-16", execution_trade_date="2026-10-19",
+                    market_regime="ROTATION_NO_MAINLINE")
     repo = TeamPromptRepository(Path(__file__).resolve().parents[1] / "prompts/team_v2")
     values = {key: [] for key in repo.document("A2").placeholders}; values["EVIDENCE_CATALOG"] = CATALOG
     request = repo.prepare_messages("A2", values, required_envelope=envelope, session="CLOSE")
-    output = {"envelope": envelope, "reason_codes": [], "market_read": {"regime": "ROTATION",
+    output = {"envelope": envelope, "reason_codes": [], "market_read": {"regime": envelope["market_regime"],
         "dominant_themes": [], "emotion_cycle": "CONFIRMATION", "supporting_refs": ["M"], "opposing_refs": ["N"]},
         "theme_reviews": [], "focus_decisions": [], "rotation_reviews": [], "reject_decisions": [],
         "model_nominations": [], "handoff_notes": {"to_a3": ["no focused theme"]},
         "what_would_change_my_mind": ["fresh fact"], "unresolved_questions": []}
     if bad_output: output["market_read"]["supporting_refs"] = ["OUTSIDE"]
+    if bad_regime: output["market_read"]["regime"] = "TREND_MAINLINE"
     seen = []
     def handler(http_request):
         seen.append(json.loads(http_request.read()))
@@ -70,6 +72,17 @@ def test_invalid_original_json_is_preserved_not_repaired_or_retried(tmp_path):
     with sqlite3.connect(journal.path) as db:
         valid, output = db.execute("SELECT validated,output_json FROM model_calls").fetchone()
         assert valid == 0 and json.loads(output)["market_read"]["supporting_refs"] == ["OUTSIDE"]
+
+
+def test_market_regime_mismatch_stays_invalid_and_original_is_not_repaired(tmp_path):
+    request,client,journal,kwargs,seen=setup(tmp_path,bad_regime=True)
+    result=call_team_model(request,client,journal,**kwargs)
+    assert result.validation.issues==('A2_MARKET_REGIME_BINDING_MISMATCH',) and len(seen)==1
+    with sqlite3.connect(journal.path) as db:
+        valid,text=db.execute('SELECT validated,output_json FROM model_calls').fetchone()
+    raw=json.loads(text)
+    assert valid==0 and raw['envelope']['market_regime']=='ROTATION_NO_MAINLINE'
+    assert raw['market_read']['regime']=='TREND_MAINLINE'
 
 
 def test_transport_failure_leaves_durable_claim_and_only_stable_code(tmp_path):

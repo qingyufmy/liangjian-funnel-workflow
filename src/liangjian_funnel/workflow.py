@@ -3122,7 +3122,7 @@ class WorkflowApplication:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
         formal_close_session = None
-        if (normalized_slot=='close' and as_of is None and regeneration is None
+        if (normalized_slot=='close' and as_of is None and regeneration is None and frozen_a2_stock_news is None
                 and not historical_replay and not comparison_run and target_trade_date is None
                 and not allow_non_trading_source):
             from .runtime.calendar import closed_research_session
