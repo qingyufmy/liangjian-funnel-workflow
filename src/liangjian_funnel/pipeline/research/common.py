@@ -5934,7 +5934,7 @@ def _gate_secondary_items(
             0 if rotation_rank < 9999 else 1,
             min(rotation_rank, hot_rank),
             -_safe_float(item.get("theme_rotation_score") or item.get("identifiability_score")),
-            _first_symbol(item),
+            _a3_candidate_identity(item),
         )
 
     items.sort(key=ranking)
@@ -6606,8 +6606,25 @@ def _first_symbol(value: Any) -> str:
     return symbols[0] if symbols else ""
 
 
+def _a3_candidate_identity(value: Any) -> str:
+    """Read a candidate identity, never a security mentioned in its prose.
+
+    A2/A3 structured rows own their identity in ``symbol``. Missing, malformed or
+    ambiguous explicit identities must not be repaired from reasons/references.
+    Keep the historic scalar representation for old checkpoint readers only.
+    """
+    if isinstance(value, Mapping):
+        explicit = value.get("symbol")
+        if not isinstance(explicit, str):
+            return ""
+        value = explicit
+    if not isinstance(value, str) or _SYMBOL.fullmatch(value.strip()) is None:
+        return ""
+    return _first_symbol(value)
+
+
 def _normalize_pool_symbol(value: Any) -> Any:
-    symbol = _first_symbol(value)
+    symbol = _a3_candidate_identity(value)
     if not symbol:
         return value
     if isinstance(value, Mapping):
@@ -7617,7 +7634,7 @@ def _apply_stage_threshold_policy(
                 retained.append(raw_item)
                 continue
             item = dict(raw_item)
-            symbol = _first_symbol(item)
+            symbol = _a3_candidate_identity(item)
             context = contexts.get(symbol)
             context = context if isinstance(context, Mapping) else {}
             hard_reasons: list[str] = []
@@ -8028,7 +8045,10 @@ def _project_upstream_output(
                     else _compact_upstream_candidate(item)
                 )
                 for item in pool
-                if isinstance(item, Mapping) and bool(_scan_symbols(item).intersection(symbols))
+                if isinstance(item, Mapping) and (
+                    _a3_candidate_identity(item) in symbols
+                    if stage in {"A2", "A3"} else bool(_scan_symbols(item).intersection(symbols))
+                )
             ]
     raw_themes = value.get("active_themes")
     if isinstance(raw_themes, list):
@@ -8259,11 +8279,17 @@ def _validate_output(
     if not isinstance(input_snapshot_ids, list) or snapshot_id not in input_snapshot_ids:
         reasons.append("SNAPSHOT_LINEAGE_MISSING")
     reasons.extend(_permission_violations(output))
-    symbols = _candidate_pool_symbols(output)
+    symbols = _candidate_pool_symbols(output, stage=stage)
     outside = sorted(symbols.difference(upstream_symbols))
     if outside:
         reasons.append("POOL_OUTSIDE_G0" if stage == "A1" else "POOL_OUTSIDE_UPSTREAM")
     if _unprovable_candidate_pool(output):
+        reasons.append("CANDIDATE_LINEAGE_UNPROVABLE")
+    if stage in {"A2", "A3"} and any(
+        not _a3_candidate_identity(item)
+        for key in _CANDIDATE_KEYS
+        for item in (output.get(key) if isinstance(output.get(key), list) else [])
+    ):
         reasons.append("CANDIDATE_LINEAGE_UNPROVABLE")
     # POLICY_MACRO_DISCOVERY is a semantic discovery response and deliberately
     # has no stock pools.  The presence of mappings plus the absence of pool
@@ -8321,11 +8347,16 @@ def _validate_output(
 
 
 
-def _candidate_pool_symbols(output: Mapping[str, Any]) -> set[str]:
+def _candidate_pool_symbols(output: Mapping[str, Any], *, stage: str | None = None) -> set[str]:
     symbols: set[str] = set()
     for key in _CANDIDATE_KEYS:
         if key in output:
-            symbols.update(_scan_symbols(output.get(key)))
+            if stage in {"A2", "A3"}:
+                rows = output.get(key)
+                if isinstance(rows, list):
+                    symbols.update(filter(None, (_a3_candidate_identity(item) for item in rows)))
+            else:
+                symbols.update(_scan_symbols(output.get(key)))
     return symbols
 
 
@@ -8453,6 +8484,9 @@ def _same_number(left: Any, right: Any) -> bool:
 
 def _approved_symbols(output: Mapping[str, Any], stage: str) -> set[str]:
     key = {"A1": "active_research_pool", "A2": "focus_pool", "A3": "core_watch_pool"}[stage]
+    if stage in {"A2", "A3"}:
+        rows = output.get(key)
+        return set(filter(None, (_a3_candidate_identity(item) for item in rows))) if isinstance(rows, list) else set()
     return _scan_symbols(output.get(key, ()))
 
 

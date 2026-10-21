@@ -388,7 +388,7 @@ def _apply_a3_candidate_origin_policy(
         if not isinstance(raw_item, Mapping):
             return raw_item
         item = dict(raw_item)
-        symbol = _first_symbol(item)
+        symbol = _a3_candidate_identity(item)
         if contexts.get(symbol, {}).get("rotation_reserve_eligible") is True:
             item["rotation_reserve_eligible"] = True
             item["rotation_reserve_scope"] = "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY"
@@ -481,7 +481,7 @@ def _a3_origin_only_veto_reasons(
         for raw_item in raw_items:
             if not isinstance(raw_item, Mapping):
                 continue
-            symbol = _first_symbol(raw_item)
+            symbol = _a3_candidate_identity(raw_item)
             context = contexts.get(symbol)
             context = context if isinstance(context, Mapping) else {}
             origin = str(origins.get(symbol) or raw_item.get("candidate_origin") or "").strip().upper()
@@ -541,7 +541,7 @@ def _a3_prior_market_only_veto_reasons(
         for raw_item in raw_items:
             if not isinstance(raw_item, Mapping):
                 continue
-            symbol = _first_symbol(raw_item)
+            symbol = _a3_candidate_identity(raw_item)
             context = contexts.get(symbol)
             context = context if isinstance(context, Mapping) else {}
             eligibility = str(
@@ -598,7 +598,7 @@ def _a3_semantic_price_reasons(
         for raw_item in raw_items:
             if not isinstance(raw_item, Mapping):
                 continue
-            symbol = _first_symbol(raw_item)
+            symbol = _a3_candidate_identity(raw_item)
             expected = raw_levels.get(symbol)
             if not symbol or not isinstance(expected, Mapping) or expected.get("available") is not True:
                 continue
@@ -695,10 +695,9 @@ def _validate_a3_provenance(output: Mapping[str, Any], snapshot_data: Mapping[st
             # numeric provenance obligations as a core plan.
             if pool_name == "secondary_watch_pool" and risk_unit != "PROBE":
                 continue
-            scanned = _scan_symbols(item.get("symbol"))
-            if len(scanned) != 1:
+            symbol = _a3_candidate_identity(item)
+            if not symbol:
                 continue
-            symbol = next(iter(scanned))
             strategy_context = contexts.get(symbol)
             strategy_context = strategy_context if isinstance(strategy_context, Mapping) else {}
             if isinstance(raw_contexts, Mapping) and not strategy_context:
@@ -797,8 +796,7 @@ def _canonicalize_a3_price_fields(
                 canonical_pool.append(raw_item)
                 continue
             item = dict(raw_item)
-            symbols = _scan_symbols(item.get("symbol"))
-            symbol = next(iter(symbols)) if len(symbols) == 1 else ""
+            symbol = _a3_candidate_identity(item)
             expected = levels.get(symbol)
             strategy_context = contexts.get(symbol)
             strategy_context = strategy_context if isinstance(strategy_context, Mapping) else {}

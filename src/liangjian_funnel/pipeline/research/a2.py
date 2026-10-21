@@ -412,7 +412,7 @@ def _canonicalize_a2_complete_partition(
         rows = raw_rows if isinstance(raw_rows, list) else []
         retained: list[Any] = []
         for row in rows:
-            symbol = _first_symbol(row) if isinstance(row, Mapping) else ""
+            symbol = _a3_candidate_identity(row) if isinstance(row, Mapping) else ""
             if symbol and symbol in seen:
                 changes += 1
                 continue
@@ -423,7 +423,7 @@ def _canonicalize_a2_complete_partition(
 
     outside = list(result.get("outside_rotation_pool") or [])
     for decision in gate.decisions:
-        symbol = _first_symbol(decision)
+        symbol = _a3_candidate_identity(decision)
         if not symbol or symbol in seen:
             continue
         item = _gate_item_from_decision(decision, "A2", "OUTSIDE_ROTATION")
@@ -581,24 +581,30 @@ def _merge_a2_outputs(outputs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         if isinstance(values, list):
             merged[pool] = [_normalize_pool_symbol(item) for item in values]
 
-    focus_symbols = _scan_symbols(merged.get("focus_pool", ()))
+    # Candidate identity belongs to the explicit symbol field, not securities
+    # mentioned in a thesis, evidence reference or other narrative field.
+    focus_symbols = set(filter(None, (
+        _a3_candidate_identity(item) for item in merged.get("focus_pool", ())
+    )))
     if isinstance(merged.get("watch_only_pool"), list):
         merged["watch_only_pool"] = [
             item for item in merged["watch_only_pool"]
-            if not _scan_symbols(item).intersection(focus_symbols)
+            if _a3_candidate_identity(item) not in focus_symbols
         ]
-    selected_symbols = focus_symbols | _scan_symbols(merged.get("watch_only_pool", ()))
+    selected_symbols = focus_symbols | set(filter(None, (
+        _a3_candidate_identity(item) for item in merged.get("watch_only_pool", ())
+    )))
     if isinstance(merged.get("rejected_candidates"), list):
         merged["rejected_candidates"] = [
             item for item in merged["rejected_candidates"]
-            if not _scan_symbols(item).intersection(selected_symbols)
+            if _a3_candidate_identity(item) not in selected_symbols
         ]
 
     def ranking(item: Any) -> tuple[float, float, str]:
         return (
             -_safe_float(item.get("theme_score")) if isinstance(item, Mapping) else 0.0,
             -_safe_float(item.get("identifiability_score")) if isinstance(item, Mapping) else 0.0,
-            _first_symbol(item) if isinstance(item, Mapping) else _canonical_json(item),
+            _a3_candidate_identity(item) if isinstance(item, Mapping) else _canonical_json(item),
         )
 
     for pool in ("focus_pool", "watch_only_pool"):
@@ -736,7 +742,7 @@ def _canonicalize_a2_bottleneck_scorecards(
                 normalized.append(raw_item)
                 continue
             item = dict(raw_item)
-            symbol = _first_symbol(item)
+            symbol = _a3_candidate_identity(item)
             route = _a2_item_route(item, snapshot_data, symbol)
             if route and item.get("a2_route") != route:
                 item["a2_route"] = route
@@ -1084,7 +1090,7 @@ def _enrich_a2_decision_facts(
                 normalized.append(raw_item)
                 continue
             item = dict(raw_item)
-            symbol = _first_symbol(item)
+            symbol = _a3_candidate_identity(item)
             context = contexts.get(symbol) if symbol else None
             if not isinstance(context, Mapping):
                 normalized.append(item)
@@ -1279,7 +1285,7 @@ def _a2_relative_top5_market_core_exception(
     creates an exception for a new v2 snapshot.
     """
 
-    symbol = _first_symbol(item)
+    symbol = _a3_candidate_identity(item)
     raw_contexts = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
     context = raw_contexts.get(symbol) if isinstance(raw_contexts, Mapping) and symbol else None
 
@@ -1404,7 +1410,7 @@ def _a2_bottleneck_reasons(
     """Require a source-backed scarce-layer thesis for every A2 focus item."""
 
     reasons: list[str] = []
-    symbol = _first_symbol(item)
+    symbol = _a3_candidate_identity(item)
     raw_context = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
     # Pre-v2/legacy snapshots remain replayable. New deterministic-v2 runs
     # always attach this context after the local A2 gate.
@@ -1578,7 +1584,7 @@ def _apply_a2_lineage_policy(
         for raw_item in upstream_pool:
             if not isinstance(raw_item, Mapping):
                 continue
-            symbol = _first_symbol(raw_item)
+            symbol = _a3_candidate_identity(raw_item)
             if symbol:
                 upstream_symbols.add(symbol)
             for key in ("primary_theme", "theme_id"):
@@ -1703,7 +1709,7 @@ def _apply_a2_lineage_policy(
             key=lambda candidate: (
                 -_safe_float(candidate.get("theme_score")) if isinstance(candidate, Mapping) else 0.0,
                 -_safe_float(candidate.get("identifiability_score")) if isinstance(candidate, Mapping) else 0.0,
-                _first_symbol(candidate) if isinstance(candidate, Mapping) else _canonical_json(candidate),
+                _a3_candidate_identity(candidate) if isinstance(candidate, Mapping) else _canonical_json(candidate),
             ),
         )
         retained = ordered_focus[:focus_max]
@@ -1977,7 +1983,7 @@ def _validate_a2_rotation_focus_coverage(
             continue
         valid = True
         for representative in representatives:
-            symbol = _first_symbol(representative)
+            symbol = _a3_candidate_identity(representative)
             if symbol not in upstream_symbols or symbol not in direction_symbols.get(direction,set()):
                 valid = False
                 break
