@@ -68,6 +68,7 @@ class PlanStatus(StrEnum):
     INVALIDATED = "INVALIDATED"
     CANCELLED = "CANCELLED"
     EXPIRED = "EXPIRED"
+    SUPERSEDED = "SUPERSEDED"
 
 
 class MonitorAction(StrEnum):
@@ -713,6 +714,12 @@ class RuntimeStore:
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
                         UNIQUE(lane_id, plan_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS plan_supersessions (
+                        old_plan_id TEXT PRIMARY KEY,
+                        replacement_run_id TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        replaced_at TEXT NOT NULL
                     );
                     CREATE TABLE IF NOT EXISTS monitor_events (
                         event_id TEXT PRIMARY KEY,
@@ -2029,6 +2036,8 @@ class RuntimeStore:
         *,
         expire_active_lanes: Sequence[str] = (),
         invalidate_pending_lanes: Sequence[str] = (),
+        supersede_pending_plan_ids: Sequence[str] = (),
+        supersession_run_id: str | None = None,
     ) -> tuple[dict[str, Any], ...]:
         """Publish a validated multi-lane plan set in one SQLite transaction.
 
@@ -2071,8 +2080,25 @@ class RuntimeStore:
         current_plan_ids_by_lane: dict[str, set[str]] = {}
         for item in normalized:
             current_plan_ids_by_lane.setdefault(str(item["lane_id"]), set()).add(str(item["plan_id"]))
+        superseded_ids=tuple(supersede_pending_plan_ids)
+        if superseded_ids and (not normalized or not supersession_run_id
+                or len(set(superseded_ids))!=len(superseded_ids) or lanes or pending_lanes
+                or any(item['status']!=PlanStatus.PENDING_MORNING_REVIEW.value
+                    or item['payload'].get('source_run_id')!=supersession_run_id for item in normalized)
+                or set(superseded_ids).intersection(item['plan_id'] for item in normalized)):
+            raise StateTransitionError('REGEN_BATCH_CONTRACT_INVALID')
 
         def operation(connection):
+            if superseded_ids:
+                expected=set(superseded_ids);new_ids={str(x['plan_id']) for x in normalized}
+                # Compare the complete pending scope under the same write lock;
+                # a concurrently published/activated batch must not be mixed.
+                actual={str(row['plan_id']) for row in connection.execute(
+                    'SELECT plan_id,lane_id FROM execution_plans WHERE status=?',
+                    (PlanStatus.PENDING_MORNING_REVIEW.value,))
+                    if row['lane_id'] in current_plan_ids_by_lane and str(row['plan_id']) not in new_ids}
+                if actual!=expected:
+                    raise StateTransitionError('REGEN_PENDING_SCOPE_CHANGED')
             # Check every row and same-batch identity before any retirement,
             # parent invalidation or insert. Never validate an existing ACTIVE
             # row with proposed replacement dates to escape its old expiry.
@@ -2094,6 +2120,11 @@ class RuntimeStore:
                         if reason:
                             raise StateTransitionError(reason)
                 checked_by_id[plan_id] = existing if existing is not None else item
+            for plan_id in superseded_ids:
+                connection.execute('INSERT INTO plan_supersessions VALUES (?,?,?,?)',
+                    (plan_id,supersession_run_id,'post-fix regeneration',now))
+                connection.execute('UPDATE execution_plans SET status=?,updated_at=? WHERE plan_id=? AND status=?',
+                    (PlanStatus.SUPERSEDED.value,now,plan_id,PlanStatus.PENDING_MORNING_REVIEW.value))
             for lane_id in lanes:
                 connection.execute(
                     "UPDATE execution_plans SET status=?,updated_at=? WHERE lane_id=? AND status=?",

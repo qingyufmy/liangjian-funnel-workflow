@@ -112,6 +112,7 @@ class ModelCallResult:
     reasoning_tokens: int | None = None
     output_hash: str = ""
     pm_stream_telemetry: Mapping[str, Any] | None = None
+    a5_stream_telemetry: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.output_hash:
@@ -197,9 +198,14 @@ class OpenAICompatibleModelClient:
         overall_deadline = self.monotonic() + call_timeout
         pm_premarket = str(stage or '').upper() == 'A3' and team_session == 'PM_PREMARKET'
         pm_metrics = None
+        a5_metrics = None
         if pm_premarket:
             from .pm_stream_metrics import PMStreamMetrics
             pm_metrics = PMStreamMetrics(clock=self.monotonic, started=overall_deadline-call_timeout)
+        if str(stage or '').upper()=='A5' and team_session in {'MIDDAY','POST_CLOSE'}:
+            from .pm_stream_metrics import PMStreamMetrics
+            # Measurement only: do not enable PM's attempt/deadline policy.
+            a5_metrics=PMStreamMetrics(clock=self.monotonic,started=overall_deadline-call_timeout)
         attempt_limit = 1 if pm_premarket else self.max_attempts
         total_attempts = 0
         # A2 receives server-computed ranks, roles, routes and fact coverage.
@@ -297,7 +303,7 @@ class OpenAICompatibleModelClient:
                         "stream": True,
                         **thinking_payload,
                     }
-                    if pm_premarket:
+                    if pm_premarket or a5_metrics is not None:
                         body['stream_options'] = {'include_usage': True}
                     try:
                         # Bound every transport phase by the remaining stage
@@ -371,7 +377,7 @@ class OpenAICompatibleModelClient:
                                 response,
                                 deadline=attempt_deadline,
                                 clock=self.monotonic,
-                                **({'pm_metrics': pm_metrics} if pm_premarket else {}),
+                                **({'pm_metrics': pm_metrics or a5_metrics} if pm_metrics or a5_metrics else {}),
                             )
                             output = _strip_reasoning(strict_json_object(content))
                     except StrictJSONError as exc:
@@ -392,9 +398,11 @@ class OpenAICompatibleModelClient:
                         raise StrictJSONError(
                             exc.reason_code,
                             attempts=total_attempts,
-                            diagnostics={**exc.diagnostics, **({'pm_stream': pm_metrics.snapshot()} if pm_metrics else {})},
+                            diagnostics={**exc.diagnostics, **({'pm_stream': pm_metrics.snapshot()} if pm_metrics else {}),
+                                **({'a5_stream':a5_metrics.snapshot()} if a5_metrics else {})},
                         ) from exc
                     except ModelClientError as exc:
+                        if a5_metrics is not None:exc.diagnostics['a5_stream']=a5_metrics.snapshot()
                         if pm_metrics is not None:
                             exc.diagnostics['pm_stream'] = pm_metrics.snapshot()
                             if exc.attempts is None:
@@ -405,14 +413,16 @@ class OpenAICompatibleModelClient:
                             ('PM_FIRST_PACKET_TIMEOUT' if pm_metrics.first_packet is None else 'PM_TOTAL_TIMEOUT')
                             if pm_metrics is not None else "MODEL_WALL_CLOCK_TIMEOUT",
                             attempts=total_attempts,
-                            diagnostics={'pm_stream': pm_metrics.snapshot()} if pm_metrics else None,
+                            diagnostics=({'pm_stream': pm_metrics.snapshot()} if pm_metrics else
+                                {'a5_stream':a5_metrics.snapshot()} if a5_metrics else None),
                         ) from exc
                     except (httpx.NetworkError, httpx.RemoteProtocolError, httpx.HTTPError) as exc:
                         if variant_attempts < attempt_limit:
                             self._backoff(variant_attempts, deadline=overall_deadline)
                             continue
                         raise ModelNetworkError(attempts=total_attempts,
-                            diagnostics={'pm_stream': pm_metrics.snapshot()} if pm_metrics else None) from exc
+                            diagnostics=({'pm_stream': pm_metrics.snapshot()} if pm_metrics else
+                                {'a5_stream':a5_metrics.snapshot()} if a5_metrics else None)) from exc
                     return ModelCallResult(
                         model=model,
                         output=output,
@@ -423,6 +433,7 @@ class OpenAICompatibleModelClient:
                         thinking_variant=variant_id,
                         reasoning_tokens=reasoning_tokens,
                         pm_stream_telemetry=pm_metrics.snapshot() if pm_metrics else None,
+                        a5_stream_telemetry=a5_metrics.snapshot() if a5_metrics else None,
                     )
 
         if last_strict_error is not None:

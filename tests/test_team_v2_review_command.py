@@ -164,7 +164,13 @@ def test_original_local_1015_facts_project_without_models_or_source_changes(tmp_
         account_id='local-paper',trade_date='2026-10-15',review_kind='POST_CLOSE',
         observed_at=datetime.fromisoformat('2026-10-15T16:46:00+08:00'))
     before=canonical(facts);projected,domain=coach_projection(facts)
-    assert len(canonical(projected))<220000
+    # 0482 requires complete plan causal facts, not an old speed-oriented
+    # projection-size target. The actual transport retains its independent
+    # context guard and must still have an exact inverse.
+    from liangjian_funnel.pipeline.team_v2_a5_projection import project_review_facts,expand_review_facts
+    transport,_=project_review_facts(projected)
+    assert expand_review_facts(transport)==projected
+    assert 'plan_causal_chains' in projected
     assert canonical(facts)==before and path.read_bytes()==raw
     assert 'counterexamples' not in projected['independent_verification']
     reference=projected['independent_verification']['counterexamples_reference']

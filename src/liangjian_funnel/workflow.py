@@ -3117,9 +3117,18 @@ class WorkflowApplication:
         same_day_recovery: bool = False,
         auction_refresh: bool = False,
         frozen_a2_stock_news: BoundObject | None = None,
+        regeneration=None,
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
+        if regeneration is not None:
+            from .runtime.close_regeneration import CloseRegenerationBinding
+            if (not isinstance(regeneration,CloseRegenerationBinding) or normalized_slot!='close'
+                    or regeneration.trade_date!=current.date().isoformat() or historical_replay
+                    or comparison_run or auction_refresh or not primary_only or not from_active_a1
+                    or run_id_override!=regeneration.run_id or not publish_plans or snapshot_id
+                    or frozen_a2_stock_news is not None or target_trade_date is not None):
+                raise WorkflowError('REGEN_ARGUMENTS_INVALID')
         if frozen_a2_stock_news is not None:
             from .pipeline.research_overlay_resume import require_resume_arguments
             require_resume_arguments(normalized_slot=normalized_slot,from_active_a1=from_active_a1,
@@ -3314,6 +3323,8 @@ class WorkflowApplication:
                     expected_date=snapshot_expected_date or current.date().isoformat(),
                 )
                 if snapshot_id is not None
+                else self._load_research_snapshot_by_id(regeneration.snapshot_id,
+                    expected_date=regeneration.trade_date) if regeneration is not None
                 else None if historical_replay or not reuse_resume_snapshot or auction_refresh
                 else self._load_research_resume_snapshot(
                     normalized_slot, current, candidate_symbols=active_a1_scope_symbols,
@@ -3352,6 +3363,8 @@ class WorkflowApplication:
                 _progress_stdout(progress.snapshot())
             if snapshot_expected_hash and prepared.snapshot.snapshot_hash != snapshot_expected_hash:
                 raise WorkflowError("COMPARISON_SNAPSHOT_HASH_MISMATCH")
+            if regeneration is not None and prepared.snapshot.snapshot_hash!=regeneration.snapshot_hash:
+                raise WorkflowError('REGEN_SNAPSHOT_HASH_MISMATCH')
         except Exception as exc:
             progress.finish(
                 status="BLOCKED",
@@ -3473,6 +3486,10 @@ class WorkflowApplication:
             result,
             self.settings.workflow_output_dir / "research",
         )
+        regeneration_raw_pass=True
+        if regeneration is not None:
+            from .runtime.close_regeneration import require_raw_research_pass
+            regeneration_raw_pass=require_raw_research_pass(result,primary_lane_id)
         publication = (
             self._publish_plans(
                 result,
@@ -3483,8 +3500,9 @@ class WorkflowApplication:
                                     if normalized_slot == "close" else current.date())),
                 same_day_recovery=same_day_recovery,
                 publication_snapshot_path=prepared.path,
+                **({'regeneration':regeneration} if regeneration is not None else {}),
             )
-            if publish_plans
+            if publish_plans and regeneration_raw_pass
             else {
                 "atomic": True,
                 "created": [],
@@ -3493,6 +3511,9 @@ class WorkflowApplication:
                 "publication": "AUCTION_RESEARCH_ONLY" if auction_refresh else "COMPARISON_ONLY",
             }
         )
+        if regeneration is not None and not regeneration_raw_pass:
+            publication.update(publication='REGEN_OLD_BATCH_PRESERVED',
+                blocked=[{'reason':'REGEN_A2_RAW_NOT_VALIDATED'}])
         summary_calendar = getattr(self, "trading_calendar", None)
         closed_market_trade_date = (
             market_data_as_of.astimezone(SHANGHAI).date()
@@ -3559,8 +3580,13 @@ class WorkflowApplication:
             ),
             "plan_publication": publication,
         }
+        if regeneration is not None:
+            from .runtime.close_regeneration import regeneration_manifest
+            summary['regeneration']=regeneration_manifest(regeneration,prepared.snapshot,raw_pass=regeneration_raw_pass,
+                created=publication.get('created',()))
+            if not regeneration_raw_pass:summary['status']='BLOCKED'
         atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{run_id}.json", summary)
-        research_ready = result.status in {"READY", "READY_DEGRADED"}
+        research_ready = result.status in {"READY", "READY_DEGRADED"} and regeneration_raw_pass
         ready_reason = "RESEARCH_READY_DEGRADED" if result.status == "READY_DEGRADED" else None
         if schedule_comparison and primary_only and research_ready and not historical_replay and not comparison_run:
             comparison_request_kwargs: dict[str, Any] = {
@@ -3584,7 +3610,7 @@ class WorkflowApplication:
                 reason_code=ready_reason if research_ready else "RESEARCH_NOT_READY",
             )
         progress.finish(
-            status=result.status,
+            status=summary['status'],
             phase="COMPLETED" if research_ready else "BLOCKED",
             reason_code=ready_reason if research_ready else "RESEARCH_NOT_READY",
             # Persist the canonical lane outcomes at the same lifecycle
@@ -6951,6 +6977,7 @@ class WorkflowApplication:
         minimum_trade_date: date | None = None,
         same_day_recovery: bool = False,
         publication_snapshot_path: Path | None = None,
+        regeneration=None,
     ) -> dict[str, Any]:
         batch: list[dict[str, Any]] = []
         # Metadata is captured before normalization/authority injection. It is
@@ -7254,12 +7281,16 @@ class WorkflowApplication:
                 str(item.get("plan_id") or ""),
             )
         )
+        if regeneration is not None and not batch:
+            raise WorkflowError('REGEN_NO_GEOMETRY_VALID_PLANS_KEEP_OLD')
         published = self.store.publish_plan_batch(
             batch,
-            expire_active_lanes=ready_lanes if formal_close else (),
+            expire_active_lanes=ready_lanes if formal_close and regeneration is None else (),
             invalidate_pending_lanes=(
-                ready_lanes if slot == "close" or same_day_recovery else ()
+                ready_lanes if regeneration is None and (slot == "close" or same_day_recovery) else ()
             ),
+            **({'supersede_pending_plan_ids':regeneration.old_plan_ids,
+                'supersession_run_id':regeneration.run_id} if regeneration is not None else {}),
         )
         projection_manifests = []
         for lane in result.lanes:

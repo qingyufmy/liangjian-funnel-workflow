@@ -1,0 +1,4 @@
+schema_version: team-a5-runtime/1
+wall_clock_seconds: 600
+midday_deadline: '12:50'
+max_output_tokens: 16384

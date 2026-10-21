@@ -217,6 +217,11 @@ def coach_projection(full):
     catalog['categories']=list(dict.fromkeys([*catalog['categories'],*(row['category'] for row in extra)]))
     catalog['items'].extend(extra)
     projected['citation_catalog']=catalog
+    from .team_v2_review_causal import plan_causal_projection
+    causal=plan_causal_projection(full)
+    projected['plan_causal_chains']=causal
+    catalog['categories']=list(dict.fromkeys([*catalog['categories'],'CAUSAL']))
+    catalog['items'].append(dict(id='A5:CAUSAL',category='CAUSAL',sha256=_hash(causal),input_ref=['plan_causal_chains']))
     projected['input_hash']=_hash(projected)
     return projected,domain
 
@@ -252,7 +257,10 @@ def run_review_stage(settings, review_kind, *, clock=None, calendar=None, client
     if calendar.is_trading_day(now.date()) is not True:return dict(status='NOOP',reason_code='NON_TRADING_DAY')
     if now.time().replace(tzinfo=None)<(time(11,35) if review_kind=='MIDDAY' else time(16)):
         return dict(status='NOOP',reason_code='TEAM_A5_WINDOW_NOT_OPEN')
-    if review_kind=='MIDDAY' and now.hour>=13:return dict(status='NOOP',reason_code='TEAM_A5_MIDDAY_WINDOW_CLOSED')
+    from .team_v2_review_policy import load_review_policy,review_wall_budget
+    policy=load_review_policy(settings.root)
+    wall_budget=review_wall_budget(policy,now=now,review_kind=review_kind)
+    if wall_budget<=0:return dict(status='NOOP',reason_code='TEAM_A5_MIDDAY_WINDOW_CLOSED')
     directory=_directory(settings)
     if not all((directory/name).is_file() for name in ('paper.db','team.db')):
         return dict(status='NOOP',reason_code='TEAM_ACCOUNT_NOT_INITIALIZED')
@@ -289,12 +297,14 @@ def run_review_stage(settings, review_kind, *, clock=None, calendar=None, client
         frozen=dict(facts=facts,signal_domain=domain,required_envelope=envelope,model=settings.review_model,
             counterexample_domain=sorted({r['symbol'] for r in facts.get('counterexamples',[]) if r.get('symbol')}))
         store.freeze_control_context('a5-command:'+rid,source_sha256=_hash(frozen),body=frozen)
+    wall_budget=min(wall_budget,review_wall_budget(policy,now=clock(),review_kind=review_kind))
+    if wall_budget<=0:return dict(status='DEGRADED',reason_code='TEAM_A5_MIDDAY_WINDOW_CLOSED')
     result=run_team_review(repository=TeamPromptRepository(settings.root/'prompts/team_v2'),
-        client=client or OpenAICompatibleModelClient(settings,max_attempts=1),journal=ModelJudgmentJournal(directory/'model.db'),
+        client=client or OpenAICompatibleModelClient(settings.model_copy(update={'model_timeout_seconds':policy['wall_clock_seconds']}),max_attempts=1),journal=ModelJudgmentJournal(directory/'model.db'),
         store=store,review_id=rid,call_id='A5:'+rid,account_id=ACCOUNT,run_id=rid,model=frozen['model'],
         trade_date=day,source_trade_date=day,review_kind=review_kind,clock=clock,
         required_envelope=frozen['required_envelope'],facts=frozen['facts'],signal_domain=frozen['signal_domain'],
-        counterexample_domain=set(frozen['counterexample_domain']),timeout_seconds=180,max_output_tokens=16384,allow_model_call=True)
+        counterexample_domain=set(frozen['counterexample_domain']),timeout_seconds=wall_budget,max_output_tokens=policy['max_output_tokens'],allow_model_call=True)
     try:export=export_hypotheses(settings,result=result)
     except Exception:
         return dict(result,status='A5_REPLAY_QUEUE_EXPORT_FAILED',report_status=result['status'],

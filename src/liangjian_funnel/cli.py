@@ -474,7 +474,9 @@ def build_parser() -> argparse.ArgumentParser:
     auction_refresh = sub.add_parser("run-auction-refresh", help="refresh A2/A3 research after auction; never replace active A4 plans")
     auction_refresh.add_argument("--manual-current", action="store_true",
                                  help="explicit operator rerun using the current session time, not the 09:26 auction cutoff")
-    sub.add_parser("run-close", help="dispatch only the due 15:10 close workflow")
+    close=sub.add_parser("run-close", help="dispatch only the due 15:10 close workflow")
+    close.add_argument('--regenerate-from',default=None,
+        help='explicit same-day post-fix regeneration from one published close run; requires fresh sealed A1')
     sub.add_parser("run-a5-midday", help="run the read-only A5 review using facts closed by 11:30")
     sub.add_parser("run-a5-close", help="run the read-only A5 review using facts closed by 15:00")
     sub.add_parser(
@@ -1269,8 +1271,11 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             payload = application.run_scheduled(ScheduleKind.MORNING_0925)
         elif args.command == "run-close":
             from .runtime.scheduler import ScheduleKind
-
-            payload = application.run_scheduled(ScheduleKind.CLOSE_1510)
+            if args.regenerate_from:
+                from .runtime.close_regeneration import run_close_regeneration
+                payload=run_close_regeneration(application,args.regenerate_from)
+            else:
+                payload = application.run_scheduled(ScheduleKind.CLOSE_1510)
         elif args.command == "run-auction-base":
             from .runtime.auction_base import run_auction_base
 

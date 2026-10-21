@@ -112,13 +112,17 @@ def close_card(facts,*,review_status):
 def run_team_review(*,repository,client,journal,store,review_id,call_id,account_id,run_id,model,
         trade_date,source_trade_date,review_kind,clock,required_envelope,facts,
         signal_domain,counterexample_domain,confirmed_defect_symbols=frozenset(),
-        timeout_seconds=180,max_output_tokens=16384,allow_model_call=False):
+        timeout_seconds=600,max_output_tokens=16384,allow_model_call=False):
     if not allow_model_call:raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
     now=clock()
     if (not isinstance(now,datetime) or now.utcoffset() is None or review_kind not in {'MIDDAY','POST_CLOSE'}
             or now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()!=trade_date
             or now.astimezone(ZoneInfo('Asia/Shanghai')).time().replace(tzinfo=None)<
                 (time(11,30) if review_kind=='MIDDAY' else time(15,30))):raise ValueError('A5_REVIEW_WINDOW_INVALID')
+    if review_kind=='MIDDAY':
+        cutoff=now.astimezone(ZoneInfo('Asia/Shanghai')).replace(hour=12,minute=50,second=0,microsecond=0)
+        timeout_seconds=min(timeout_seconds,(cutoff-now).total_seconds())
+        if timeout_seconds<=0:raise ValueError('A5_REVIEW_MIDDAY_DEADLINE')
     if (facts.get('input_hash')!=_hash({k:v for k,v in facts.items() if k!='input_hash'})
             or any(facts.get(k)!=v for k,v in dict(account_id=account_id,trade_date=trade_date,review_kind=review_kind).items())):
         raise ValueError('A5_FACT_BINDING_INVALID')
@@ -144,16 +148,23 @@ def run_team_review(*,repository,client,journal,store,review_id,call_id,account_
     from ..pipeline.team_v2_prompts import with_runtime_contract
     request=with_runtime_contract(request,dict(session=session,
         schema='a5-daily-review/2.0.0',preserve_all_root_fields=True,
-        style='紧凑JSON：摘要和每层summary各不超过100字；每条strength/defect/limitation不超过60字；'
-            '只列有直接原件支持的重点，每层每类至多2条；hypotheses至多1条；不重复叙述相同计数。'
-            '未知明确UNAVAILABLE，不将模型raw校验失败冒充服务端最终阶段失败。',
-        scorecard_numbers='只引用A5_FACT_SNAPSHOT中原有数值，不自行推算新数字；每项原数需能回溯路径。'))
+        purpose='深度复盘，质量优先；使用既有完整schema和证据引用，不因速度省略计划事实链。',
+        quality_requirements=[
+            '逐计划说明A2/A3入选→A6/PM晨审→入区→具体形态条件→成交或放弃→收盘MFE/MAE/R→作废原因；缺字段明确待证。',
+            '反事实评估301487、002322等被拦计划：只用冻结完整行情证明后果，不假造入场或成交，不把局部采样称持续。',
+            '002270成交复盘：入场时点、止损与日ATR、仓位和T+1次日预案；没有ATR则明确缺证，不自动改交易规则。',
+            'Agent产出是否被下游采用、逻辑矛盾、系统缺陷与策略原因分列；系统问题关联已有LJ编号。',
+            '明日改进须可验证且有证据；不自行执行配置/策略变更。',
+            '所有数字引用原事实及字段路径；未经提供的数值不能自行推算或补造。'],
+        scorecard_numbers='只引用A5_FACT_SNAPSHOT中原有数值，并在相关文字注明来源字段路径；未知明确待证。'))
     # No silent truncation to fit provider limits, and no model repair recall.
     if sum(len(m['content']) for m in request.messages)>250000:raise ValueError('A5_MODEL_CONTEXT_TOO_LARGE')
     output,valid,issues=_response(request=request,client=client,journal=journal,call_id=call_id,
         run_id=run_id,model=model,source_trade_date=source_trade_date,trade_date=trade_date,
         timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens,
         validator=lambda raw:validate_daily_review(raw,catalog,**args),catalog=catalog,clock=clock,session=session)
+    if review_kind=='MIDDAY' and clock().astimezone(ZoneInfo('Asia/Shanghai')).time().replace(tzinfo=None)>=time(12,50):
+        valid=False;issues=tuple(dict.fromkeys((*issues,'A5_REVIEW_MIDDAY_DEADLINE')))
     result=dict(status='READY' if valid else 'A5_DEGRADED_NO_APPROVED_REPORT',source_call_id=call_id,
         trade_date=trade_date,review_kind=review_kind,account_id=account_id,
         fact_sha256=facts['input_hash'],report=output if valid else None,reason_codes=list(issues),

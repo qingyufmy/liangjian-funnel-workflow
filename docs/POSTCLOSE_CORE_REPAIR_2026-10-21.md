@@ -21,6 +21,17 @@
 剩余：新候选commit及VM自身全量、回退VM自身全量（串行）；真实A5一次、A6异常一次待预算答复、A2一次依0474；生产入口隔离整链及安装后验收；内部实际拒绝根因与单次真实投递；最终批准。WP2-4 A2原始轮动域RECUR、R11 context字节、9→7发布前差额2、CNINFO52分钟根因另交。没有把非核心待交项写成已完成。
 # 17:11 追加核验（尚未发布）
 
+## 18:03 最新裁定与追加候选范围
+
+- 已全文读0481（SHA96bf19c79b0236b9240a06d525f894fe713710b37a363b9875801d6116db0db7）/0482（SHA2b660cfa702eb3fc2a865edc041f3c438896f45dbd506deb1c1f2ca98e67b4e7）。0482覆盖A5旧速度目标，数值正确性为核心且已获接受，耗时/深度质量不阻塞T+1发布。
+- 846d52a VM own-full6450PASS/0FAIL/9skip/1xfail，6460总，release_qualified，SHA cb58377945ca3406dac28abb20df5b5a82bd4db29ce80491e3bdb2624511e0b2。A6单次真实新契约READY/validated1/17331ms，actual17:51:26→43，未触账户RECORD；0483已交。A2单次冻结请求边缘验证原回复validated1/86.72s/provider1，非生产postpolicy/整链，不夸大覆盖。
+- 新增生产入口`run-close --regenerate-from <source_run_id>`：只允许本日15:10后、已发布READY原run和准确旧pending集合、已封存当日15点后A1。使用该新A1的原snapshot_id/hash，复用字段SHA清单写run；禁止用旧日/未来快照冒充本日。跨日再启动拒绝，不改时钟。
+- 重生成正常调用实际`run_research`/自然Team选择；A2最后原校验history非空且最后一轮0issues才允许发布，归一化阶段绿不能代替。几何后有效batch非空才原子替换。RuntimeStore同事务比较准确旧pending集合，任一并发变化/身份冲突整批回滚；旧payload不改，独立supersession审计记`post-fix regeneration`，旧status为SUPERSEDED。失败/空可执行batch保留旧3条，杜绝混批。
+- A5仅自身配置`config/team_v2_a5.yaml`：600秒，午间12:50前结束；客户端仅该角色使用600，A4/A6/PM预算不动。A5流式观测记录packet/TTFT/provider usage，未报告不估算。撤销速写限制，最后user绑定六项深度复盘要求；严格数字域保留。
+- A5每计划保留原plan/冻结原件、每种观察条件状态的全部样本计数及首末证据、原生命周期、重放摘要；Team账户完整快照与旧客户账户分列。聚合标多轮采样不称持续；无源MFE/MAE/R不计算。不是删原件，原4.83MB完整facts仍原地冻结。
+- 追加定向117项中116PASS，1个旧220k速度上限断言与0482冲突；仅改为精确逆变换/完整因果事实断言后，该项独立PASS。另75及64相关定向已过（重叠不相加）。追加源码需新HEAD VM full，不沿用846绿件。
+- A1老入口的周更/月更规则解释了10-16之后未自动刷新；按0481/0482新日更时效要求，今晚必须显式增量刷新，全域门不绕。自动调度日更化尚未修改，列下一闭环项；不得把“原设计如此”当现行R20已通过。
+
 ## 17:42 候选首VM full及T+1新边界
 
 - 候选87c54b1 full：6459总/6434PASS/15FAIL/9skip/1xfail，SHA44c7d05ec5bfbe56b3173850708a9371cfae40d1816f50e960d58e12d3e5312a，红件保留。回退f301 full6402PASS/0FAIL/9skip/1xfail已终态合格（bc3ff3e0...，完整SHA见桥接0480）。
