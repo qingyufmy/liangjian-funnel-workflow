@@ -1,0 +1,486 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-21T00:08:27.254Z",
+  "title": "Design System: 量见交易团队 /team",
+  "extensions": {
+    "colorMeta": {
+      "brand": {
+        "role": "primary",
+        "displayName": "brand",
+        "tonalRamp": [
+          "oklch(15% 0.1558 82.54)",
+          "oklch(26% 0.1558 82.54)",
+          "oklch(38% 0.1558 82.54)",
+          "oklch(49% 0.1558 82.54)",
+          "oklch(61% 0.1558 82.54)",
+          "oklch(72% 0.1558 82.54)",
+          "oklch(84% 0.1558 82.54)",
+          "oklch(95% 0.1558 82.54)"
+        ]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "bg",
+        "tonalRamp": [
+          "oklch(15% 0.0029 264.54)",
+          "oklch(26% 0.0029 264.54)",
+          "oklch(38% 0.0029 264.54)",
+          "oklch(49% 0.0029 264.54)",
+          "oklch(61% 0.0029 264.54)",
+          "oklch(72% 0.0029 264.54)",
+          "oklch(84% 0.0029 264.54)",
+          "oklch(95% 0.0029 264.54)"
+        ]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "card",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.88)",
+          "oklch(26% 0.0000 89.88)",
+          "oklch(38% 0.0000 89.88)",
+          "oklch(49% 0.0000 89.88)",
+          "oklch(61% 0.0000 89.88)",
+          "oklch(72% 0.0000 89.88)",
+          "oklch(84% 0.0000 89.88)",
+          "oklch(95% 0.0000 89.88)"
+        ]
+      },
+      "fg": {
+        "role": "neutral",
+        "displayName": "fg",
+        "tonalRamp": [
+          "oklch(15% 0.0110 260.67)",
+          "oklch(26% 0.0110 260.67)",
+          "oklch(38% 0.0110 260.67)",
+          "oklch(49% 0.0110 260.67)",
+          "oklch(61% 0.0110 260.67)",
+          "oklch(72% 0.0110 260.67)",
+          "oklch(84% 0.0110 260.67)",
+          "oklch(95% 0.0110 260.67)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "muted",
+        "tonalRamp": [
+          "oklch(15% 0.0046 258.32)",
+          "oklch(26% 0.0046 258.32)",
+          "oklch(38% 0.0046 258.32)",
+          "oklch(49% 0.0046 258.32)",
+          "oklch(61% 0.0046 258.32)",
+          "oklch(72% 0.0046 258.32)",
+          "oklch(84% 0.0046 258.32)",
+          "oklch(95% 0.0046 258.32)"
+        ]
+      },
+      "muted-fg": {
+        "role": "neutral",
+        "displayName": "muted-fg",
+        "tonalRamp": [
+          "oklch(15% 0.0278 259.80)",
+          "oklch(26% 0.0278 259.80)",
+          "oklch(38% 0.0278 259.80)",
+          "oklch(49% 0.0278 259.80)",
+          "oklch(61% 0.0278 259.80)",
+          "oklch(72% 0.0278 259.80)",
+          "oklch(84% 0.0278 259.80)",
+          "oklch(95% 0.0278 259.80)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "border",
+        "tonalRamp": [
+          "oklch(15% 0.0058 264.53)",
+          "oklch(26% 0.0058 264.53)",
+          "oklch(38% 0.0058 264.53)",
+          "oklch(49% 0.0058 264.53)",
+          "oklch(61% 0.0058 264.53)",
+          "oklch(72% 0.0058 264.53)",
+          "oklch(84% 0.0058 264.53)",
+          "oklch(95% 0.0058 264.53)"
+        ]
+      },
+      "up": {
+        "role": "secondary",
+        "displayName": "up",
+        "tonalRamp": [
+          "oklch(15% 0.1982 17.34)",
+          "oklch(26% 0.1982 17.34)",
+          "oklch(38% 0.1982 17.34)",
+          "oklch(49% 0.1982 17.34)",
+          "oklch(61% 0.1982 17.34)",
+          "oklch(72% 0.1982 17.34)",
+          "oklch(84% 0.1982 17.34)",
+          "oklch(95% 0.1982 17.34)"
+        ]
+      },
+      "down": {
+        "role": "secondary",
+        "displayName": "down",
+        "tonalRamp": [
+          "oklch(15% 0.1158 160.52)",
+          "oklch(26% 0.1158 160.52)",
+          "oklch(38% 0.1158 160.52)",
+          "oklch(49% 0.1158 160.52)",
+          "oklch(61% 0.1158 160.52)",
+          "oklch(72% 0.1158 160.52)",
+          "oklch(84% 0.1158 160.52)",
+          "oklch(95% 0.1158 160.52)"
+        ]
+      },
+      "hero": {
+        "role": "neutral",
+        "displayName": "hero",
+        "tonalRamp": [
+          "oklch(15% 0.0110 260.67)",
+          "oklch(26% 0.0110 260.67)",
+          "oklch(38% 0.0110 260.67)",
+          "oklch(49% 0.0110 260.67)",
+          "oklch(61% 0.0110 260.67)",
+          "oklch(72% 0.0110 260.67)",
+          "oklch(84% 0.0110 260.67)",
+          "oklch(95% 0.0110 260.67)"
+        ]
+      },
+      "hero-sub": {
+        "role": "neutral",
+        "displayName": "hero-sub",
+        "tonalRamp": [
+          "oklch(15% 0.0213 257.49)",
+          "oklch(26% 0.0213 257.49)",
+          "oklch(38% 0.0213 257.49)",
+          "oklch(49% 0.0213 257.49)",
+          "oklch(61% 0.0213 257.49)",
+          "oklch(72% 0.0213 257.49)",
+          "oklch(84% 0.0213 257.49)",
+          "oklch(95% 0.0213 257.49)"
+        ]
+      },
+      "hero-line": {
+        "role": "neutral",
+        "displayName": "hero-line",
+        "tonalRamp": [
+          "oklch(15% 0.0199 260.64)",
+          "oklch(26% 0.0199 260.64)",
+          "oklch(38% 0.0199 260.64)",
+          "oklch(49% 0.0199 260.64)",
+          "oklch(61% 0.0199 260.64)",
+          "oklch(72% 0.0199 260.64)",
+          "oklch(84% 0.0199 260.64)",
+          "oklch(95% 0.0199 260.64)"
+        ]
+      },
+      "dark-bg": {
+        "role": "neutral",
+        "displayName": "dark-bg",
+        "tonalRamp": [
+          "oklch(15% 0.0091 264.28)",
+          "oklch(26% 0.0091 264.28)",
+          "oklch(38% 0.0091 264.28)",
+          "oklch(49% 0.0091 264.28)",
+          "oklch(61% 0.0091 264.28)",
+          "oklch(72% 0.0091 264.28)",
+          "oklch(84% 0.0091 264.28)",
+          "oklch(95% 0.0091 264.28)"
+        ]
+      },
+      "dark-card": {
+        "role": "neutral",
+        "displayName": "dark-card",
+        "tonalRamp": [
+          "oklch(15% 0.0127 264.26)",
+          "oklch(26% 0.0127 264.26)",
+          "oklch(38% 0.0127 264.26)",
+          "oklch(49% 0.0127 264.26)",
+          "oklch(61% 0.0127 264.26)",
+          "oklch(72% 0.0127 264.26)",
+          "oklch(84% 0.0127 264.26)",
+          "oklch(95% 0.0127 264.26)"
+        ]
+      },
+      "dark-fg": {
+        "role": "neutral",
+        "displayName": "dark-fg",
+        "tonalRamp": [
+          "oklch(15% 0.0046 258.32)",
+          "oklch(26% 0.0046 258.32)",
+          "oklch(38% 0.0046 258.32)",
+          "oklch(49% 0.0046 258.32)",
+          "oklch(61% 0.0046 258.32)",
+          "oklch(72% 0.0046 258.32)",
+          "oklch(84% 0.0046 258.32)",
+          "oklch(95% 0.0046 258.32)"
+        ]
+      },
+      "dark-muted": {
+        "role": "neutral",
+        "displayName": "dark-muted",
+        "tonalRamp": [
+          "oklch(15% 0.0162 264.24)",
+          "oklch(26% 0.0162 264.24)",
+          "oklch(38% 0.0162 264.24)",
+          "oklch(49% 0.0162 264.24)",
+          "oklch(61% 0.0162 264.24)",
+          "oklch(72% 0.0162 264.24)",
+          "oklch(84% 0.0162 264.24)",
+          "oklch(95% 0.0162 264.24)"
+        ]
+      },
+      "dark-muted-fg": {
+        "role": "neutral",
+        "displayName": "dark-muted-fg",
+        "tonalRamp": [
+          "oklch(15% 0.0246 260.70)",
+          "oklch(26% 0.0246 260.70)",
+          "oklch(38% 0.0246 260.70)",
+          "oklch(49% 0.0246 260.70)",
+          "oklch(61% 0.0246 260.70)",
+          "oklch(72% 0.0246 260.70)",
+          "oklch(84% 0.0246 260.70)",
+          "oklch(95% 0.0246 260.70)"
+        ]
+      },
+      "dark-border": {
+        "role": "neutral",
+        "displayName": "dark-border",
+        "tonalRamp": [
+          "oklch(15% 0.0177 262.23)",
+          "oklch(26% 0.0177 262.23)",
+          "oklch(38% 0.0177 262.23)",
+          "oklch(49% 0.0177 262.23)",
+          "oklch(61% 0.0177 262.23)",
+          "oklch(72% 0.0177 262.23)",
+          "oklch(84% 0.0177 262.23)",
+          "oklch(95% 0.0177 262.23)"
+        ]
+      },
+      "dark-up": {
+        "role": "secondary",
+        "displayName": "dark-up",
+        "tonalRamp": [
+          "oklch(15% 0.1982 15.53)",
+          "oklch(26% 0.1982 15.53)",
+          "oklch(38% 0.1982 15.53)",
+          "oklch(49% 0.1982 15.53)",
+          "oklch(61% 0.1982 15.53)",
+          "oklch(72% 0.1982 15.53)",
+          "oklch(84% 0.1982 15.53)",
+          "oklch(95% 0.1982 15.53)"
+        ]
+      },
+      "dark-down": {
+        "role": "secondary",
+        "displayName": "dark-down",
+        "tonalRamp": [
+          "oklch(15% 0.1587 161.16)",
+          "oklch(26% 0.1587 161.16)",
+          "oklch(38% 0.1587 161.16)",
+          "oklch(49% 0.1587 161.16)",
+          "oklch(61% 0.1587 161.16)",
+          "oklch(72% 0.1587 161.16)",
+          "oklch(84% 0.1587 161.16)",
+          "oklch(95% 0.1587 161.16)"
+        ]
+      },
+      "dark-hero": {
+        "role": "neutral",
+        "displayName": "dark-hero",
+        "tonalRamp": [
+          "oklch(15% 0.0164 264.21)",
+          "oklch(26% 0.0164 264.21)",
+          "oklch(38% 0.0164 264.21)",
+          "oklch(49% 0.0164 264.21)",
+          "oklch(61% 0.0164 264.21)",
+          "oklch(72% 0.0164 264.21)",
+          "oklch(84% 0.0164 264.21)",
+          "oklch(95% 0.0164 264.21)"
+        ]
+      },
+      "dark-hero-sub": {
+        "role": "neutral",
+        "displayName": "dark-hero-sub",
+        "tonalRamp": [
+          "oklch(15% 0.0246 260.70)",
+          "oklch(26% 0.0246 260.70)",
+          "oklch(38% 0.0246 260.70)",
+          "oklch(49% 0.0246 260.70)",
+          "oklch(61% 0.0246 260.70)",
+          "oklch(72% 0.0246 260.70)",
+          "oklch(84% 0.0246 260.70)",
+          "oklch(95% 0.0246 260.70)"
+        ]
+      },
+      "dark-hero-line": {
+        "role": "neutral",
+        "displayName": "dark-hero-line",
+        "tonalRamp": [
+          "oklch(15% 0.0212 262.56)",
+          "oklch(26% 0.0212 262.56)",
+          "oklch(38% 0.0212 262.56)",
+          "oklch(49% 0.0212 262.56)",
+          "oklch(61% 0.0212 262.56)",
+          "oklch(72% 0.0212 262.56)",
+          "oklch(84% 0.0212 262.56)",
+          "oklch(95% 0.0212 262.56)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "账户总额",
+        "purpose": "桌面与手机40/600，数字行高1.25；声明字体栈不代表字体已加载。"
+      },
+      "headline": {
+        "displayName": "页面标题",
+        "purpose": "28px；手机评审标题20px。"
+      },
+      "title": {
+        "displayName": "焦点标题",
+        "purpose": "20px，标题行高1.25。"
+      },
+      "section": {
+        "displayName": "区块标题",
+        "purpose": "16px，标题行高1.25。"
+      },
+      "body": {
+        "displayName": "正文",
+        "purpose": "14px / 1.5；局部中文正文38em；全页等宽数字。"
+      },
+      "label": {
+        "displayName": "辅助文字",
+        "purpose": "12px；原码保留详情，不额外使用等宽标签字体。"
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "happy-return",
+        "value": "1500ms",
+        "purpose": "独立计时返回work；暂停评审可冻结；已实测reduced-motion解除暂停后aria全部返回work。"
+      },
+      {
+        "name": "source-relay",
+        "value": "700ms ease-out",
+        "purpose": "仅有源relay事件触发中性交接线；10-20局部fixture无relay，不生成交接。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "page-mobile",
+        "value": "760px"
+      },
+      {
+        "name": "stage-container-three-by-two",
+        "value": "720px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "主题切换、暂停与演示控制。",
+      "html": "<button class=\"ds-button\" type=\"button\">深色</button>",
+      "css": ".ds-button{font:14px/1.5 'IBM Plex Sans','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif;color:var(--fg,#14171c);background:var(--card,#fff);border:1px solid var(--border,#e6e8ec);border-radius:8px;min-height:44px;padding:8px 12px;cursor:pointer}.ds-button:hover{background:var(--muted,#f0f2f5)}.ds-button:focus-visible{outline:3px solid var(--brand,#f0b429);outline-offset:3px}.ds-button:disabled{opacity:.6;cursor:not-allowed}"
+    },
+    {
+      "name": "Review Select",
+      "kind": "input",
+      "description": "评审下拉框；本批没有文本输入框。",
+      "html": "<label class=\"ds-select-label\">显示方式<select class=\"ds-select\"><option>彩色</option><option>灰阶</option><option>无标签剪影</option></select></label>",
+      "css": ".ds-select-label{display:flex;flex-direction:column;gap:5px;font:12px/1.5 'IBM Plex Sans','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif;color:var(--muted-fg,#667080)}.ds-select{font:14px/1.5 'IBM Plex Sans','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif;color:var(--fg,#14171c);background:var(--card,#fff);border:1px solid var(--border,#e6e8ec);border-radius:8px;min-height:44px;padding:8px 12px;cursor:pointer}.ds-select:focus-visible{outline:3px solid var(--brand,#f0b429);outline-offset:3px}"
+    },
+    {
+      "name": "Horizontal Navigation",
+      "kind": "nav",
+      "description": "品牌金下划线标示当前项。",
+      "html": "<nav class=\"ds-nav\" aria-label=\"团队导航\"><a href=\"#today\" aria-current=\"page\">今日</a><a href=\"#team\">团队</a><a href=\"#plans\">计划</a></nav>",
+      "css": ".ds-nav{display:flex;gap:26px;background:var(--card,#fff);font:14px/1.5 'IBM Plex Sans','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif}.ds-nav a{display:flex;align-items:center;min-height:64px;text-decoration:none;color:var(--muted-fg,#667080);border-bottom:3px solid transparent}.ds-nav a[aria-current=page]{border-color:var(--brand,#f0b429);color:var(--fg,#14171c);font-weight:600}.ds-nav a:hover{color:var(--fg,#14171c);background:var(--muted,#f0f2f5)}.ds-nav a:focus-visible{outline:3px solid var(--brand,#f0b429);outline-offset:3px}"
+    },
+    {
+      "name": "Information Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "边线和表面区分信息域，没有卡片阴影。",
+      "html": "<section class=\"ds-panel\"><div class=\"ds-panel-head\"><h2>今日任务流</h2><span>只显示真实任务事件</span></div><p class=\"ds-empty\">等待调度任务来源</p></section>",
+      "css": ".ds-panel{background:var(--card,#fff);color:var(--fg,#14171c);border:1px solid var(--border,#e6e8ec);border-radius:12px;min-width:0;font:14px/1.5 'IBM Plex Sans','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif}.ds-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px}.ds-panel-head h2{margin:0;font-size:16px;font-weight:600;line-height:1.25}.ds-panel-head span{font-size:12px;color:var(--muted-fg,#667080)}.ds-empty{margin:0 20px;padding:18px 0;font-size:12px;color:var(--muted-fg,#667080)}"
+    },
+    {
+      "name": "Ink Account Band",
+      "kind": "custom",
+      "refersTo": "account-band",
+      "description": "未知源值显示长横线，不生成填充数字。",
+      "html": "<section class=\"ds-account\" aria-label=\"模拟账户概况\"><span>模拟盘净值</span><strong>—</strong><p>来源未连接</p></section>",
+      "css": ".ds-account{background:var(--hero,#14171c);color:var(--hero-fg,#fff);border-radius:12px;padding:24px;font:14px/1.5 'IBM Plex Sans','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif;font-variant-numeric:tabular-nums}.ds-account span,.ds-account p{color:var(--hero-sub,#a3acb9);font-size:12px}.ds-account strong{display:block;font-size:40px;line-height:1.25;font-weight:600}.ds-account p{margin:12px 0 0}"
+    },
+    {
+      "name": "Role Text Fallback",
+      "kind": "custom",
+      "description": "舞台下方的常规角色文字信息；降级时保留相同内容。",
+      "html": "<article class=\"ds-role\"><strong>基本面研究员</strong><span>方框眼镜、灰白短发 · 线框地球仪、年报</span><span class=\"ds-role-state\">缺少工作事件</span></article>",
+      "css": ".ds-role{color:var(--muted-fg,#667080);background:var(--card,#fff);font:12px/1.5 'IBM Plex Sans','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif}.ds-role strong{display:block;font-size:12px;font-weight:600;color:var(--fg,#14171c)}.ds-role-state{display:block;margin-top:3px}"
+    },
+    {
+      "name": "Historical Replay Controls",
+      "kind": "custom",
+      "description": "用户手动载入局部原件后逐条或查看末条；覆盖说明与provenance默认折叠。",
+      "html": "<section class=\"ds-replay\"><strong>10-20 局部原件回放 · 非实时、非完整全天流水</strong><details><summary>查看原件范围和已知缺口</summary><p>缺口由原件覆盖信息提供</p></details><div><button type=\"button\">下一条原件事件</button><button type=\"button\">查看末条状态</button></div><p role=\"status\">末条不等于全天完整覆盖</p><details><summary>本条来源</summary><pre>来源 / 记录 ID / SHA / 观测时间</pre></details></section>",
+      "css": ".ds-replay{background:var(--card,#fff);color:var(--fg,#14171c);border:1px solid var(--border,#e6e8ec);border-radius:12px;padding:16px 20px;overflow-wrap:anywhere;font:14px/1.5 'IBM Plex Sans','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif}.ds-replay>div{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.ds-replay p{font-size:12px;color:var(--muted-fg,#667080)}.ds-replay pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}.ds-replay button{font:inherit;color:inherit;background:var(--card,#fff);border:1px solid var(--border,#e6e8ec);border-radius:8px;min-height:44px;padding:8px 12px;cursor:pointer}.ds-replay button:hover{background:var(--muted,#f0f2f5)}.ds-replay button:focus-visible{outline:3px solid var(--brand,#f0b429);outline-offset:3px}.ds-replay button:disabled{opacity:.6;cursor:not-allowed}.ds-replay strong{font-weight:600}"
+    },
+    {
+      "name": "Bounded Task History",
+      "kind": "custom",
+      "description": "任务排在焦点/记录之后，240px有界滚动；主行中文，详情保留原码和来源。",
+      "html": "<section class=\"ds-task-panel\"><h2>今日任务流</h2><ol class=\"ds-task-list\" tabindex=\"0\" aria-label=\"任务历史，可在列表内滚动查看全部记录\"><li><time>—</time><b>校验未通过</b><details><summary>原状态与来源</summary><small>VALIDATION_FAILED · 记录 ID · SHA</small></details></li></ol></section>",
+      "css": ".ds-task-panel{background:var(--card,#fff);color:var(--fg,#14171c);border:1px solid var(--border,#e6e8ec);border-radius:12px;font:14px/1.5 'IBM Plex Sans','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif}.ds-task-panel h2{padding:16px;margin:0;font-size:16px;font-weight:600;line-height:1.25}.ds-task-list{list-style:none;padding:0 20px 20px;margin:0;max-height:240px;overflow-y:auto;overscroll-behavior:contain}.ds-task-list li{padding:9px 0;border-bottom:1px solid var(--border,#e6e8ec);font-size:12px;overflow-wrap:anywhere}.ds-task-list b{display:block;font-size:12px;font-weight:600}.ds-task-list time{margin-right:10px;color:var(--muted-fg,#667080)}.ds-task-list small{display:block;color:var(--muted-fg,#667080)}.ds-task-list details{font-size:12px;color:var(--muted-fg,#667080)}"
+    },
+    {
+      "name": "Source Relay Strip",
+      "kind": "custom",
+      "description": "只有显式有源relay事件才更新双方文字并触发700ms中性交接；无源时保留等待。",
+      "html": "<div class=\"ds-relay\" role=\"status\" aria-live=\"polite\">等待有来源的工作交接，不推演角色之间的协作</div>",
+      "css": ".ds-relay{position:relative;padding:8px 16px;font:12px/1.5 'IBM Plex Sans','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif;color:var(--muted-fg,#667080);overflow:hidden;min-height:40px;border-bottom:1px solid var(--border,#e6e8ec)}.ds-relay::after{content:'';position:absolute;bottom:0;left:16px;height:2px;width:calc(100% - 32px);background:var(--fg,#14171c);transform:scaleX(0);transform-origin:left}.ds-relay.is-relaying::after{animation:ds-handoff 700ms ease-out}@keyframes ds-handoff{0%{transform:scaleX(0)}70%{transform:scaleX(1)}100%{transform:scaleX(1);opacity:0}}@media(prefers-reduced-motion:reduce){.ds-relay::after{animation:none!important;transition:none!important}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "六人交易工作室",
+    "overview": "范围仅限 `web/team`。横向导航、深墨账户带和六人工位来自 Claude 的 `HOME_V1_7wFXR7RS.html` 与 `ROLE_CARDS_2.0.md`；最新视觉约束来自 canonical `0438-notice-d-frontend-aesthetics.md` 与任务书 §10，色彩和字体采用 `claude-baseline/src/ref_style.css`，涨跌色按 A 股覆盖。本记录按当前源码末尾覆盖规则整理，不扩展新视觉方向。根 `DESIGN.md` 继续描述既有青绿侧栏运行控制台，两套范围不互相覆盖。\n\n当前交付是本机只读样板：职业角色造型提供工作分工线索，账户、任务、计划和工作记录保留来源位置。缺少原件时使用「—」和缺源说明，只有实际收到空数组才呈现已证实的空列表。动作演示默认关闭，不生成账户数字或角色发言。现已支持手动载入 2026-10-20 三份本机冻结原件的局部回放；§4 九个 GET mock 已齐，但仍仅运行于 loopback，不是真实生产接口。完整旧日事件流、真实生产 API 和 Claude 的六项评分与 UED ACCEPT 仍未完成。",
+    "keyCharacteristics": [
+      "金色负责品牌和当前导航，深墨账户带建立数字层级。",
+      "页面表面平整，体积与柔和投影集中在六人工位。",
+      "角色通过轮廓、发型、眼镜和道具区分，并有文字工作卡。",
+      "浅深主题、窄屏重排与减少动态效果共用同一信息结构。"
+    ],
+    "rules": [
+      {
+        "name": "The Non-color Identity Rule",
+        "body": "每个角色保留至少两条来自造型或道具的识别线索，不能以角色色替代身份和状态文字。",
+        "section": "colors"
+      },
+      {
+        "name": "The Evidence Text Rule",
+        "body": "来源、缺源、演示和只读说明必须保持可读文本，不以颜色或角色姿态代替。",
+        "section": "typography"
+      },
+      {
+        "name": "The Material Boundary Rule",
+        "body": "页面使用平整信息面，立体材质与空间投影留在角色工作室中。",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do 沿用金色横向导航、深墨账户带与平整信息面的层级。",
+      "Do 让角色身份同时可由轮廓、道具和文字辨识。",
+      "Do 保留缺源、演示和只读说明，真实空列表与尚未接源分别呈现。",
+      "Do 同时检查浅深主题、400px 布局、六态与无 WebGL 文字工作卡。"
+    ],
+    "donts": [
+      "Don't 用动作、气泡或装饰数字暗示未经来源证明的工作、成交或收益。",
+      "Don't 把本机独立审查 `ship` 写成 Claude UED ACCEPT、真实数据验收或生产发布完成。",
+      "Don't 把 `/team` 的金色工作室设计覆盖到既有青绿侧栏控制台。"
+    ]
+  }
+}

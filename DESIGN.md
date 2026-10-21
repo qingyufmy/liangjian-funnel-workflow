@@ -1,5 +1,7 @@
 # Design System
 
+Scope: this document describes the existing operations console. The independent `/team` trading-room route follows [the scoped Team design record](docs/design-team.md); its gold room, horizontal navigation and six characters do not replace this console's design.
+
 ## Direction
 
 量见运行控制台采用专业、克制、可信的浅色研究终端。首页先回答系统是否正常，再展示研究漏斗、盘中盯盘、数据源和日志。结构参考成熟的运行平台，而不是行情大屏。
