@@ -25,9 +25,69 @@ class CloseRegenerationBinding:
     wall_clock:datetime
     publication_deadline:datetime
     caller:str
+    recovery_attempt:int|None=None
+    recovers:str|None=None
+    recovery_terminal_sha256:str|None=None
+    recovery_authority:str|None=None
 
 
-def bind_close_regeneration(app,source_run_id,*,now,head,source_trade_date=None,caller='cli:run-close'):
+def _recovery_proof(output,source_run_id,session,current,*,attempt,recovers,terminal):
+    """An explicit new run references, but never changes, the prior attempt.
+
+    0538 authorizes the recovery contract, not automatic recovery. The caller
+    must provide the prior terminal receipt; active/unknown runs cannot be
+    silently reclaimed. No journal claim or global OPS marker is reset here.
+    """
+    if attempt is None and recovers is None and terminal is None:return None
+    if (type(attempt) is not int or attempt<2 or not isinstance(recovers,str)
+            or re.fullmatch(r'[A-Za-z0-9_.-]+',recovers) is None
+            or not isinstance(terminal,(str,Path))):
+        raise ValueError('REGEN_RECOVERY_ARGUMENTS_INVALID')
+    def original(path):
+        try:
+            if path.is_symlink() or not path.is_file() or path.stat().st_size>65536:
+                raise ValueError('REGEN_RECOVERY_EVIDENCE_INVALID')
+            raw=path.read_bytes();body=json.loads(raw)
+            if not isinstance(body,dict):raise ValueError('REGEN_RECOVERY_EVIDENCE_INVALID')
+            return raw,body
+        except (OSError,ValueError,TypeError):
+            raise ValueError('REGEN_RECOVERY_EVIDENCE_INVALID') from None
+    _,prior=original(output/'runs'/f'{recovers}.binding.json')
+    terminal_path=Path(terminal)
+    if not terminal_path.is_absolute():raise ValueError('REGEN_RECOVERY_EVIDENCE_INVALID')
+    raw,finished=original(terminal_path)
+    old_head=prior.get('head');old_attempt=prior.get('recovery_attempt')
+    if old_attempt is None:old_attempt=1
+    expected='regen-'+session.source_trade_date.strftime('%Y%m%d')+'-'+str(old_head)
+    if old_attempt!=1:expected+='-r'+str(old_attempt)
+    try:
+        started=datetime.fromisoformat(prior['wall_clock'])
+        ended=datetime.fromisoformat(finished['completed_at'])
+        valid_times=(started.utcoffset() is not None and ended.utcoffset() is not None
+            and started<=ended<=current)
+    except (KeyError,TypeError,ValueError):valid_times=False
+    if (not isinstance(old_head,str) or re.fullmatch(r'[0-9a-f]{40}',old_head) is None
+            or type(old_attempt) is not int or attempt!=old_attempt+1
+            or recovers!=expected or prior.get('run_id')!=recovers
+            or prior.get('source_run_id')!=source_run_id
+            or prior.get('source_trade_date')!=session.source_trade_date.isoformat()
+            or prior.get('target_trade_date')!=session.target_trade_date.isoformat()
+            or prior.get('caller')!='cli:run-close' or prior.get('clock_override') is not False
+            or finished.get('head')!=old_head
+            or finished.get('run_id',recovers)!=recovers
+            or type(finished.get('exit')) is not int or finished['exit']==0 or not valid_times):
+        raise ValueError('REGEN_RECOVERY_PRIOR_TERMINAL_UNPROVEN')
+    summary=output/'runs'/f'{recovers}.json'
+    if summary.exists():
+        _,body=original(summary)
+        if body.get('run_id')!=recovers or body.get('status')=='READY':
+            raise ValueError('REGEN_RECOVERY_PRIOR_TERMINAL_UNPROVEN')
+    return dict(recovery_attempt=attempt,recovers=recovers,
+        recovery_terminal_sha256=hashlib.sha256(raw).hexdigest(),recovery_authority='0538')
+
+
+def bind_close_regeneration(app,source_run_id,*,now,head,source_trade_date=None,caller='cli:run-close',
+        recovery_attempt=None,recovery_from=None,recovery_terminal=None):
     if (not isinstance(source_run_id,str) or re.fullmatch(r'[A-Za-z0-9_.-]+',source_run_id) is None
             or re.fullmatch(r'[0-9a-f]{40}',head) is None or now.utcoffset() is None):
         raise ValueError('REGEN_ARGUMENTS_INVALID')
@@ -53,12 +113,19 @@ def bind_close_regeneration(app,source_run_id,*,now,head,source_trade_date=None,
     a1_at=generation.as_of.astimezone(ZoneInfo('Asia/Shanghai'))
     if a1_at.date()!=session.source_trade_date or a1_at.hour<15 or a1_at>current:
         raise ValueError('REGEN_FRESH_A1_REQUIRED')
+    recovery=_recovery_proof(app.settings.workflow_output_dir,source_run_id,session,current,
+        attempt=recovery_attempt,recovers=recovery_from,terminal=recovery_terminal)
     run_id='regen-'+session.source_trade_date.strftime('%Y%m%d')+'-'+head
+    if recovery:
+        # Progress files retain at most 64 ID characters. Keep the attempt
+        # inside that existing contract, rather than colliding after truncation.
+        run_id+='-r'+str(recovery_attempt)
+        if len(run_id)>64:raise ValueError('REGEN_RECOVERY_RUN_ID_TOO_LONG')
     if (app.settings.workflow_output_dir/'runs'/f'{run_id}.json').exists():
         raise ValueError('REGEN_RUN_ALREADY_RECORDED')
     return CloseRegenerationBinding(source_run_id,run_id,day,ids,generation.snapshot_id,
         generation.snapshot_hash,hashlib.sha256(raw).hexdigest(),a1_at,
-        session.target_trade_date.isoformat(),current,session.publication_deadline,caller)
+        session.target_trade_date.isoformat(),current,session.publication_deadline,caller,**(recovery or {}))
 
 
 def require_regeneration_publication_window(proof,calendar,*,now):
@@ -104,15 +171,19 @@ def regeneration_manifest(proof,snapshot,*,raw_pass,created):
         source_trade_date=proof.trade_date,target_trade_date=proof.target_trade_date,
         source_data_as_of=proof.source_data_as_of.isoformat(),wall_clock=proof.wall_clock.isoformat(),
         completed_wall_clock=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
+        **({k:getattr(proof,k) for k in ('recovery_attempt','recovers',
+            'recovery_terminal_sha256','recovery_authority')} if proof.recovery_attempt else {}),
         publication_deadline=proof.publication_deadline.isoformat(),caller=proof.caller,
         clock_override=False,snapshot_reuse_basis='SEALED_A1_LATEST_CLOSED_SESSION_HASH_VERIFIED',
         no_full_data_resync_in_this_run=True)
 
 
-def run_close_regeneration(app,source_run_id,*,source_trade_date=None):
+def run_close_regeneration(app,source_run_id,*,source_trade_date=None,
+        recovery_attempt=None,recovery_from=None,recovery_terminal=None):
     current=datetime.now(ZoneInfo('Asia/Shanghai'))
     head=subprocess.check_output(['git','-C',str(app.settings.root),'rev-parse','HEAD'],text=True).strip()
-    proof=bind_close_regeneration(app,source_run_id,now=current,head=head,source_trade_date=source_trade_date)
+    proof=bind_close_regeneration(app,source_run_id,now=current,head=head,source_trade_date=source_trade_date,
+        recovery_attempt=recovery_attempt,recovery_from=recovery_from,recovery_terminal=recovery_terminal)
     audit=app.settings.workflow_output_dir/'runs'/f'{proof.run_id}.binding.json'
     try:
         with audit.open('x',encoding='utf-8') as stream:
@@ -121,7 +192,10 @@ def run_close_regeneration(app,source_run_id,*,source_trade_date=None):
                 wall_clock=proof.wall_clock.isoformat(),source_data_as_of=proof.source_data_as_of.isoformat(),
                 publication_deadline=proof.publication_deadline.isoformat(),caller=proof.caller,
                 source_summary_sha256=proof.source_summary_sha256,snapshot_id=proof.snapshot_id,
-                snapshot_hash=proof.snapshot_hash,clock_override=False),stream,ensure_ascii=False,indent=2)
+                snapshot_hash=proof.snapshot_hash,clock_override=False,
+                **({k:getattr(proof,k) for k in ('recovery_attempt','recovers',
+                    'recovery_terminal_sha256','recovery_authority')} if proof.recovery_attempt else {})),
+                stream,ensure_ascii=False,indent=2)
     except FileExistsError:
         raise ValueError('REGEN_RUN_ALREADY_STARTED') from None
     # This is the sealed data timestamp, not a replacement for the wall clock.

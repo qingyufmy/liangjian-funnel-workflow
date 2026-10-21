@@ -266,6 +266,7 @@ class OpenAICompatibleModelClient:
                 ("ark_thinking_enabled", {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}),)
         last_variant = call_variants[0][0]
         strict_json_retry = False
+        received_rejections = []
         last_strict_error: StrictJSONError | None = None
         with httpx.Client(
             base_url=self.settings.model_base_url,
@@ -356,18 +357,27 @@ class OpenAICompatibleModelClient:
                             timeout=remaining_timeout,
                         ) as response:
                             status = response.status_code
-                            if _provider_metrics is not None and (status in (403, 429) or status >= 500):
+                            if status in (403, 429) or status >= 500:
                                 from .provider_rejection_evidence import persist_provider_rejection, ProviderRejectionEvidenceError
                                 try:
                                     rejection = persist_provider_rejection(response, settings=self.settings, model=model, stage=stage,
                                         session=team_session, input_hash=input_hash, prompt_hash=prompt_hash,
                                         attempt=total_attempts, all_headers=True, deadline=attempt_deadline,
                                         clock=self.monotonic)
-                                    _provider_metrics.rejection_receipts.append({k:rejection[k] for k in
-                                        ('receipt_path','receipt_sha256','body_sha256','status_code')})
+                                    received_rejections.append({k:rejection[k] for k in
+                                        ('receipt_path','receipt_sha256','body_sha256','status_code',
+                                         'complete_redacted_body_preserved')})
+                                    if _provider_metrics is not None:
+                                        _provider_metrics.rejection_receipts.append(received_rejections[-1])
                                 except ProviderRejectionEvidenceError as exc:
-                                    raise ModelClientError(exc.reason_code, status_code=status, attempts=total_attempts) from exc
+                                    reason = ('RATE_LIMIT_RETRY_EXHAUSTED' if status == 429 else
+                                              'UPSTREAM_5XX_RETRY_EXHAUSTED' if status >= 500 else 'MODEL_ACCESS_DENIED')
+                                    raise ModelHTTPError(reason, status_code=status, attempts=total_attempts,
+                                        diagnostics={'provider_rejection_evidence':received_rejections,
+                                            'provider_evidence_failure':exc.reason_code,
+                                            'body_sha256':exc.body_sha256}) from None
                             if status == 429 or status >= 500:
+                                reason = "RATE_LIMIT_RETRY_EXHAUSTED" if status == 429 else "UPSTREAM_5XX_RETRY_EXHAUSTED"
                                 if variant_attempts < attempt_limit:
                                     self._backoff(
                                         variant_attempts,
@@ -375,8 +385,8 @@ class OpenAICompatibleModelClient:
                                         deadline=overall_deadline,
                                     )
                                     continue
-                                reason = "RATE_LIMIT_RETRY_EXHAUSTED" if status == 429 else "UPSTREAM_5XX_RETRY_EXHAUSTED"
-                                raise ModelHTTPError(reason, status_code=status, attempts=total_attempts)
+                                raise ModelHTTPError(reason, status_code=status, attempts=total_attempts,
+                                    diagnostics={'provider_rejection_evidence':received_rejections})
 
                             if status >= 400:
                                 output_budget_rejected = (
@@ -421,7 +431,8 @@ class OpenAICompatibleModelClient:
                                 reason = {401: "MODEL_AUTHENTICATION_REJECTED",
                                           402: "MODEL_PAYMENT_REQUIRED",
                                           403: "MODEL_ACCESS_DENIED"}.get(status, "UPSTREAM_4XX")
-                                raise ModelHTTPError(reason, status_code=status, attempts=total_attempts)
+                                raise ModelHTTPError(reason, status_code=status, attempts=total_attempts,
+                                    diagnostics={'provider_rejection_evidence':received_rejections})
 
                             content, reasoning_tokens = _decode_model_response(
                                 response,

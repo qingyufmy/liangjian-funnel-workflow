@@ -479,6 +479,12 @@ def build_parser() -> argparse.ArgumentParser:
         help='post-fix regeneration for the latest closed exchange session; requires its fresh sealed A1')
     close.add_argument('--source-trade-date',default=None,
         help='optional audit assertion for --regenerate-from; must match the calendar-derived source date')
+    close.add_argument('--recovery-attempt',type=int,default=None,
+        help='explicit new attempt N>=2; never resets an old binding or claim')
+    close.add_argument('--recovery-from',default=None,
+        help='prior failed regeneration run_id, preserved unchanged')
+    close.add_argument('--recovery-terminal',type=Path,default=None,
+        help='absolute path to the prior terminal receipt; its SHA is recorded under authority 0538')
     sub.add_parser("run-a5-midday", help="run the read-only A5 review using facts closed by 11:30")
     sub.add_parser("run-a5-close", help="run the read-only A5 review using facts closed by 15:00")
     sub.add_parser(
@@ -1276,12 +1282,16 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             if args.regenerate_from:
                 from .runtime.close_regeneration import run_close_regeneration
                 try:
+                    recovery={k:getattr(args,k) for k in ('recovery_attempt','recovery_from','recovery_terminal')
+                        if getattr(args,k) is not None}
                     payload=run_close_regeneration(application,args.regenerate_from,
-                        source_trade_date=args.source_trade_date)
+                        source_trade_date=args.source_trade_date,**recovery)
                 except ValueError as exc:
                     reason=str(exc)
                     raise WorkflowError(reason if _SAFE_REASON_CODE.fullmatch(reason) else 'REGEN_INPUT_INVALID') from None
             else:
+                if any(getattr(args,k) is not None for k in ('recovery_attempt','recovery_from','recovery_terminal')):
+                    raise WorkflowError('RECOVERY_ATTEMPT_REQUIRES_REGENERATE_FROM')
                 if args.source_trade_date is not None:
                     raise WorkflowError('SOURCE_TRADE_DATE_REQUIRES_REGENERATE_FROM')
                 payload = application.run_scheduled(ScheduleKind.CLOSE_1510)
