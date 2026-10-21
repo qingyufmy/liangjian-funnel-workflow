@@ -8,14 +8,15 @@ import vm from 'node:vm';
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourceDirectory = path.resolve(project, '../liangjian_team_v2_20261016/artifacts/frontend-role-design-20261019/claude-reference-20261021');
-const sourcePath = path.join(sourceDirectory, 'HOME_REFERENCE.dc.html');
+const studio=process.argv.includes('--studio');
+const sourcePath = path.join(sourceDirectory, studio?'HOME_STUDIO_V3.dc.html':'HOME_REFERENCE.dc.html');
 const readmePath = path.join(sourceDirectory, 'README_REFERENCE.md');
-const outputPath = path.join(project, '.impeccable/review/claude-reference-20261021/reference.html');
+const outputPath = path.join(project, studio?'.impeccable/review/team-20261021-V3/reference.html':'.impeccable/review/claude-reference-20261021/reference.html');
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const [sourceBytes, readmeBytes] = await Promise.all([readFile(sourcePath), readFile(readmePath)]);
 const source = sourceBytes.toString('utf8');
 const readme = readmeBytes.toString('utf8');
-if (!readme.includes('renderVals()') || !source.includes('示意数据，仅用于视觉参考。')) {
+if (!readme.includes('renderVals()') || !source.includes('示意')) {
   throw new Error('The expected fixed visual reference and its illustrative-data notice are required.');
 }
 
@@ -33,7 +34,7 @@ const valuesJson = vm.runInContext(
   { timeout: 1000, filename: 'HOME_REFERENCE.renderVals.local.js' },
 );
 const values = JSON.parse(valuesJson);
-const expectedLengths = { stations: 6, plans: 7, feed: 5 };
+const expectedLengths = studio?{crew:6,plans:7,tape:9,kpis:6,indices:4,limits:4}:{ stations: 6, plans: 7, feed: 5 };
 for (const [key, length] of Object.entries(expectedLengths)) {
   if (!Array.isArray(values[key]) || values[key].length !== length) {
     throw new Error(`Unexpected fixed reference list: ${key}`);
@@ -122,11 +123,11 @@ let html = source.replace(logicPattern, '')
 html = render(parseTemplate(html), values);
 // A non-visible comment identifies provenance without changing layout or sample copy.
 html = html.replace(/<!doctype html>/i, '<!doctype html>\n<!-- Static Claude visual reference; illustrative data only, not live business evidence. -->');
-if (loopsExpanded !== 3 || conditionsEvaluated !== 48) throw new Error('Unexpected template control count.');
+if (!studio && (loopsExpanded !== 3 || conditionsEvaluated !== 48)) throw new Error('Unexpected template control count.');
 if (/\{\{|\}\}|<\/?sc-|<script\b|<\/?(?:helmet|x-dc)\b|support\.js/i.test(html)) {
   throw new Error('Unresolved template directive or executable reference dependency.');
 }
-if (!html.includes('示意数据，仅用于视觉参考。')) throw new Error('Illustrative-data notice was lost.');
+if (!html.includes('示意')) throw new Error('Illustrative-data notice was lost.');
 await mkdir(path.dirname(outputPath), { recursive: true });
 await writeFile(outputPath, html, 'utf8');
 if (sha256(await readFile(sourcePath)) !== sha256(sourceBytes)) throw new Error('Reference source changed during conversion.');

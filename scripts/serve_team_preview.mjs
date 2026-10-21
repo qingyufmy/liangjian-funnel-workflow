@@ -11,6 +11,14 @@ let fixturePromise;
 const server=http.createServer(async(req,res)=>{
   if(req.method!=='GET'&&req.method!=='HEAD'){res.writeHead(405,{'Allow':'GET, HEAD'}).end();return;}
   const url=new URL(req.url,'http://127.0.0.1'),path=url.pathname;
+  if(path==='/reference-v3'){
+    const file=resolve(root,'../../.impeccable/review/team-20261021-V3/reference.html');
+    try{const body=await readFile(file);res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}).end(body);}catch{res.writeHead(404).end();}return;
+  }
+  if(path==='/api/ui/local-today'){
+    const file=resolve(root,'../../.impeccable/review/team-20261021-V3/local-today.json');
+    try{const info=await stat(file);if(info.size>120000)throw Error('BOUND');res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Team-Data-Mode':'LOCAL_PARTIAL_20261021'}).end(await readFile(file));}catch{res.writeHead(404).end();}return;
+  }
   if(path.startsWith('/api/ui/')){
     const route=parseMockRoute(path,url.searchParams);
     if(route.error){res.writeHead(route.error,{'Content-Type':'application/json'}).end(JSON.stringify({error:'LOCAL_FIXTURE_ROUTE_OR_QUERY_UNAVAILABLE'}));return;}

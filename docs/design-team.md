@@ -1,21 +1,26 @@
 ---
-name: 量见交易团队 /team
-description: 白色资产栏与深色六人交易室的本机只读 Operate 页面
+name: 量见交易团队 /team HOME_STUDIO_V3
+description: 锌黑画布、琥珀微光与六人工作室的本机只读页面
 colors:
-  brand: "#f0b429"
-  bg: "#f3f4f6"
-  card: "#ffffff"
-  fg: "#12161d"
-  muted: "#f0f2f5"
-  muted-fg: "#5b6472"
-  border: "#e4e7ec"
-  stage: "#141b26"
+  brand: "#fbbf24"
+  amber: "#f59e0b"
+  bg: "#09090b"
+  card: "#111113"
+  fg: "#fafafa"
+  muted: "#202023"
+  muted-fg: "#a1a1aa"
+  secondary-fg: "#d4d4d8"
+  border: "rgba(255,255,255,.08)"
+  control: "#18181b"
+  stage: "#101319"
+  stage-3d: "#141b26"
   stage-light: "#223047"
-  stage-line: "#2c3747"
-  stage-sub: "#dde2e9"
-  up: "#d23b3b"
-  down: "#12915a"
-  warn: "#7a5200"
+  relay: "#f0b429"
+  warn: "#fcd34d"
+  up: "#f87171"
+  down: "#34d399"
+  price: "#e4e4e7"
+  volume: "#71717a"
   a1-accent: "#8B78E0"
   a2-accent: "#3FA3AD"
   pm-accent: "#5C8BE6"
@@ -24,167 +29,187 @@ colors:
   rv-accent: "#55B282"
 typography:
   display:
-    fontFamily: "IBM Plex Sans, Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif"
-    fontSize: "40px"
+    fontFamily: "Inter, Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif"
+    fontSize: "34px"
     fontWeight: 600
-    lineHeight: 1.25
-  headline:
-    fontSize: "28px"
+    lineHeight: 1.2
+    letterSpacing: "-.6px"
+  metric:
+    fontSize: "24px"
     fontWeight: 600
-    lineHeight: 1.25
+    lineHeight: 1.3
+    letterSpacing: "-.4px"
   title:
-    fontSize: "20px"
-    fontWeight: 600
-    lineHeight: 1.25
-  emphasis:
     fontSize: "16px"
-    fontWeight: 500
+    fontWeight: 600
     lineHeight: 1.25
   body:
-    fontFamily: "IBM Plex Sans, Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif"
+    fontFamily: "Inter, Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.5
-  label:
+  table:
     fontSize: "13px"
-    fontWeight: 400
+    lineHeight: 1.5
+  label:
+    fontSize: "12px"
+    lineHeight: 1.5
 rounded:
-  stage: "20px"
-  panel: "12px"
+  panel: "20px"
+  stat: "16px"
+  stage: "14px"
+  navigation: "12px"
+  screen: "10px"
   control: "8px"
-  data: "0"
+  pill: "999px"
 spacing:
   compact: "8px"
   row: "12px"
+  grid: "14px"
   content: "16px"
   panel: "20px"
   section: "24px"
+  page: "32px"
 components:
   button-default:
-    backgroundColor: "{colors.card}"
-    textColor: "{colors.fg}"
+    backgroundColor: "{colors.control}"
+    textColor: "{colors.secondary-fg}"
     rounded: "{rounded.control}"
     padding: "8px 12px"
   button-default-hover:
     backgroundColor: "{colors.muted}"
     textColor: "{colors.fg}"
   panel:
-    backgroundColor: "{colors.card}"
     textColor: "{colors.fg}"
     rounded: "{rounded.panel}"
-  account-band:
-    backgroundColor: "{colors.card}"
-    textColor: "{colors.fg}"
-    rounded: "{rounded.panel}"
-    padding: "20px 24px"
-  stage:
+  stat:
+    rounded: "{rounded.stat}"
+    padding: "16px"
+  workstation:
     backgroundColor: "{colors.stage}"
-    textColor: "{colors.card}"
     rounded: "{rounded.stage}"
+  status-active:
+    backgroundColor: "rgba(245,158,11,.14)"
+    textColor: "{colors.warn}"
+    rounded: "{rounded.pill}"
+    padding: "3px 10px"
 ---
 
-# Design System: 量见交易团队 /team
+# Design System: 量见交易团队 /team HOME_STUDIO_V3
 
 ## Overview
 
-**Creative North Star: "深色六人交易室"**
+**Creative North Star: "锌黑六人工作室"**
 
-本规范仅覆盖 `web/team` 的 Operate 场景。视觉权威为 MAIN 中 `artifacts/frontend-role-design-20261019/claude-reference-20261021/` 的 README_REFERENCE、HOME_REFERENCE 与 DESIGN_SPEC，以及 canonical `0441-notice-design-reference.md`、`0441-reply-b-character-professional.md`。最新参考覆盖冲突的旧 HOME 与 ROLE_CARDS_2.0 决定。本文件按当前 styles.css、roles.js、stage.js、index.html、app.js 的最终生效值记录；根 DESIGN.md 继续属于既有控制台。
+本规范只覆盖 `web/team` 的只读 Operate 页面。当前视觉权威为用户锁定的 `0458-notice-d / HOME_STUDIO_V3`；旧浅色资产栏与计划、记录并排的首页说明已经过时。按 `index.html`、后加载的 `studio.css`、`studio.js`、`plan-detail.js`、`app.js` 和 `stage.js` 的实际实现记录，根 `DESIGN.md` 继续属于旧控制台。
 
-白色资产栏提供平静的账户入口，深色交易室及地面接力线承担主要记忆点，计划与团队记录服务日常观察。未知数据保持未知，角色姿态只表现已收到的状态或明确标识的设计演示。当前仍为本机样板，文档完成不代表 Claude 视觉验收或生产交付。
+锌黑画布上方有受边界约束的琥珀与天蓝径向微光。结论标题、六项指标、六人工位与团队记录、全宽计划表依次呈现。未知数值保留未知；角色与图表只表达有来源的观测或明确标识的演示。当前为本机实现记录：独立 review 已确认本轮原三项修正均 resolved，disposition 为 ship，仅覆盖该 fix-list；Claude 的完整 V3 六项视觉评分与批准仍待，F5/F6/F7 与 VM 发布仍待门禁。
 
 **Key Characteristics:**
 
-- 浅色主题以白色资产栏、深色交易室、计划与记录并排形成层级。
-- 六人穿专业深色服装，身份由发型、道具、文字与六种点缀色共同表达。
-- 常驻信息面平整；体积、柔和投影与连续接力曲线集中在 3D 舞台。
-- 窄屏保留完整浅弧工位，可在舞台内部横向滑动。
+- 深色单主题；琥珀用于品牌、关注与选中，细线和透明表面划分信息。
+- 六项指标保持相同权重，未知历史显示文字，不生成装饰曲线。
+- 默认二维六人工位，用户手动展开专业六角色 3D 舞台。
+- 交易室与记录约为 8:4；计划占满内容宽度，窄屏滚动留在组件内部。
 
 ## Colors
 
-色值以上方 token 为准；浅色页面中性表面与深色舞台分工明确。配套侧车的合成色阶仅用于面板预览，不是新增运行时 token。
+上方 token 是源码色值；侧车合成色阶仅供设计面板预览，不是运行时新增色阶。
 
 ### Primary
 
-- **品牌金**（brand）：品牌、当前导航下划线、键盘焦点与接力圆点、已走线段。
+- **琥珀品牌金**（brand / amber / warn）：品牌、焦点、工作中工位光、计划区间与有效状态。3D 接力沿用 relay 色，不能误写成与页面品牌 token 完全一致。
 
 ### Secondary
 
-- **六角色点缀色**（a1 / a2 / pm / rk / tr / rv-accent）：依次对应基本面、题材、组合、风控、交易、复盘。已由最新参考明确，旧五角色 token 与六角色卡冲突不再是待决事项。实现用于挂绳、胸牌、领带、屏幕顶边和工位环，不能铺满整件服装。
-- **涨红、跌绿**（up / down）：有源价格和盈亏的业务颜色，保留数字与符号。
-- **等待提醒**（warn）：等待类说明与关注区域。状态标签使用浅底深字；当前计划实现有中性、等待与过期三类外观。
+- **涨红与跌绿**（up / down）：有源价格及盈亏，保留数字与符号；止损线使用涨红 token 的色值与虚线形态。
+- **价格浅灰白与成交量灰**（price / volume）：V3 深底图表的价格点线与成交量柱。用户已确认浅灰白替代旧浅底深价格线。
+
+### Tertiary
+
+- **六角色点缀色**（a1 / a2 / pm / rk / tr / rv-accent）：依次对应基本面、题材、组合、风控、交易、复盘，用于工位头像边线及 3D 服装、道具的小面积点缀。
 
 ### Neutral
 
-- **画布、卡面、墨色、次级文字与细线**（bg / card / fg / muted-fg / border）：资产栏、计划表、记录和证据区。
-- **舞台底、顶部光、未走线、辅助文字**（stage / stage-light / stage-line / stage-sub）：舞台在浅深主题下均保持深色。
-- 深色主题把页面底改为 fg 对应深墨、卡面改为 stage、主字改为白色、次级字改为 stage-sub、边线改为 stage-line；角色点缀和涨跌色不另造一套。
+- **锌黑画布、卡面、主字、次级字与细线**（bg / card / fg / muted-fg / secondary-fg / border）：单一深色主题中的阅读层级。
+- **二维工位底与三维背景**（stage / stage-3d / stage-light）：二维工作室有细点阵；展开后的 3D 保留蓝灰背景与柔光。
 
 **The Color Separation Rule.** 品牌、角色点缀和涨跌色各自表达既定语义，不借角色色暗示成交、风险或收益。
 
 ## Typography
 
-**Display Font / Body Font:** IBM Plex Sans、Noto Sans SC、PingFang SC、Microsoft YaHei、sans-serif。index.html 请求 Google Fonts 的 IBM Plex Sans 与 Noto Sans SC（400 / 500 / 600）；字体请求失败时使用本机回退字体，不能仅凭声明认定远程字体已加载。
+**Display Font / Body Font:** Inter、Noto Sans SC、PingFang SC、Microsoft YaHei、sans-serif。HTML 请求 Inter（400 / 500 / 600 / 700）与 Noto Sans SC（400 / 500 / 600），源码声明不代表远程字体已加载。
 
-净值使用 display，页面标题使用 headline，区块标题使用 title，角色名称使用 emphasis。正文和表格使用 body；时间、代码、说明使用（12–13px），舞台角色状态与动作使用（14px）。次级账户数字使用（20px / 500）。全页数字采用 `tabular-nums`。评审页标题在窄屏降为（20px）；字重仅（400 / 500 / 600）。中文说明在对应组件中限制为（65ch 或 75ch），不把局部约束扩大为全页统一字数。
+首页结论使用 display，窄屏降为（26px），字距（-.4px）。六项指标使用 metric，窄屏降为（22px）。面板标题使用 title；表格与记录主要为（13px），来源、时间与标签主要为 label。抽屉标题（18px），次级标题（15px）。全页数字继承 `tabular-nums`。旧资产栏 DOM 保留但被隐藏，其（40px）净值不再是首页视觉规范。
 
 **The Evidence Text Rule.** 缺源、来源、只读与演示说明保留可读文字，不以颜色或姿态代替。
 
 ## Layout
 
-最终容器上限为（1328px，含左右各 24px 的正文内边距），实际内容最大宽（1280px）。区块间距（24px）；页头高（60px），导航当前项底线（2px）。阅读顺序为资产栏 → 深色交易室 → 今日计划与团队记录 → 持仓与挂单 → 默认折叠的观测条件与任务证据。当前工作、下一件事与关注摘要已进入证据折叠区，不再作为舞台上方三列大摘要占据首屏。
+页头与正文最大宽（1424px，含左右各 32px 内边距），正文内容最大宽（1360px）。桌面页头高（64px），导航是紧凑分段容器，当前项使用透明白填充；没有旧金色底线。正文主间距（14px），结论区域标题下接六列指标；旧资产栏隐藏。
 
-计划与记录采用（自适应 / 280–360px）两列。计划默认按状态排序显示前（10）条，支持展开全部；表头吸顶，表格在自身容器滚动。任务列表在证据区内最大高（240px），新记录在前，允许键盘聚焦。长 ID 与 SHA 可折行。
+运行时把交易室与团队记录移入同一网格，列宽为（2fr / minmax(300px,1fr)），即约 8:4。今日计划独占全宽，底部风控额度与持仓账本两列，观测条件与任务证据默认折叠。团队记录最多渲染最近（25）条，新记录在前；任务列表内部滚动。
 
-页面在（760px）以下改为单列，正文左右内边距（12px），导航换到下一行且项高（46px）。舞台桌面最终高（300px）、手机（380px）；评审舞台桌面（500px）、手机（420px），实际尺寸评审模式（360px）。舞台容器小于（720px）且显示六人时，WebGL 画布维持（960px）宽，通过舞台自身横向滚动查看完整浅弧工位。
+（1100px）以下指标变三列、左右内边距（24px），记录最小列宽（260px）。（760px）以下指标为两列、主区域与底部单列、左右内边距（16px），导航换行。二维工位桌面高（268px）、手机高（248px），六列工位内容最小宽（720px）；展开 3D 高（290px），窄容器六人同场维持（960px）画布。工位与计划、持仓滚动区具有 `role="region"`、`tabindex="0"` 与可读标签；手机显示横向滑动提示，边缘渐隐只提示内部仍有内容。
+
+计划表桌面最小宽（920px）、手机最小宽（600px），默认显示前（10）条，可展开全部；筛选为全部、在区间内、已作废。表头吸顶，滚动容器最大高（520px）。顶部两层径向光的宽度受页面约束，不应撑大页面横向滚动范围。
 
 ## Elevation & Depth
 
-常驻页面面板使用单像素细线与底色分层，没有 CSS 卡片阴影。舞台采用哑光 MeshStandardMaterial（默认 roughness 0.92）、柔和投影、半球光与方向光。Three.js r149 使用 LinearEncoding、ACESFilmicToneMapping、曝光（0.9）与 PCFSoftShadowMap；这些是舞台渲染设置，不能当作页面阴影 token。
+常驻面板通过透明白渐变、细边线与不同底色分层。二维工位屏幕有局部暗投影（0 8px 24px rgba(0,0,0,.35)），活跃头像有琥珀光晕；侧边详情抽屉以左侧暗投影及半透明黑遮罩与背景分离。顶部光只构成气氛，不表示行情、收益或系统健康。
 
-角色和桌面沿浅弧排列；每个工位略微朝向弧心。接力线是同一条 centripetal CatmullRom 曲线的连续分段，圆点沿同一曲线移动（720ms，cubic ease-out），完成段以品牌金与（0.85）透明度保留；圆点另有柔和光晕。减少动态效果时直接到位。舞台暂停、页面隐藏或离开可视区域时停止持续角色动画；idle 保持静态姿态，不加入周期性晃头或眨眼。
+展开的 3D 使用哑光 MeshStandardMaterial（roughness 0.92）、柔和投影、半球光和方向光；Three.js r149 的 LinearEncoding、ACESFilmicToneMapping、曝光（0.9）只属于舞台。浅弧工位与地面接力共用 centripetal CatmullRom 曲线；接力（720ms，cubic ease-out），happy 最长（1500ms）返回 work，均不表示盈利。暂停、隐藏页、离开视区与减少动态偏好限制持续动画；idle 为静态姿态。二维活跃头像呼吸周期（2.4s），减少动态时关闭。
 
-**The Material Boundary Rule.** 页面使用平整信息面，立体材质与空间投影留在角色工作室中。
+**The Material Boundary Rule.** 页面以透明表面和局部微光分层，立体材质与空间投影留在展开的角色工作室中。
 
 ## Shapes
 
-舞台、卡片、按钮与标签、表格分别使用 stage、panel、control、data 圆角。人物用基元几何塑造宽肩、收腰、衬衫与外套层次，面部为小眼、细眉、平直嘴线；服装以深灰蓝、藏青、炭灰、墨绿灰等深色为主。角色色只做点缀。剪影评审隐藏环境和文字标签，使用浅底深色模型，依靠头肩、发型和手臂间的负空间检查识别。
+面板、指标与工作室内框分别采用 panel、stat、stage 圆角；导航与筛选容器采用 navigation，按钮采用 control，状态标签与模式标记采用 pill。工位头像为圆形；二维屏幕采用 screen 圆角。计划行以水平细线区分，不给每行套独立卡片。
+
+3D 六人穿专业深色服装，以发型、眼镜、道具及点缀辨认；模型仍是基元几何。无标签剪影、灰阶与实际尺寸属于角色评审台模式，不意味着首页采用浅色主题。
 
 ## Components
 
-0444 窄修：未知角色隐藏状态及动作行，只保留姓名；姓名由工位世界坐标投影到画布内的HTML层，与画布共用窄屏滚动。状态圆点6px。头部系数0.675（前版0.75），镜框尺寸0.7、最终线宽约前版一半。桌沿浅/深主题分别 #C9D1DC/#3A4658，地面网格opacity0.035。账本未知不伪称空仓，真实空列表才显示“还没有持仓”。真实WebGL context loss 已在本机验证文字降级，不能外推到所有GPU/浏览器。
+### Buttons / Navigation / Selects
 
-### Buttons / Selects / Navigation
+通用按钮和评审下拉框继承最小高（44px）、细边线与 control 圆角，部分紧凑控件按源码降为（28–36px）。悬停使用 muted，键盘焦点为（3px solid brand），偏移（3px）；禁用透明度（0.6）。交易室展开按钮为胶囊形（32px 最小高），计划筛选最小高（34px）并用 `aria-pressed` 标记选中。导航五项中仅首页与独立角色评审台有完整页面，其余入口仍为只读占位。当前没有文本输入框，也没有主题切换入口。
 
-按钮和下拉框最小高（44px），主题表面、细边线、control 圆角。悬停转为 muted；键盘焦点为（3px solid 品牌金），偏移（3px）；禁用透明度（0.6）。五项横向文字导航以金色下划线标记当前页；今日与角色评审台已实现，团队、计划、复盘、设置仍为只读占位。本批没有文本输入框。
+### Six Metrics / Risk Limits
 
-### Account / Plans / Records
+六项指标为模拟盘净值、仓位、今日信号、形态确认、系统健康、模型调用。净值来自账本；仓位和完整信号流水未齐时保留“—”；形态确认只表示当前焦点条件；系统健康默认“待核验”；模型调用只统计带 `model_calls` 来源 ID 与 SHA 的已载入记录。历史区显示“走势待有序原件”，不画模拟趋势。额度缺源显示“待原件”，不填零；有值才画额度条。
 
-资产栏使用主题卡面、正文色与细边线；初始“模拟盘 100 万”明确标注为初始资金配置，不代表当前净值。有源净值直接显示账本值；缺失数据用“—”。计划保留原计划与状态更新各自的记录 ID、SHA 和时间来源；原计划时间尚未单独投影。业务文案采用中文，策略、条件和风控原码留在 details。团队记录显示最近（25）条，并保留角色与时刻。
+### Two-dimensional / Three-dimensional Room
 
-### Six-person Room
+默认二维工位显示六人简称、角色色边线、工作说明与状态；没有工作原件时显示等待文字。只有已收到 work / talk 角色事件的工位显示活跃光。展开按钮切换二维与 3D；3D 首次展开才初始化。基本面 → 题材 → 组合 → 风控 → 交易 → 复盘构成阅读顺序。
 
-工作流顺序为基本面 → 题材 → 组合 → 风控 → 交易 → 复盘。基本面有灰白短发、方框眼镜、地球仪与年报；题材有高马尾、颈挂耳机与三联屏；组合有圆框眼镜、领带、俯看姿态与资金表盘；风控有短胡须、抱臂、盾牌与拦截护罩；交易有耳麦、卷袖前臂、双屏与急停；复盘有盘发、细框眼镜、笔与三本复盘本。屏幕缺源时显示待源字段，不画虚构走势。
+3D 名称由世界坐标投影到 HTML 层，与画布共用内部滚动；未知状态、动作行隐藏，只保留姓名。WebGL 依赖、初始化或 context loss 失败时调用文字工作卡降级，源码处理不等于所有 GPU 与浏览器都已验收。模型 stop 护罩与急停只表达对应角色事件；缺源屏幕不得画虚构行情。
 
-`idle / work / talk / stop / happy / rest` 是表现层六态。显式 relay 更新双方说明并驱动地面圆点，接收方进入 work。happy 最长（1500ms）后回到 work；首页仅在初次同步后出现新增持仓记录时触发，不代表盈利。A6 stop 显示护罩，A4 stop 显示急停灯。模型校验失败和本机加载失败不冒充账户保护锁。WebGL 初始化或依赖不可用时保留六张文字工作卡；真实 context loss 尚未验证。
+### Plans / Chart / Detail Drawer
 
-### Historical Evidence
+表格包含股票、形态、今日走势、现价、距区间、盈亏比、确认进度、状态及详情入口。ACTIVE_TODAY 标签用透明琥珀底，作废状态弱化；逐项确认缺源时显示待原件，不能由价格位置推断满足。计划与状态更新各自保留记录 ID、SHA 与时刻。
 
-历史按钮只由用户手动载入 2026-10-20 本机冻结原件，明确标注局部、非实时、非完整全天。载入后出现回放控制与来源 details，并停止动作演示、断开既有事件连接、禁用演示入口。10-20 fixture 没有 relay 原件，不补造历史接力；评审台的接力与拦截按钮属于 synthetic 演示。
+紧凑图与抽屉共用 SVG 模型：只纳入 `closed === true` 且 close 有限的 5 分钟样本；按观测时刻排序，相邻时间差不是（300000ms）时断线。价格为浅灰白点线（线宽 1.8），计划区间为琥珀填充（14%），止损为红色虚线（4 / 3），成交量为灰柱（40%）。缺样本显示“5分钟原件待接入”；每点标题携带时刻、收盘与 SHA；可读图表标签说明局部覆盖。
+
+详情使用原生 `dialog.showModal()`，右侧宽度（min(560px,100%)）、全高（100dvh），具有标题关联、关闭按钮与原生模态键盘行为。手机为全宽抽屉。逐项条件显示满足、未满足、证据不足，并提供阈值、观测、时刻与原始来源折叠区。
+
+### Evidence / Local Data
+
+10-20 冻结回放和本机 10-21 局部观测均由用户手动载入，明确标识非实时、非完整全天。今日已采（9）份计划原件与（32）个已闭合 5 分钟样本只代表该局部证据范围，不代表全天总量或所有计划都有曲线；以实际有序样本、原始来源及时间缺口为准。手动历史回放停止演示与既有轮询，10-20 缺少 relay 原件，不补造历史接力。
+
+源码具有经过 session 契约后启动同源只读轮询的路径，不能据此宣称当前本机或 VM 已接通。账本未知不写空仓；只有来源明确的空列表才显示“还没有持仓”。截图、文档与本机测试不替代真实业务路径验收。
 
 ## Do's and Don'ts
 
 ### Do:
 
-- **Do** 采用白色资产栏、深色交易室、计划与记录并排的当前层级。
-- **Do** 通过深色服装、六种点缀、发型道具和文字共同辨认六人。
-- **Do** 让窄屏舞台内部横向滑动，保持浅弧工位与连续接力线。
-- **Do** 区分缺源、已证实空列表、局部历史原件与设计演示。
+- **Do** 延续已锁定的深色 V3、六项指标、约 8:4 工作室与记录、全宽计划表。
+- **Do** 默认二维工位，按用户操作展开 3D；窄屏内部滚动并保留键盘与文字提示。
+- **Do** 让价格线、条件状态、额度与指标回到有 ID、SHA、时刻的原始记录。
+- **Do** 区分缺源、已证实空列表、局部原件、演示及完整业务验收。
 
 ### Don't:
 
-- **Don't** 用动作、装饰数字或缺源屏幕暗示未经来源证明的成交与收益。
-- **Don't** 把本机测试、截图或独立复评写成 Claude UED ACCEPT、真实当日数据通过或生产发布完成。
+- **Don't** 用零、装饰曲线、角色姿态或页面连通暗示缺源的收益、成交或系统健康。
+- **Don't** 把 9 份计划与 32 个闭合 5 分钟样本写成全天完整覆盖，或跨时间缺口连线。
+- **Don't** 把本机修复、截图、独立评审或文档完成写成 Claude V3 ACCEPT、F5/F6/F7 通过或 VM 已发布。
 - **Don't** 把 /team 的设计系统覆盖到根 DESIGN.md 所属旧控制台。
-
-未固化为规范：评审页的旧“2.0”标题文字、后续页面占位引导语、局部条件字形和休息 z z 文字符号不作为未来页面通用组件；GLB 骨骼模型与悬浮发言气泡尚未交付。源代码值记录不替代像素与逐角色视觉验收；当前评审状态见配套实现记录。
