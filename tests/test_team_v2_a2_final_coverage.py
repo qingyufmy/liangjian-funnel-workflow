@@ -10,34 +10,32 @@ from liangjian_funnel.pipeline.research import common as legacy
 from test_team_v2_a2_research import fixture
 
 
-def test_full_stage_final_postpolicy_coverage_synthesis_preserves_provider_and_focus(tmp_path):
+def test_full_stage_server_policy_completion_preserves_valid_provider_and_focus(tmp_path):
     app,args,seen=fixture(tmp_path,rotation=True)
     for i,row in enumerate(args['snapshot'].data['A2_BOTTLENECK_CONTEXT'].values()):
         row['deterministic_score']=90-i
         for key in ('leader_structure','breadth'):row['a2_factor_scores'][key]['available']=False
     result=app._run_stage(**args)
     assert result.status=='VALIDATED',result.reason_codes
-    assert len(seen)==3 and result.output['focus_pool']==[]
+    assert len(seen)==1 and result.output['focus_pool']==[]
     assert len(result.output['rotation_reviews'])==1
-    assert result.output['rotation_reviews'][0]['reviewed_symbols']==['000001.SZ','000002.SZ','000003.SZ']
-    assert result.output['rotation_reviews'][0]['reason_codes']==['SERVER_SYNTHESIZED_NO_FOCUS']
-    assert '不代表模型判断' in result.output['rotation_reviews'][0]['explanation']
+    assert result.output['rotation_reviews'][0]['reviewed_symbols']==['000001.SZ']
+    assert result.output['rotation_reviews'][0]['reason_codes']==['SERVER_POLICY_DEMOTED']
+    assert '不代表模型改判' in result.output['rotation_reviews'][0]['explanation']
     with closing(app.team_research_adapter.journal._connect()) as db:
         raw=[json.loads(r[0]) for r in db.execute('SELECT output_json FROM model_calls ORDER BY rowid')]
-    assert len(raw)==3 and all(r['rotation_reviews']==[] for r in raw)
+    assert len(raw)==1 and all(r['rotation_reviews']==[] for r in raw)
     assert all(r['focus_decisions'][0]['symbol']=='000001.SZ' for r in raw)
-    audit=result.diagnostics['server_normalization']
-    assert audit['authority']=='0384_REPLY_P0_8_FINAL_COVERAGE_ONLY'
-    assert audit['original_issues']==['A2_ROTATION_FOCUS_COVERAGE_MISSING:D']
+    assert result.diagnostics['provider_validation_history']==[[]]
+    audit=result.diagnostics['server_normalizations'][0]
+    assert audit['authority']=='0488_SERVER_OWNS_POST_POLICY_CONSEQUENCE'
+    assert audit['actions'][0]['demoted_symbols']==['000001.SZ']
     with closing(app.team_research_adapter.store._connect()) as db:
         frozen=json.loads(db.execute('SELECT body_json FROM control_minute_context WHERE decision_id=?',
             (audit['audit_context_key'],)).fetchone()[0])
-        before=json.loads(db.execute('SELECT body_json FROM control_minute_context WHERE decision_id=?',
-            (audit['original_postpolicy_context_key'],)).fetchone()[0])
-    assert before['output']['rotation_reviews']==[] and before['reason_codes']==audit['original_issues']
-    assert before['output']['focus_pool']==result.output['focus_pool']
-    assert frozen['projected_postpolicy_output']==result.output
-    assert app._run_stage(**args).output==result.output and len(seen)==3
+    assert frozen['rule_id']=='A2_SERVER_POLICY_DEMOTED_NO_FOCUS_V1'
+    assert frozen['model_focus_unchanged'] and frozen['final_focus_unchanged']
+    assert app._run_stage(**args).output==result.output and len(seen)==1
 
 
 def real_case():
