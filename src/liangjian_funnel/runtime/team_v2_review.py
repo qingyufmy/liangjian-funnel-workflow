@@ -137,7 +137,9 @@ def run_team_review(*,repository,client,journal,store,review_id,call_id,account_
     args=dict(required_envelope=required_envelope,trade_date=trade_date,review_kind=review_kind,
         signal_domain=signal_domain,counterexample_domain=counterexample_domain,
         confirmed_defect_symbols=confirmed_defect_symbols,metrics=facts['metrics'],numeric_domain=number_domain)
-    request=repository.prepare_messages('A5',dict(A5_FACT_SNAPSHOT=facts,EVIDENCE_CATALOG=catalog),
+    from ..pipeline.team_v2_a5_projection import project_review_facts
+    model_facts,input_projection=project_review_facts(facts)
+    request=repository.prepare_messages('A5',dict(A5_FACT_SNAPSHOT=model_facts,EVIDENCE_CATALOG=catalog),
         required_envelope=required_envelope,session=session)
     from ..pipeline.team_v2_prompts import with_runtime_contract
     request=with_runtime_contract(request,dict(session=session,
@@ -155,6 +157,7 @@ def run_team_review(*,repository,client,journal,store,review_id,call_id,account_
     result=dict(status='READY' if valid else 'A5_DEGRADED_NO_APPROVED_REPORT',source_call_id=call_id,
         trade_date=trade_date,review_kind=review_kind,account_id=account_id,
         fact_sha256=facts['input_hash'],report=output if valid else None,reason_codes=list(issues),
+        input_projection=input_projection,
         numeric_claim_audit=dict(source_fact_sha256=facts['input_hash'],
             domain_sha256=numeric_domain_hash(number_domain),source_paths=number_domain),
         strategy_change_authorized=False)

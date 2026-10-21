@@ -21,6 +21,13 @@
 剩余：新候选commit及VM自身全量、回退VM自身全量（串行）；真实A5一次、A6异常一次待预算答复、A2一次依0474；生产入口隔离整链及安装后验收；内部实际拒绝根因与单次真实投递；最终批准。WP2-4 A2原始轮动域RECUR、R11 context字节、9→7发布前差额2、CNINFO52分钟根因另交。没有把非核心待交项写成已完成。
 # 17:11 追加核验（尚未发布）
 
+## 17:26 新失败及处置（不冒称真实门已过）
+
+- A5单次真实验证在VM上180.109s超时，遥测为`MODEL_WALL_CLOCK_TIMEOUT`，provider_attempts1，输入106986字符/115977字节，token_usage未报、无原回复。不能从这份遥测证明是prompt计算慢还是服务端排队；未追加模型调用，0479已申请下一次预算。
+- A5增加可逆输入投影：数据库中规范JSON字符串无损解码，重复长事实用共享引用；全部原字段/数值/原引用保留、逐对象逆变换hash验证。校验仍用未投影完整facts；不是删原件或人工白名单。相关54项定向通过，VM实输入缩减量及真实验证仍待。
+- VM回退fa2首full失败13项，原红回执保留；其中8项资源前置门因/tmp仅3.26GiB（原门要求4GiB）、3项验收待足额盘复测、1项glob目录顺序误取repair、1项CRLF原件被Git默认转换。没有修改4GiB/10%门。
+- 回退候选`f301e203a0a7489a77a158f3ab7f75a63ed9dca1`相对fa2仅`.gitattributes`精确保存已有原件CRLF、该原件字节及测试glob选择；生产源码逐文件相同。自身full使用独立/var/tmp TMPDIR在VM串行重跑，不冒充fa2原HEAD通过。
+
 - 内部配置由 Tony 更新后，17:00:51 单次新验证 SENT/HTTP200/code0；不重发旧19001失败项。
 - A1 active pointer 仍是 `a1-incremental-20261016T180003192023Z-824999b48c32`；按0475须刷新，不能以旧周更口径结案。现有同日快照 selected1578/research3577，不能直接用于要求全研究域的 A1 snapshot reuse。
 - A2 同一事实域共7个方向，最终有效FOCUS覆盖4个，正确 NO_FOCUS 集仅液冷/先进封装/航运3个；原回复4行多了 `SELECTED_BOARD:AI_CPO`。该行说明自身已承认300852为FOCUS。不是大小写或别名，更不是外域ID；服务端只删除矛盾行，绝不改ID。新增删除审计rule_id/raw-row/normalized-null；最后user请求由同一direction_members生成条件式目录，首轮即可见，校验不变。定向65通过。
