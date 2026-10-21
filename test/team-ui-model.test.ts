@@ -1,6 +1,11 @@
 import {test} from 'vitest';
 import assert from 'node:assert/strict';
-import {emptyState,reduceEvent,validateEvent,EVENT_TYPES,addedPositions} from '../web/team/model.js';
+import {emptyState,reduceEvent,validateEvent,EVENT_TYPES,addedPositions,orderedPlans} from '../web/team/model.js';
+
+test('plan display sorts status stably without mutating rows or reviving invalidated plans',()=>{
+  const rows=[{code:'p',status:'PENDING_MORNING_REVIEW'},{code:'a',status:'ACTIVE_TODAY'},{code:'x',status:'INVALIDATED'},{code:'b',status:'ACTIVE_TODAY'},{code:'r',status:'REJECTED'}];
+  assert.deepEqual(orderedPlans(rows).map(row=>row.code),['a','b','p','r']);assert.equal(rows[0].code,'p');assert.equal(rows.length,5);
+});
 test('unknown data stays unknown, including empty ledger and account',()=>{
   const s=emptyState();assert.equal(s.account,null);assert.equal(s.positions,null);assert.equal(s.plans,null);assert.equal(s.events,0);
 });
@@ -32,5 +37,5 @@ test('bounded feed and task identity updates',()=>{
 });
 test('explicit sourced relay is retained, without generating any financial or trading event',()=>{
   const ev={type:'relay',from:'a1',to:'a2',at:'2026-10-20T08:00:00+08:00',provenance:{id:'test-source',sha256:'a'.repeat(64)}};
-  const s=reduceEvent(emptyState(),ev);assert.deepEqual(s.relay,ev);assert.equal(s.positions,null);assert.equal(s.account,null);assert.equal(s.feed.length,0);
+  const s=reduceEvent(emptyState(),ev);assert.deepEqual(s.relay,ev);assert.equal(s.roles.a2.state,'work');assert.equal(s.positions,null);assert.equal(s.account,null);assert.equal(s.feed.length,0);
 });

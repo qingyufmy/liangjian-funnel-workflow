@@ -1,5 +1,6 @@
 /** Display-only labels. Raw contracts stay in evidence details, never rewritten. */
 const conditions={
+  TREND_PULLBACK_TO_SUPPORT:'回踩支撑',
   A3_RIGHT_SIDE_CONFIRMATION:'计划要求的右侧确认',A3_TREND_ROUTE_APPROVED:'计划已准入趋势通道',
   DAILY_CLOSE_ABOVE_MA20:'日线收盘位于20日均线上方',DAILY_MA5_ABOVE_MA20:'5日均线位于20日均线上方',DAILY_MA5_MA20_ONLY:'日线双均线依据',
   MA520_15M_STABLE:'闭合15分钟结构企稳',MA520_5M_HIGHER_LOW:'闭合5分钟低点抬高',MA520_5M_VWAP_RECLAIM:'闭合5分钟收回均价线',

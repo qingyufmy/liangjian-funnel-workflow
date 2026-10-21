@@ -1,25 +1,21 @@
 # 10-21 前端本机实现与交付记录
 
-当前范围：0438-notice、第9节优先；全部本机独立分支 `codex/frontend-20261021`，base=fa2b9b9。不连接生产；不改交易、客户通道、现有页面或部署脚本。
+当前交付为本机只读 Operate 样板，位于独立 checkout `D:/dev_A股/.team-v2-frontend-20261021`，分支 `codex/frontend-20261021`、起点 `fa2b9b9`。本轮没有 push 或 deploy，没有连接虚拟机或生产数据库。根 DESIGN.md 与既有控制台不在本轮设计范围。
 
-视觉基线：`artifacts/frontend-role-design-20261019/claude-baseline/HOME_V1_7wFXR7RS.html` 与 `ROLE_CARDS_2.0.md`。Impeccable只做忠实落地、交互、适配与可访问性检查，不替换Claude已定视觉方向。页面是Operate用途。
+最新视觉合同为 MAIN 的 `artifacts/frontend-role-design-20261019/claude-reference-20261021/{README_REFERENCE.md,HOME_REFERENCE.dc.html,DESIGN_SPEC.dc.html}`，以及 canonical `0441-notice-design-reference.md`、`0441-reply-b-character-professional.md`。它们覆盖冲突的旧 HOME、ROLE_CARDS_2.0 和旧调色决定。六角色 accent 已明确并落地，不再把配色写为待 Claude 选值。Impeccable 按此参考忠实实现与记录，不另选视觉方向。
 
-本机启动：`node scripts/serve_team_preview.mjs`，地址 `http://127.0.0.1:8787/team`；角色评审 `/team/roles-preview`。只监听127.0.0.1，不导入Node业务服务、Python引擎或数据库。
+本机启动：`node scripts/serve_team_preview.mjs`，首页 `http://127.0.0.1:8787/team`，角色评审 `/team/roles-preview`。仅监听 loopback。历史原件可由 PowerShell 设置 `$env:TEAM_UI_LOCAL_EVIDENCE_ROOT='D:/dev_A股/liangjian_team_v2_20261016'` 后手动载入；这是本机证据目录，不是生产实现。
 
-- 首页骨架、后续路由占位及角色评审台已写；演示默认关闭，SSE显式opt-in且同源，未连接。
-- 角色按2.0卡：3.5头身、服装层次、发型/眼镜/道具差异、六态、A4急停/A6护罩；无收益庆祝粒子。五组截图及六近景/六态已交0439，首轮独立审查五项修正resolved；仍待Claude逐角色视觉/UED评审，不称已ACCEPT。
-- 缺源数字显示`—`，空数组与缺源区分。角色工作动画不生成信号/成交；账本NAV不由前端猜算；七条件不硬凑，按事件实际数显示。
-- 任务书称十三类，但明确列举14类（包含risk）。本机完整保留列举14类，待Claude统一文字；不会丢掉risk。
-- 第9节覆盖早期设置申请POST：本次无任何写接口、无申请持久化。
+当前源码已实现白色资产栏 → 深色交易室 → 今日计划与团队记录 → 持仓与挂单。原焦点、条件、任务和来源摘要移至“观测条件与任务证据”折叠区。最终内容宽上限 1280px；760px 以下单列。六工位按工作流形成浅弧，窄屏舞台内部横向滑动，保持完整连续曲线。
 
-10-20原件fixture与SHA来源映射、GET/HEAD本机mock已实现。只读三份旧本机原件，102条白名单投影，33原计划→32 ACTIVE/1 INVALIDATED；不复制审计、不调用行情/模型。此包仅27个Team时点、末轮32条件原件与已知锁记录，缺完整旧客户逐分钟流水及PM模型原件，页面明确局部回放，不冒称整日验证。
+人物采用专业深色服装与六种小面积 accent：基本面 #8B78E0、题材 #3FA3AD、组合 #5C8BE6、风控 #A7B2C6、交易 #E0A62B、复盘 #55B282。最新整改修复浅弧朝向、连续 CatmullRom 接力曲线、金色圆点与光晕、剪影负空间、idle 静态姿态。接力沿曲线 720ms ease-out，减少动态时直接到位。配套视觉规范为 `docs/design-team.md`，扩展侧车为 `.impeccable/design-team.json`。
 
-当前 Node 全量26文件189通过/0失败，包含19项新增模型/fixture/mock契约测试；前后端typecheck通过。真实3源SHA与102事件逐条schema核验通过。浏览器核初始缺源、手动历史加载、102/102末态、32可见计划/1作废、13:23锁、08:33账户观测时刻、400px不横滚、无源六文字卡、happy自动结束、console无error。CDP减少动态偏好下happy仍于1.5秒退出后已恢复偏好；未模拟WebGL context loss。mock跨日404、POST405、错误URL编码400；不代表生产只读接口验收。
+本机只读边界保持在实现中：未知数值为“—”，实际空数组与缺源分开；净值不由前端推算。演示默认关闭，SSE 明确 opt-in 且同源。无写接口和申请持久化；任务书列举的 14 类事件均保留，包含 risk。happy 只作新增持仓后的短暂完成姿态，不代表收益。模型校验失败只保留任务证据，不当作账户风控停止。
 
-0438-d/§10已读：三档浅深六图、13.34秒/8帧局部原件GIF、固定字号/字重、舞台/卡片分层、首屏三项有源摘要与中文分组/保护锁。首屏三档均在scrollY=0、1000高内显示摘要。完整独立复审五项修正中首屏/中文/字重/文档四项resolved，配色partial，最终disposition=fix；不称§10通过。六角色的ref/角色卡配色冲突已实际0440交Claude裁定，未认定例外通过；Claude六项评分尚未收到。
+三份 10-20 冻结原件经 SHA 校验后投影为 102 条事件，覆盖 33 份原计划、27 个 Team 时点与 32 条条件原件；末态为 32 active、1 invalidated。回放为 PARTIAL_FROZEN_EVIDENCE，缺完整逐分钟旧客户流水与 PM 模型原件。缺源的 theme / market / say / relay 不生成。九个 GET/HEAD 签名仅实现于本机 mock，缺统计、会话或配置原件返回 MISSING_SOURCE / null；真实成交原件为 0 才返回空列表。它们不构成生产 Node 接口、当日完整数据或端到端执行验收。
 
-§4九个GET签名已在loopback mock落地，分页上限500，缺统计/会话/配置原件返回MISSING_SOURCE和null，不伪造零数据；成交总数原件为0才返回空列表。九接口单次本机实测约2.9–54.2ms，不是负载性能验收。仍没有接生产库或集成生产Node。
+主交付最新验证记录为 Node 全量 26 文件 / 190 通过 / 0 失败，前后端 typecheck 通过。既有原件 SHA、102 事件 schema、本机 mock 错误状态、初始缺源、手动历史加载、末态计划和保护锁、窄屏滚动与依赖缺失文字降级已做本机验证。真实 WebGL context loss 未验证。测试数与源码检查只说明本机覆盖范围，不能代替当前视觉复评。
 
-待办：配色明确裁定、Claude六项视觉/UED评分；生产Node真实只读接口及单开关隔离（尚未集成）、当前日15:05后批准快照逐条核验。局部回放的独立三项复审已resolved，不等于完整全天数据通过。17:00/17:30真实数据门仍未完成，Python/回退/整链正式发布门未执行，不提前称整期完成。
+当前真实证据目录为 `.impeccable/review/team-20261021-0441/`：三档浅深六张首页、六角色近景、同场、灰阶、无标签剪影 PNG；有效参考 JPG 与参考/实现对照 JPG；`relay-intercept.mp4` 为约 6 秒的本机 synthetic 接力与拦截录屏，不是市场回放。最终整改源码的原路径截图已由主代理重采；最新本机测量为交易室整体高 495.5px、计划区域起点 724.5px，角色名称 16px / 500、状态 14px。证据与结论仍须对应本批 recapture 和复评记录，不能依据目录存在或旧截图时间宣称通过。旧目录的 GIF 仅属历史局部节选，不替代本轮证据。
 
-开发回放：PowerShell设置 `$env:TEAM_UI_LOCAL_EVIDENCE_ROOT='D:/dev_A股/liangjian_team_v2_20261016'` 再启动上述预览脚本。该值只读本机既有证据，不是虚拟机生产目录。预览接口不能当作生产实现部署。
+本轮独立 reviewer 的五项 fix 经同一 reviewer 复评均 resolved（PM 杯剪影最后窄修后单项复核），disposition=ship 仅覆盖这五项，不是连续视频动效验收。Claude 尚未给本轮六项分数，未获得 UED ACCEPT；有限范围的 ship / resolved 不构成本轮整体通过。仍欠真实生产只读 API、当天完整数据逐条核验、Claude 视觉/UED 评分与生产发布门。没有把本机样板交付写成正式上线。

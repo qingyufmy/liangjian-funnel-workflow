@@ -1,5 +1,9 @@
 import {ROLES,STATES} from './roles.js';
 export const EVENT_TYPES=Object.freeze(['clock','task','role','say','relay','focus','conds','account','plans','positions','risk','theme','alert','market']);
+export function orderedPlans(rows){
+  const priority={ACTIVE_TODAY:0,ACTIVE:0,PENDING_MORNING_REVIEW:1,PENDING:1,REJECTED:2,ABANDONED:2,EXPIRED:2};
+  return rows.filter(row=>row.status!=='INVALIDATED').map((row,index)=>({row,index})).sort((a,b)=>(priority[a.row.status]??3)-(priority[b.row.status]??3)||a.index-b.index).map(item=>item.row);
+}
 export function addedPositions(previous,next){
   if(previous===null)return []; // Initial ledger synchronization is not a new fill.
   const ids=new Set(previous.map(r=>r.id??r.code));
@@ -29,7 +33,8 @@ export function reduceEvent(state,event){
     case 'alert':s.alerts=[...s.alerts,{...ev}].slice(-100);break;
     case 'plans':s.plans=ev.rows.map(r=>({...r}));break;
     case 'positions':s.positions=ev.rows.map(r=>({...r}));break;
-    case 'relay':case 'focus':case 'conds':case 'account':case 'risk':case 'theme':case 'market':s[ev.type]={...ev};break;
+    case 'relay':s.relay={...ev};s.roles={...s.roles,[ev.to]:{state:'work',label:'收到工作交接'}};break;
+    case 'focus':case 'conds':case 'account':case 'risk':case 'theme':case 'market':s[ev.type]={...ev};break;
   }
   return s;
 }

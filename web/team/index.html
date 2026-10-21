@@ -5,54 +5,58 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>量见 · 交易团队</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/team/styles.css">
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.149.0/three.min.js"></script>
   <script type="module" src="/team/app.js"></script>
 </head>
 <body>
 <!-- THESIS: A read-only trading room, not a simulated trading claim.
-OWN-WORLD: Claude HOME_V1 / ROLE_CARDS_2.0; gold navigation, ink account band, six distinct workstations.
+OWN-WORLD: Claude HOME_REFERENCE / DESIGN_SPEC 2026-10-21; white account band, dark trading room, six professional workstations.
 STORY: Read account provenance, team activity, next task and actionable alerts in one viewport.
-FIRST VIEWPORT: Header, account band, six-person room; below: task flow, focus and evidence feed.
-FORM: Precisely supplied incumbent composition, code-led extension; no new visual-world selection.
+FIRST VIEWPORT: White account bar, dark room and gold relay; next: plans beside team records, then ledger positions.
+FORM: User-pinned 0441 design reference, faithfully translated to live WebGL; no independent concept selection.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance -->
-<header><div class="header-inner"><a class="logo" href="/team"><span>量</span>量见 · A股</a>
+<header><div class="header-inner"><a class="logo" href="/team"><span>量</span>量见</a>
   <nav aria-label="团队导航"><a href="/team" data-route="home">今日</a><a href="/team/roles" data-route="roles">团队</a><a href="/team/plans" data-route="plans">计划</a><a href="/team/review" data-route="review">复盘</a><a href="/team/settings" data-route="settings">设置</a></nav>
-  <div class="header-controls"><span id="connection" role="status">本机样板 · 未接数据</span><button id="theme-toggle" type="button">深色</button></div>
+  <div class="header-controls"><span class="sample-badge">样板</span><span id="connection" role="status">未接数据</span><button id="theme-toggle" type="button">深色</button></div>
 </div></header>
 <main id="home-view">
-  <aside class="notice" id="mode-notice">设计样板 / 非生产。默认不播放演示、不请求生产数据。缺少来源的数字显示为「—」。</aside>
+  <aside class="sr-only" id="mode-notice" role="status">本机样板，未连接生产；缺失数字保持未知。</aside>
   <section id="replay-controls" class="panel replay-controls" hidden aria-label="历史原件回放">
     <strong>10-20 局部原件回放 · 非实时、非完整全天流水</strong><details><summary>查看原件范围和已知缺口</summary><p id="replay-coverage"></p></details>
     <div><button id="replay-next" type="button">下一条原件事件</button><button id="replay-last" type="button">查看末条状态</button></div>
     <p id="replay-progress" role="status"></p><details><summary>本条来源</summary><pre id="evidence-source"></pre></details>
   </section>
-  <section class="account" aria-label="模拟账户概况">
-    <div class="nav-total"><span>模拟盘净值 <small>CNY</small></span><strong id="account-nav">—</strong></div>
-    <dl><div><dt>可用现金</dt><dd id="account-cash">—</dd></div><div><dt>持仓浮动</dt><dd id="account-float">—</dd></div><div><dt>今日 / 本周</dt><dd><span id="account-day">—</span> / <span id="account-week">—</span></dd></div><div><dt>计划 / 信号 / 成交</dt><dd id="account-counts">— / — / —</dd></div></dl>
-    <p id="account-source" class="source">来源未连接</p>
+  <section class="account is-empty" id="account-band" aria-label="模拟账户概况">
+    <p id="account-empty">模拟盘 100 万 · 开盘后更新<span>初始资金配置，不代表当前净值</span></p>
+    <div class="nav-total" id="account-total" hidden><span>模拟盘净值 <small>CNY</small></span><strong id="account-nav">—</strong></div>
+    <dl id="account-metrics" hidden><div><dt>可用现金</dt><dd id="account-cash">—</dd></div><div><dt>持仓浮动</dt><dd id="account-float">—</dd></div><div><dt>今日 / 本周</dt><dd><span id="account-day">—</span> / <span id="account-week">—</span></dd></div><div><dt>计划 / 信号 / 成交</dt><dd id="account-counts">— / — / —</dd></div></dl>
+    <details id="account-provenance" class="account-provenance" hidden><summary>账本来源</summary><p id="account-source" class="source">来源未连接</p></details>
   </section>
   <section class="room panel" aria-labelledby="room-title">
-    <div class="section-head room-head"><div><h1 id="room-title">你的交易团队</h1><p>六位 AI 各管一段，接力完成每个交易日</p></div><time id="day-clock">等待带来源的时钟事件</time><dl class="room-summary"><div><dt>当前工作</dt><dd id="room-current">工作状态未接入</dd></div><div><dt>下一件事</dt><dd id="room-next">调度记录未接入</dd></div><div><dt>需要你看</dt><dd id="room-attention">异常来源未接入，暂不能判断</dd></div></dl></div>
-    <div id="scene" role="img" aria-label="六位角色的设计样板：当前动作不代表真实工作或成交"></div>
-    <div id="handoff-line" role="status" aria-live="polite">等待有来源的工作交接，不推演角色之间的协作</div>
+    <div class="section-head room-head"><div><h1 id="room-title">交易室</h1><p>六位成员接力完成今天的交易</p></div><div class="room-tags"><span id="room-market">市场阶段待来源</span><span id="room-limits">今日执行权限待来源</span></div></div>
+    <div id="scene" tabindex="0" role="img" aria-label="六位角色的本机样板，窄屏可横向滚动查看工位"></div>
     <div id="role-fallback" class="role-fallback" aria-label="角色文字信息，无 WebGL 时内容仍完整"></div>
-    <div class="room-controls"><span>查看角色</span><div id="role-picks" class="role-picks"></div><button type="button" id="overview">六人同场</button><a href="/team/roles-preview">角色评审台</a></div>
+    <div id="handoff-line" role="status" aria-live="polite">接力来源尚未接入，不推演成员之间的协作</div>
   </section>
-  <section id="needs-attention" class="attention panel" aria-labelledby="attention-title"><h2 id="attention-title">需要你看</h2><p>尚未接入异常来源，不代表没有异常。</p></section>
-  <div class="work-grid">
-    <section class="panel tasks"><div class="section-head"><h2>今日任务流</h2><span id="task-count">只显示真实任务事件</span></div><ol id="tasks" tabindex="0" aria-label="任务历史，可在列表内滚动查看全部记录"><li class="empty">等待调度任务来源</li></ol></section>
-    <section class="panel focus"><div class="section-head"><h2>当前焦点</h2><span id="focus-clock">缺源</span></div><div id="focus"><h3>等待交易员观测</h3><p>尚未读到观测，不能判断是否存在入场机会。</p></div><div id="conditions" class="conditions"></div><div id="risk" class="risk">执行权限与限额：缺少风控原件</div><details id="risk-details" class="raw-details"><summary>查看原始策略、条件和风控码</summary><pre id="raw-contracts">尚未接入原件</pre></details></section>
-    <section class="panel feed"><div class="section-head"><h2>团队工作记录</h2><span id="feed-count">0 条</span></div><ol id="feed"><li class="empty">无会话记录，不生成角色发言</li></ol></section>
+  <section id="needs-attention" class="attention panel" aria-labelledby="attention-title" hidden><h2 id="attention-title">需要你看</h2></section>
+  <div class="plan-record-grid">
+    <section class="panel records"><div class="section-head"><h2>今日计划</h2><span id="plan-count">来源未连接</span></div><div id="plans" class="table-wrap"><p class="empty">等待计划来源；作废计划不进入执行列表。</p></div></section>
+    <section class="panel feed"><div class="section-head"><h2>团队记录</h2><span id="feed-count">来源未连接</span></div><ol id="feed"><li class="empty">等待成员工作记录</li></ol></section>
   </div>
-  <section class="panel records"><div class="section-head"><h2>今日计划</h2><span id="plan-count">来源未连接</span></div><div id="plans" class="table-wrap"><p class="empty">等待同源计划列表；作废计划不作为可执行计划呈现。</p></div></section>
-  <section class="panel records"><div class="section-head"><h2>模拟盘持仓与挂单</h2><span id="position-count">缺源</span></div><div id="positions" class="table-wrap"><p class="empty">未读到账本，不把缺失数据写成零持仓。</p></div></section>
+  <section class="panel records"><div class="section-head"><h2>模拟盘持仓与挂单</h2><span id="position-count">缺源</span></div><div id="positions" class="table-wrap"><p class="empty">等待账本来源；尚不能判断持仓数量。</p></div></section>
+  <details class="panel inspection-details"><summary>观测条件与任务证据</summary><section class="inspection-context"><time id="day-clock">等待时钟来源</time><dl class="room-summary"><div><dt>当前工作</dt><dd id="room-current">工作状态未接入</dd></div><div><dt>下一件事</dt><dd id="room-next">调度记录未接入</dd></div><div id="room-attention-column" hidden><dt>需要你看</dt><dd id="room-attention"></dd></div></dl><div class="room-controls"><span>查看角色</span><div id="role-picks" class="role-picks"></div><button type="button" id="overview">六人同场</button><a href="/team/roles-preview">角色评审台</a></div></section><div class="work-grid">
+    <section class="focus"><div class="section-head"><h2>当前焦点</h2><span id="focus-clock">缺源</span></div><div id="focus"><h3>等待交易员观测</h3><p>尚未读到观测，不能判断是否存在入场机会。</p></div><div id="conditions" class="conditions"></div><div id="risk" class="risk">执行权限与限额：缺少风控原件</div><details id="risk-details" class="raw-details"><summary>查看原始条件</summary><pre id="raw-contracts">尚未接入原件</pre></details></section>
+    <section class="tasks"><div class="section-head"><h2>今日任务流</h2><span id="task-count">只显示真实任务事件</span></div><ol id="tasks" tabindex="0" aria-label="任务历史，可在列表内滚动查看全部记录"><li class="empty">等待调度任务来源</li></ol></section>
+  </div></details>
   <footer><span id="event-status">事件未连接</span><div><button id="demo-toggle" type="button" aria-pressed="false">演示：关闭</button><button id="replay-toggle" type="button">载入10-20本机原件</button></div></footer>
 </main>
 <main id="placeholder-view" hidden><section class="panel placeholder"><p>量见团队 · 后续页面</p><h1 id="placeholder-title"></h1><p>本期仅交付只读首页；此页面不请求数据，不提供配置修改或交易操作。</p><a href="/team">返回今日</a></section></main>
 <main id="preview-view" hidden>
   <section class="panel preview-head"><p class="notice">角色 2.0 设计样板 / 非生产。动作切换仅用于评审，不表示真实任务、订单或收益。</p><h1>六角色 · 2.0 基元评审台</h1><p>外形依据 Claude ROLE_CARDS_2.0；同一舞台、同一视角，检查轮廓、道具和状态语义。</p>
-  <div class="preview-controls"><label>显示方式<select id="preview-mode"><option value="color">彩色</option><option value="grayscale">灰阶</option><option value="silhouette">无标签剪影</option><option value="stage">舞台实际尺寸</option></select></label><label>状态<select id="preview-state"><option>idle</option><option>work</option><option>talk</option><option>stop</option><option>happy</option><option>rest</option></select></label><label>角色<select id="preview-role"><option value="all">六人同场</option></select></label><button id="preview-pause" type="button" aria-pressed="true">动作已暂停</button><a href="/team">返回首页</a></div></section>
+  <div class="preview-controls"><label>显示方式<select id="preview-mode"><option value="color">彩色</option><option value="grayscale">灰阶</option><option value="silhouette">无标签剪影</option><option value="stage">舞台实际尺寸</option></select></label><label>状态<select id="preview-state"><option>idle</option><option>work</option><option>talk</option><option>stop</option><option>happy</option><option>rest</option></select></label><label>角色<select id="preview-role"><option value="all">六人同场</option></select></label><button id="preview-pause" type="button" aria-pressed="true">动作已暂停</button><button id="preview-relay" type="button">接力与拦截演示</button><a href="/team">返回首页</a></div></section>
   <section class="panel preview-stage"><div id="review-scene" role="img" aria-label="六角色基元模型评审"></div><div id="review-fallback" class="role-fallback"></div></section>
   <section class="panel role-notes"><h2>非颜色识别线索</h2><div id="role-notes"></div><p>状态评审包含六态；happy 最长 1.5 秒，不表示盈利。A6 stop 有护罩，A4 stop 有急停灯；其他角色停手并看向 A6。</p></section>
 </main>
