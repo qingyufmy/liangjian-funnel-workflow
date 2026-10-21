@@ -1,0 +1,260 @@
+{
+  "schema": "a2-0487-exact-source-projection/1",
+  "original_provider_sha256": "7d566f8a1e9ac1133b68905e7bd66492dfd1cb8cde863ea0a096467ecc3cf02d",
+  "original_context_sha256": "039845e8e2503776b8d534e69a77c32cdd4ded843ba1a902a77be28707541c73",
+  "provider_focus_decisions": [
+    {
+      "opposing_refs": [
+        "A2:QUANT:002530.SZ"
+      ],
+      "risk_codes": [
+        "A2_CAPITAL_FLOW_UNAVAILABLE"
+      ],
+      "support_codes": [
+        "A2_EMOTION_LADDER_LEADER_CONFIRMED",
+        "A2_MEDIUM_TERM_TREND_CONFIRMED"
+      ],
+      "supporting_refs": [
+        "A2:QUANT:002164.SZ",
+        "A2:NEWS"
+      ],
+      "symbol": "002164.SZ"
+    },
+    {
+      "opposing_refs": [
+        "A2:QUANT:603809.SH"
+      ],
+      "risk_codes": [
+        "A2_CAPITAL_FLOW_UNAVAILABLE"
+      ],
+      "support_codes": [
+        "A2_MEDIUM_TERM_TREND_CONFIRMED"
+      ],
+      "supporting_refs": [
+        "A2:QUANT:001266.SZ"
+      ],
+      "symbol": "001266.SZ"
+    },
+    {
+      "opposing_refs": [
+        "A2:QUANT:002712.SZ"
+      ],
+      "risk_codes": [
+        "A2_CAPITAL_FLOW_UNAVAILABLE"
+      ],
+      "support_codes": [
+        "A2_MEDIUM_TERM_TREND_CONFIRMED"
+      ],
+      "supporting_refs": [
+        "A2:QUANT:300378.SZ"
+      ],
+      "symbol": "300378.SZ"
+    },
+    {
+      "opposing_refs": [
+        "A2:QUANT:603383.SH"
+      ],
+      "risk_codes": [
+        "A2_CAPITAL_FLOW_UNAVAILABLE"
+      ],
+      "support_codes": [
+        "A2_MEDIUM_TERM_TREND_CONFIRMED"
+      ],
+      "supporting_refs": [
+        "A2:QUANT:002322.SZ"
+      ],
+      "symbol": "002322.SZ"
+    },
+    {
+      "opposing_refs": [
+        "A2:QUANT:300181.SZ"
+      ],
+      "risk_codes": [
+        "A2_CAPITAL_FLOW_UNAVAILABLE"
+      ],
+      "support_codes": [
+        "A2_MEDIUM_TERM_TREND_CONFIRMED"
+      ],
+      "supporting_refs": [
+        "A2:QUANT:603127.SH"
+      ],
+      "symbol": "603127.SH"
+    },
+    {
+      "opposing_refs": [
+        "A2:QUANT:600351.SH"
+      ],
+      "risk_codes": [
+        "A2_CAPITAL_FLOW_UNAVAILABLE"
+      ],
+      "support_codes": [
+        "A2_MEDIUM_TERM_TREND_CONFIRMED"
+      ],
+      "supporting_refs": [
+        "A2:QUANT:300199.SZ"
+      ],
+      "symbol": "300199.SZ"
+    },
+    {
+      "opposing_refs": [
+        "A2:QUANT:301002.SZ"
+      ],
+      "risk_codes": [
+        "A2_CAPITAL_FLOW_UNAVAILABLE"
+      ],
+      "support_codes": [
+        "A2_MEDIUM_TERM_TREND_CONFIRMED"
+      ],
+      "supporting_refs": [
+        "A2:QUANT:688036.SH"
+      ],
+      "symbol": "688036.SH"
+    },
+    {
+      "opposing_refs": [
+        "A2:QUANT:300839.SZ"
+      ],
+      "risk_codes": [
+        "A2_CAPITAL_FLOW_UNAVAILABLE"
+      ],
+      "support_codes": [
+        "A2_EMOTION_FIRST_BOARD_OBSERVED"
+      ],
+      "supporting_refs": [
+        "A2:QUANT:603236.SH"
+      ],
+      "symbol": "603236.SH"
+    }
+  ],
+  "provider_rotation_reviews": [],
+  "direction_members": {
+    "SELECTED_BOARD:AI_APPLICATIONS_DIGITAL_ECONOMY": [
+      "002322.SZ",
+      "002425.SZ",
+      "002712.SZ",
+      "002811.SZ",
+      "300226.SZ",
+      "300378.SZ",
+      "300426.SZ",
+      "300957.SZ",
+      "301110.SZ",
+      "301230.SZ",
+      "603171.SH",
+      "603383.SH",
+      "603598.SH",
+      "603602.SH",
+      "688095.SH",
+      "688111.SH",
+      "688365.SH",
+      "688522.SH"
+    ],
+    "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE": [
+      "300556.SZ",
+      "300839.SZ",
+      "600406.SH",
+      "601222.SH"
+    ],
+    "SELECTED_BOARD:CONSUMER_ELECTRONICS": [
+      "688036.SH"
+    ],
+    "SELECTED_BOARD:INNOVATIVE_MEDICINE_HEALTHCARE": [
+      "000423.SZ",
+      "000538.SZ",
+      "000963.SZ",
+      "000989.SZ",
+      "002001.SZ",
+      "002262.SZ",
+      "002294.SZ",
+      "002603.SZ",
+      "300181.SZ",
+      "300199.SZ",
+      "300298.SZ",
+      "300406.SZ",
+      "300453.SZ",
+      "300765.SZ",
+      "300832.SZ",
+      "301122.SZ",
+      "301239.SZ",
+      "600285.SH",
+      "600351.SH",
+      "600521.SH",
+      "600557.SH",
+      "600771.SH",
+      "600993.SH",
+      "603127.SH",
+      "603301.SH",
+      "603669.SH",
+      "603883.SH",
+      "603939.SH",
+      "603998.SH",
+      "688235.SH",
+      "688575.SH",
+      "688617.SH"
+    ],
+    "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING": [
+      "000333.SZ",
+      "000682.SZ",
+      "001266.SZ",
+      "002270.SZ",
+      "002354.SZ",
+      "002439.SZ",
+      "002530.SZ",
+      "002541.SZ",
+      "002590.SZ",
+      "002833.SZ",
+      "002990.SZ",
+      "300012.SZ",
+      "300031.SZ",
+      "300143.SZ",
+      "300299.SZ",
+      "300432.SZ",
+      "300678.SZ",
+      "300733.SZ",
+      "300756.SZ",
+      "300771.SZ",
+      "300852.SZ",
+      "301002.SZ",
+      "301282.SZ",
+      "301310.SZ",
+      "301487.SZ",
+      "600196.SH",
+      "600968.SH",
+      "601766.SH",
+      "601877.SH",
+      "601965.SH",
+      "603025.SH",
+      "603337.SH",
+      "603418.SH",
+      "603656.SH",
+      "603728.SH",
+      "603809.SH",
+      "603992.SH",
+      "605189.SH",
+      "688018.SH",
+      "688071.SH",
+      "688097.SH",
+      "688099.SH",
+      "688151.SH",
+      "688187.SH",
+      "688188.SH",
+      "688213.SH",
+      "688475.SH",
+      "688499.SH",
+      "688615.SH",
+      "688626.SH"
+    ]
+  },
+  "postpolicy_final_focus_symbols": [
+    "001266.SZ",
+    "002164.SZ",
+    "002322.SZ",
+    "300378.SZ",
+    "603236.SH",
+    "688036.SH"
+  ],
+  "server_demoted_focus_symbols": [
+    "300199.SZ",
+    "603127.SH"
+  ],
+  "projection_not_full_raw": true
+}

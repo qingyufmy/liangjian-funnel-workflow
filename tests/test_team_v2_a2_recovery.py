@@ -18,9 +18,9 @@ def no_focus(direction='D', symbols=None):
         supporting_refs=['A2:QUANT:000001.SZ'], opposing_refs=['A2:NEWS'])
 
 
-def test_mixed_unbound_enum_and_rotation_retries_only_enum_after_safe_drop(tmp_path):
+def test_mixed_enum_and_rotation_require_provider_to_correct_both_before_success(tmp_path):
     def mutate(raw, attempt):
-        raw['rotation_reviews'] = [no_focus()]
+        raw['rotation_reviews'] = [no_focus()] if attempt==1 else []
         if attempt == 1:
             raw['market_read']['emotion_cycle'] = 'INVENTED_STAGE'
     app, args, seen = fixture(tmp_path, mutate, rotation=True)
@@ -31,23 +31,23 @@ def test_mixed_unbound_enum_and_rotation_retries_only_enum_after_safe_drop(tmp_p
     assert 'INVENTED_STAGE' in feedback and 'A2_MARKET_READ_INVALID' in feedback
     assert all(value in feedback for value in (
         'IGNITION', 'CONFIRMATION', 'ACCELERATION', 'CLIMAX', 'DIVERGENCE', 'RETREAT', 'REPAIR', 'FADE'))
-    assert result.diagnostics['server_normalization']['status'] == 'VALIDATED'
+    assert result.diagnostics['server_normalization'] is None
     assert result.output['rotation_reviews'] == []
     with closing(app.team_research_adapter.journal._connect()) as db:
         captured = [json.loads(r[0]) for r in db.execute('SELECT output_json FROM model_calls ORDER BY captured_at')]
         validated = [r[0] for r in db.execute('SELECT validated FROM model_calls ORDER BY captured_at')]
     assert captured[0]['market_read']['emotion_cycle'] == 'INVENTED_STAGE'
-    assert all(r['rotation_reviews'] for r in captured)
-    assert validated == [0, 0]
-    audit_key = result.diagnostics['server_normalization']['audit_context_key']
+    assert captured[0]['rotation_reviews'] and captured[1]['rotation_reviews']==[]
+    assert validated == [0, 1]
+    audit_key = result.diagnostics['server_normalizations'][0]['audit_context_key']
     with closing(app.team_research_adapter.store._connect()) as db:
         audit = json.loads(db.execute('SELECT body_json FROM control_minute_context WHERE decision_id=?',
             (audit_key,)).fetchone()[0])
-    assert audit['status'] == 'VALIDATED' and audit['provider_capture_unchanged'] is True
+    assert audit['status'] == 'BLOCKED' and audit['provider_capture_unchanged'] is True
     assert audit['normalized_raw']['rotation_reviews'] == []
-    assert audit['normalized_validation_issues'] == audit['postpolicy_reason_codes'] == []
-    assert audit['postpolicy_output'] == result.output
-    assert audit['original_issues'] == ['A2_ROTATION_DOMAIN_MISMATCH']
+    assert 'A2_MARKET_READ_INVALID' in audit['normalized_validation_issues']
+    assert audit['postpolicy_output'] is None
+    assert 'A2_ROTATION_DOMAIN_MISMATCH' in audit['original_issues']
     assert app._run_stage(**args).output == result.output and len(seen) == 2
 
 
@@ -57,8 +57,7 @@ def test_missing_rotation_without_frozen_engine_rank_is_never_server_synthesized
     assert result.status == 'BLOCKED', result.reason_codes
     assert len(seen) == 3 and result.output is None
     assert result.diagnostics['server_normalization'] is None
-    assert result.diagnostics['validation_history'] == [['A2_ROTATION_COVERAGE_MISMATCH']] * 2 + [
-        ['A2_ROTATION_FOCUS_COVERAGE_MISSING:D']]
+    assert result.diagnostics['validation_history'] == [['A2_ROTATION_COVERAGE_MISMATCH']] * 3
     assert 'required_no_focus_if_focus_unchanged' in seen[1]['messages'][0]['content']
     assert all(symbol in seen[1]['messages'][0]['content'] for symbol in ('000001.SZ', '000002.SZ', '000003.SZ'))
 
@@ -205,25 +204,25 @@ def test_missing_coverage_never_creates_server_rows():
         {'D': {'000001.SZ'}}) is None
 
 
-def test_exact_engine_latent_and_redundant_bank_review_validate_in_one_call_without_raw_rewrite(tmp_path):
-    def mutate(raw, _):
+def test_latent_preserved_but_redundant_bank_row_must_be_corrected_by_provider(tmp_path):
+    def mutate(raw, attempt):
         raw['market_read']['emotion_cycle'] = 'LATENT'
-        raw['rotation_reviews'] = [no_focus()]
+        raw['rotation_reviews'] = [no_focus()] if attempt==1 else []
     app, args, seen = fixture(tmp_path, mutate, rotation=True)
     args['snapshot'] = replace(args['snapshot'], data={**args['snapshot'].data,
         'MARKET_EMOTION_SNAPSHOT': {'emotion_cycle_stage': 'LATENT'}})
     result = app._run_stage(**args)
-    assert result.status == 'VALIDATED' and len(seen) == 1
+    assert result.status == 'VALIDATED' and len(seen) == 2
     assert result.output['market_read']['emotion_cycle'] == 'LATENT'
-    assert result.diagnostics['validation_history'] == [[]]
-    assert result.diagnostics['provider_validation_history'] == [['A2_ROTATION_DOMAIN_MISMATCH']]
+    assert result.diagnostics['validation_history'] == [['A2_ROTATION_DOMAIN_MISMATCH'],[]]
+    assert result.diagnostics['provider_validation_history'] == [['A2_ROTATION_DOMAIN_MISMATCH'],[]]
     with closing(app.team_research_adapter.journal._connect()) as db:
-        captured, validated = db.execute('SELECT output_json,validated FROM model_calls').fetchone()
-    assert not validated and json.loads(captured)['rotation_reviews'] == [no_focus()]
-    audit = result.diagnostics['server_normalization']
-    assert audit['status'] == 'VALIDATED'
+        captures = db.execute('SELECT output_json,validated FROM model_calls ORDER BY captured_at').fetchall()
+    assert [r[1] for r in captures]==[0,1] and json.loads(captures[0][0])['rotation_reviews']==[no_focus()]
+    audit = result.diagnostics['server_normalizations'][0]
+    assert audit['status'] == 'BLOCKED'
     assert [r['action'] for r in audit['actions']] == ['SERVER_DROPPED_FOCUSED_DIRECTION']
-    assert app._run_stage(**args).output == result.output and len(seen) == 1
+    assert app._run_stage(**args).output == result.output and len(seen) == 2
 
 
 @pytest.mark.parametrize('fact,answer,valid', [

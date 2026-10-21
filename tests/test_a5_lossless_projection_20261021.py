@@ -25,7 +25,7 @@ def test_noncanonical_json_whitespace_and_empty_missing_values_remain_exact():
     assert expand_review_facts(transport)==facts
 
 
-@pytest.mark.parametrize('key',['$a5_fact_ref','$a5_canonical_json','_a5_transport','$a5_rows'])
+@pytest.mark.parametrize('key',['$a5_fact_ref','$a5_canonical_json','_a5_transport','$a5_rows','$a5_inherit'])
 def test_collision_cannot_be_interpreted_as_server_transport(key):
     with pytest.raises(ValueError,match='A5_TRANSPORT_RESERVED_KEY'):
         project_review_facts({'nested':{key:'outside'}})
@@ -45,3 +45,13 @@ def test_row_tables_preserve_missing_null_nested_values_and_numbers():
     assert expand_review_facts(projected)==facts
     assert numeric_fact_domain(expand_review_facts(projected))==numeric_fact_domain(facts)
     assert audit['transport_chars']<audit['source_chars']
+
+
+def test_repeated_strategy_definitions_are_named_once_without_dropping_variants():
+    base={('long_rule_name_'+str(i)):{'enabled':bool(i%2),'definition':'原策略定义，保持全部条件 '*10} for i in range(18)}
+    facts={'plans':{str(i):{**deepcopy(base),'symbol':str(i),'threshold':i*100,'nullable':None} for i in range(9)}}
+    projected,audit=project_review_facts(facts)
+    assert audit['common_definition_count']>=1
+    assert '$a5_inherit' in json.dumps(projected)
+    assert expand_review_facts(projected)==facts
+    assert numeric_fact_domain(expand_review_facts(projected))==numeric_fact_domain(facts)

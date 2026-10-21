@@ -54,3 +54,11 @@
 - selected9到geometry7少的2只是002313、603236，既有 `A3_EMOTION_RESEARCH_ONLY_NO_ENTRY` 隔离，不是几何静默丢失。
 - 精确phase timing更正：EARLY_DISCOVERY_DAILY_SYNC1995.38s、COMPANY_FACT_SYNC419.30s、CNINFO_SYNC790.70s、PDF14.82s；此前把15:25的阶段累计3103s称为CNINFO单阶段不准确。总4046s仍成立，未完成增量优化不称达标。
 - VM独立回退HEAD fa2b9b9自身full已启动，使用独立源码/Node依赖副本和核SHA的规则原件；未改生产。
+# 0488 补充（10-21 18:48，替代原 A2 post-policy 责任分配）
+
+模型原回复按自己的 `focus_decisions ∩ frozen direction members` 校验，不能把同题材非成员算作覆盖。真实模型错误必须在最多三轮内自行纠正，投影删除不替代 provider validated=1。服务端后续策略降级导致原有重点成员全部消失时，只补 `SERVER_POLICY_DEMOTED` 说明；rule_id、降级符号、原/后 SHA 与调用身份冻结，focus 选择和最终权限不变。其它漏方向/外域/格式错误不自动补。
+
+0487 实际原件投影回归区分两类：医药 603127/300199 被服务端降级，补医药；AI_COMPUTE 的 603236 不是方向成员，仍欠说明且不得由服务端补。先前 9d 整链终态 BLOCKED，A2/A3 各一实际HTTP、A6/PM/A4均0，预算前拒绝两次额外语义尝试；原件保留。0488批准新HEAD A2≤3，其他各1。
+
+A5按0488以公共策略定义+引用ID进一步无损去重，字段缺失/null/原数值与全文均须逆向一致；不提高250k门。最终HEAD自身VM全量、同HEAD新整链和Claude最终ACCEPT仍缺，不能借9d 6470/0。
+

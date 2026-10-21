@@ -148,8 +148,7 @@ def test_three_missing_rotation_captures_stay_invalid_for_existing_degradation(t
     result=app._run_stage(**args)
     assert result.status=='BLOCKED' and len(seen)==3
     assert result.diagnostics['provider_validation_history']==[['A2_ROTATION_COVERAGE_MISMATCH']]*3
-    assert result.diagnostics['validation_history']==[['A2_ROTATION_COVERAGE_MISMATCH']]*2+[
-        ['A2_ROTATION_FOCUS_COVERAGE_MISSING:D']]
+    assert result.diagnostics['validation_history']==[['A2_ROTATION_COVERAGE_MISMATCH']]*3
     assert result.diagnostics['server_normalization'] is None
     assert 'required_no_focus_if_focus_unchanged' in seen[1]['messages'][0]['content']
     again=app._run_stage(**args)
@@ -216,21 +215,21 @@ def test_pre_split_freeze_cannot_hide_changed_original_factor(tmp_path):
     assert app._run_stage(**args).reason_codes==('TEAM_A2_FROZEN_SOURCE_MISMATCH',) and not seen
 
 
-def test_legacy_rotation_validator_conflict_after_server_missing_data_demotion_is_not_hidden(tmp_path):
+def test_server_owns_explanation_when_its_missing_data_policy_demotes_all_focus(tmp_path):
     app,args,seen=fixture(tmp_path,rotation=True)
     for row in args['snapshot'].data['A2_BOTTLENECK_CONTEXT'].values():
         for name in ('leader_structure','breadth'):row['a2_factor_scores'][name]['available']=False
     result=app._run_stage(**args)
-    # New missing-score policy requires WATCH, but original coverage validator
-    # now expects NO_FOCUS for a direction the model had actually focused.
-    # Do not invent a model review: expose this contract question to Claude.
-    assert result.status=='BLOCKED' and any(r.startswith('A2_ROTATION_') for r in result.reason_codes)
-    from liangjian_funnel.pipeline.review_degraded import rotation_review_failed_twice
-    assert rotation_review_failed_twice(result.diagnostics['validation_history']) and len(seen)==3
-    assert 'server_demoted_focus_symbols' in seen[1]['messages'][0]['content']
+    assert result.status=='VALIDATED' and len(seen)==1
+    assert result.diagnostics['provider_validation_history']==[[]]
+    assert result.output['focus_pool']==[]
+    assert result.output['rotation_reviews'][0]['reason_codes']==['SERVER_POLICY_DEMOTED']
+    audit=result.diagnostics['server_normalizations'][0]
+    assert audit['actions'][0]['demoted_symbols']==['000001.SZ']
+    assert audit['model_focus_unchanged'] and audit['final_focus_unchanged']
 
 
-def test_second_review_must_actually_explain_no_focus_after_data_demotion(tmp_path):
+def test_valid_provider_is_not_recalled_to_explain_servers_demotion(tmp_path):
     def change(raw,attempt):
         if attempt==2:
             raw['focus_decisions']=[]
@@ -242,8 +241,9 @@ def test_second_review_must_actually_explain_no_focus_after_data_demotion(tmp_pa
         for name in ('leader_structure','breadth'):row['a2_factor_scores'][name]['available']=False
     result=app._run_stage(**args)
     assert result.status=='VALIDATED',result.reason_codes
-    assert len(seen)==2 and result.output['focus_pool']==[] and len(result.output['rotation_reviews'])==1
-    assert app._run_stage(**args).output==result.output and len(seen)==2
+    assert len(seen)==1 and result.output['focus_pool']==[] and len(result.output['rotation_reviews'])==1
+    assert result.output['rotation_reviews'][0]['reason_codes']==['SERVER_POLICY_DEMOTED']
+    assert app._run_stage(**args).output==result.output and len(seen)==1
 
 
 def test_actual_quant_downstream_three_unrepairable_reviews_yield_degraded_watch_not_fake_pass(tmp_path):

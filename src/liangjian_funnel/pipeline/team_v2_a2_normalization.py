@@ -7,6 +7,36 @@ import hashlib,json
 MISSING_PREFIX='A2_ROTATION_FOCUS_COVERAGE_MISSING:'
 
 
+def complete_server_policy_demotions(output, *, provider_raw, direction_members):
+    """0488: own the server's demotion consequence, never a provider omission.
+
+    A direction qualifies only if a provider-selected *member* covered it and
+    no member survives server policy. Same-theme non-members never qualify.
+    Both the provider answer and its focus choices remain immutable.
+    """
+    if not isinstance(output,Mapping) or not isinstance(provider_raw,Mapping):return None
+    raw_focus={r.get('symbol') for r in provider_raw.get('focus_decisions',[]) if isinstance(r,Mapping) and isinstance(r.get('symbol'),str)}
+    final_focus={r.get('symbol') for r in output.get('focus_pool',[]) if isinstance(r,Mapping) and isinstance(r.get('symbol'),str)}
+    from .team_v2_rotation_scope import rotation_coverage
+    before=rotation_coverage(raw_focus,direction_members);after=rotation_coverage(final_focus,direction_members)
+    rows=output.get('rotation_reviews')
+    if not isinstance(rows,list) or any(not isinstance(r,Mapping) for r in rows):return None
+    existing={r.get('rotation_direction_id') for r in rows};actions=[];additions=[]
+    for direction in sorted((set(before['covered_by_final_focus']) & set(after['required_no_focus'])) - existing):
+        demoted=sorted(raw_focus.intersection(direction_members[direction])-final_focus)
+        if not demoted:continue
+        additions.append(dict(rotation_direction_id=direction,decision='NO_FOCUS',reviewed_symbols=demoted[:3],
+            reason_codes=['SERVER_POLICY_DEMOTED'],explanation='服务端策略使该方向原重点成员全部降级；仅说明服务端结果，不代表模型改判，不生成计划或交易权限。'))
+        actions.append(dict(rule_id='A2_SERVER_POLICY_DEMOTED_NO_FOCUS_V1',rotation_direction_id=direction,
+            demoted_symbols=demoted,reason='SERVER_POLICY_DEMOTED',model_selection_unchanged=True))
+    if not actions:return None
+    projected=deepcopy(dict(output));projected['rotation_reviews'].extend(additions)
+    return projected,dict(rule_id='A2_SERVER_POLICY_DEMOTED_NO_FOCUS_V1',authority='0488_SERVER_OWNS_POST_POLICY_CONSEQUENCE',
+        actions=actions,provider_raw_sha256=_sha(provider_raw),before_sha256=_sha(output),after_sha256=_sha(projected),
+        model_focus_unchanged=True,final_focus_unchanged=projected.get('focus_pool')==output.get('focus_pool'),
+        purpose='SERVER_POLICY_EXPLANATION_NOT_MODEL_JUDGMENT')
+
+
 def _sha(value):
     return hashlib.sha256(json.dumps(value,ensure_ascii=False,sort_keys=True,
         separators=(',',':'),allow_nan=False).encode()).hexdigest()

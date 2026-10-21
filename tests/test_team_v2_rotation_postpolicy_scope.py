@@ -18,7 +18,7 @@ def test_only_final_focus_intersection_covers_direction_never_same_label():
     assert value['required_no_focus']=={'AI_COMPUTE':['300556.SZ','300839.SZ','600406.SH','601012.SH']}
 
 
-def test_second_provider_no_focus_survives_when_policy_demotes_original_raw_focus(tmp_path):
+def test_server_policy_completion_replaces_asking_provider_to_predict_demotions(tmp_path):
     def mutate(raw,attempt):
         if attempt==2:raw['rotation_reviews']=[no_focus()]
     app,args,seen=fixture(tmp_path,mutate,rotation=True)
@@ -28,14 +28,13 @@ def test_second_provider_no_focus_survives_when_policy_demotes_original_raw_focu
     before=deepcopy(dict(args['snapshot'].data))
     result=app._run_stage(**args)
     assert result.status=='VALIDATED',result.reason_codes
-    assert len(seen)==2 and result.output['focus_pool']==[]
-    assert result.output['rotation_reviews'][0]['reason_codes']==['LOW_CONVICTION']
+    assert len(seen)==1 and result.output['focus_pool']==[]
+    assert result.output['rotation_reviews'][0]['reason_codes']==['SERVER_POLICY_DEMOTED']
     assert result.diagnostics['server_normalization'] is None
-    assert result.diagnostics['provider_validation_history']==[['A2_ROTATION_COVERAGE_MISMATCH'],[]]
-    feedback=json.loads(seen[1]['messages'][1]['content'].removeprefix('RUNTIME_INPUT\n'))['validation_feedback']
-    assert feedback['coverage_domain']['covered_by_final_focus']=={}
-    assert set(feedback['required_no_focus_if_focus_unchanged']['D'])=={'000001.SZ','000002.SZ','000003.SZ'}
-    assert feedback['provider_raw_focus_symbols']==['000001.SZ'] and feedback['unchanged_focus_symbols']==[]
+    assert result.diagnostics['provider_validation_history']==[[]]
+    audit=result.diagnostics['server_normalizations'][0]
+    assert audit['actions'][0]['demoted_symbols']==['000001.SZ']
+    assert audit['rule_id']=='A2_SERVER_POLICY_DEMOTED_NO_FOCUS_V1'
     assert dict(args['snapshot'].data)==before
 
 
