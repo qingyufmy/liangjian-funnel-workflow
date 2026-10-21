@@ -19,6 +19,10 @@ function fillRoles(root){
   root.replaceChildren(...ROLES.map(r=>{const item=document.createElement('article');item.dataset.role=r.id;const status=byText('span','','role-state'),action=byText('span','','role-action');status.hidden=true;action.hidden=true;status.append(byText('span','','role-dot'),byText('span','','role-state-text'));item.append(byText('strong',r.name),status,action);return item;}));
 }
 fillRoles($('role-fallback'));fillRoles($('review-fallback'));
+const updateScrollHint=()=>{$('scene-shell').dataset.hasMore=String($('scene').scrollWidth-$('scene').clientWidth-$('scene').scrollLeft>2);};
+$('scene').addEventListener('scroll',updateScrollHint,{passive:true});
+new ResizeObserver(updateScrollHint).observe($('scene'));
+new ResizeObserver(updateScrollHint).observe($('role-fallback'));
 $('role-picks').replaceChildren(...ROLES.map(r=>{const b=byText('button',r.short);b.type='button';b.setAttribute('aria-label',`近看${r.name}`);b.onclick=()=>scene?.focus(r.id);return b;}));
 $('overview').onclick=()=>scene?.focus('all');
 for(const r of ROLES){const option=byText('option',r.name);option.value=r.id;$('preview-role').append(option);}

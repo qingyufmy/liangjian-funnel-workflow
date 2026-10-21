@@ -20,6 +20,8 @@ test('real slow child is killed at its deadline and releases its slot',async()=>
     expect(reader.diagnostics()).toMatchObject({active:0,cacheEntries:0});
   }finally{
     if(dirname(resolve(root))!==resolve(tmpdir())||!basename(root).startsWith('team-ui-timeout-test-'))throw Error('UNSAFE_TEST_CLEANUP');
-    await rm(root,{recursive:true,force:true});
+    // Windows can briefly retain the killed child's cwd handle after close.
+    // Retry cleanup only; the worker deadline and assertions stay unchanged.
+    await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:50});
   }
 });

@@ -37,15 +37,15 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   </section>
   <section class="room panel" aria-labelledby="room-title">
     <div class="section-head room-head"><div><h1 id="room-title">交易室</h1><p>六位成员接力完成今天的交易</p></div><div class="room-tags"><span id="room-market">市场阶段 · 开盘后更新</span><span id="room-limits">今日权限 · 晨会后更新</span></div></div>
-    <div id="scene" tabindex="0" role="img" aria-label="六位角色的本机样板，窄屏可横向滚动查看工位"><div id="role-fallback" class="role-fallback stage-labels" aria-label="角色文字信息，无 WebGL 时内容仍完整"></div></div>
+    <div class="scene-shell" id="scene-shell"><div id="scene" tabindex="0" role="img" aria-label="六位角色的本机样板，窄屏可横向滚动查看工位"><div id="role-fallback" class="role-fallback stage-labels" aria-label="角色文字信息，无 WebGL 时内容仍完整"></div></div></div>
     <div id="handoff-line" role="status" aria-live="polite">开盘后这里显示谁正在接手</div>
   </section>
   <section id="needs-attention" class="attention panel" aria-labelledby="attention-title" hidden><h2 id="attention-title">需要你看</h2></section>
   <div class="plan-record-grid">
-    <section class="panel records"><div class="section-head"><h2>今日计划</h2><span id="plan-count">—</span></div><div id="plans" class="table-wrap"><p class="empty">今天的计划将在 08:30 发布</p></div></section>
-    <section class="panel feed"><div class="section-head"><h2>团队记录</h2><span id="feed-count">—</span></div><ol id="feed"><li class="empty">成员开始工作后在这里留言</li></ol></section>
+    <section class="panel records"><div class="section-head"><h2>今日计划</h2><span id="plan-count"></span></div><div id="plans" class="table-wrap"><p class="empty">今天的计划将在 08:30 发布</p></div></section>
+    <section class="panel feed"><div class="section-head"><h2>团队记录</h2><span id="feed-count"></span></div><ol id="feed"><li class="empty">成员开始工作后在这里留言</li></ol></section>
   </div>
-  <section class="panel records"><div class="section-head"><h2>模拟盘持仓与挂单</h2><span id="position-count">—</span></div><div id="positions" class="table-wrap"><p class="empty">持仓将在开盘后更新</p></div></section>
+  <section class="panel records"><div class="section-head"><h2>模拟盘持仓与挂单</h2><span id="position-count"></span></div><div id="positions" class="table-wrap"><p class="empty">持仓将在开盘后更新</p></div></section>
   <details class="panel inspection-details"><summary>观测条件与任务证据</summary><section class="inspection-context"><time id="day-clock">等待时钟来源</time><dl class="room-summary"><div><dt>当前工作</dt><dd id="room-current">当前暂无工作记录</dd></div><div><dt>下一件事</dt><dd id="room-next">下一项工作将在调度后显示</dd></div><div id="room-attention-column" hidden><dt>需要你看</dt><dd id="room-attention"></dd></div></dl><div class="room-controls"><span>查看角色</span><div id="role-picks" class="role-picks"></div><button type="button" id="overview">六人同场</button><a href="/team/roles-preview">角色评审台</a></div></section><div class="work-grid">
     <section class="focus"><div class="section-head"><h2>当前焦点</h2><span id="focus-clock">—</span></div><div id="focus"><h3>等待交易员观测</h3><p>尚未读到观测，不能判断是否存在入场机会。</p></div><div id="conditions" class="conditions"></div><div id="risk" class="risk">执行权限与限额：缺少风控原件</div><details id="risk-details" class="raw-details"><summary>查看原始条件</summary><pre id="raw-contracts">暂无原始条件记录</pre></details></section>
     <section class="tasks"><div class="section-head"><h2>今日任务流</h2><span id="task-count">只显示真实任务事件</span></div><ol id="tasks" tabindex="0" aria-label="任务历史，可在列表内滚动查看全部记录"><li class="empty">等待调度任务来源</li></ol></section>
