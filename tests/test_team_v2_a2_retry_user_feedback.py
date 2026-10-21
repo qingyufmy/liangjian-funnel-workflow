@@ -129,7 +129,9 @@ def test_actual_mock_transport_receives_last_user_correction_and_journal_binds_e
     app.team_research_adapter.repository.prepare_messages = capture
     result = app._run_stage(**args)
     assert result.status == 'VALIDATED' and len(seen) == 2
-    assert seen[0]['messages'] == [dict(row) for row in original_requests[0].messages]
+    from liangjian_funnel.pipeline.team_v2_prompts import with_runtime_contract
+    first=with_runtime_contract(original_requests[0],result.diagnostics['rotation_output_contract'])
+    assert seen[0]['messages'] == [dict(row) for row in first.messages]
     correction = json.loads(seen[1]['messages'][1]['content'].removeprefix('RUNTIME_INPUT\n'))
     assert correction['validation_feedback']['violations'][0]['field'] == 'theme_reviews[0].stage'
     assert correction['validation_feedback']['violations'][0]['actual'] == 'INVENTED_STAGE'

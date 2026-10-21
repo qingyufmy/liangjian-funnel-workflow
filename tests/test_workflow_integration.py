@@ -921,6 +921,11 @@ def test_a4_signal_lifecycle_survives_t1_and_closes_on_next_session(tmp_path):
         "600519.SH",
         _bar(next_day),
     )
+    assert closed == []  # no blind replay of yesterday's risk instruction
+    store.record_monitor_event(event_key='fresh-next-day-risk',lane_id='lane_1',minute_end=next_day,
+        action=MonitorAction.FORCED_RISK_EXIT,reason_code='HARD_STOP',effective=True,
+        sync_a4_lifecycle=True,payload={'plan_id':'plan-lifecycle','symbol':'600519.SH'})
+    closed = WorkflowApplication._settle_prior_signals(app,'lane_1','600519.SH',_bar(next_day+timedelta(minutes=1)))
     assert any(item["action"] == "FORCED_RISK_EXIT" and item["status"] == "FILLED" for item in closed)
     lifecycle = store.get_a4_signal_lifecycle("effective:entry-lifecycle")
     assert lifecycle["status"] == A4SignalStatus.CLOSED.value

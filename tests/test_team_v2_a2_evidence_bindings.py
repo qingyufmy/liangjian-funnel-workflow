@@ -63,6 +63,8 @@ def test_model_input_sample_has_unique_real_id_with_original_fact_hash_and_no_so
     assert 'source_fact_sha256' not in model_values['A2_QUANT_FILTERED_SAMPLE'][0]
     replay = app.team_research_adapter.repository.prepare_messages('A2', compact,
         required_envelope=frozen['envelope'], session='CLOSE_REVIEW')
+    from liangjian_funnel.pipeline.team_v2_prompts import with_runtime_contract
+    replay=with_runtime_contract(replay,result.diagnostics['rotation_output_contract'])
     assert [dict(message) for message in replay.messages] == seen[0]['messages']
     assert replay.input_hash == frozen['request_transport_projection']['input_hash']
 

@@ -75,6 +75,8 @@ def test_actual_a2_call_keeps_original_facts_and_records_exact_transport_binding
     compact,projection=prepare_a2_transport_values(source['values'])
     replay=app.team_research_adapter.repository.prepare_messages('A2',compact,
         required_envelope=source['envelope'],session='CLOSE_REVIEW')
+    from liangjian_funnel.pipeline.team_v2_prompts import with_runtime_contract
+    replay=with_runtime_contract(replay,result.diagnostics['rotation_output_contract'])
     assert [dict(m) for m in replay.messages]==seen[0]['messages']
     assert replay.input_hash==audit['input_hash']==source['request_transport_projection']['input_hash']
     assert projection['source_values_sha256']==audit['source_values_sha256']

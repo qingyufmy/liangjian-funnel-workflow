@@ -11,13 +11,14 @@ def sellable_qty(store: Any, account: str, symbol: str, as_of: datetime) -> int 
     """Read this account's dated lots; missing/inconsistent lineage is unknown.
 
     A position label or its total quantity must never release same-day shares.
-    The persisted position cap may only tighten the independently dated lots.
+    The position's cached sellable count may be yesterday's zero until the
+    broker's day-start task runs. Dated lots, not that cache, own T+1 release.
+    Broker reservations remain enforced in the existing admission transaction.
     """
     position = store.get_position(account, symbol)
     if position is None:
         return 0
-    eligibility = sell_eligibility(position)
-    if eligibility["state"] == "UNKNOWN":
+    if type(position.get("total_qty")) is not int or position["total_qty"]<0:
         return None
     lots = store.list_position_lots(account, symbol)
     normalized = []
@@ -28,7 +29,7 @@ def sellable_qty(store: Any, account: str, symbol: str, as_of: datetime) -> int 
             "acquired_trade_date": lot.get("acquired_trade_date"),
             "sellable_from": lot["sellable_from"]})
     return dated_sellable_qty(normalized, as_of=as_of,
-        total_qty=position["total_qty"], position_cap=position["sellable_qty"])
+        total_qty=position["total_qty"])
 
 
 def sell_eligibility(position: Mapping[str, Any] | None) -> dict[str, Any]:

@@ -87,9 +87,13 @@ def test_mixed_t1_position_sells_old_shares_and_keeps_residual_exit(tmp_path):
     assert store.get_position("paper:lane_1", "600519.SH")["total_qty"] == 100
     broker.start_trading_day(at(7).date())
     settled = WorkflowApplication._settle_prior_signals(app, "lane_1", "600519.SH", bar(at(7, 9, 31)))
+    assert settled == []  # yesterday's stale instruction is not replayed
+    store.record_monitor_event(event_key='fresh-next-day-exit',lane_id='lane_1',minute_end=at(7,9,31),
+        action=MonitorAction.SELL_SIGNAL,effective=True,payload={'plan_id':'plan','symbol':'600519.SH'})
+    settled = WorkflowApplication._settle_prior_signals(app, "lane_1", "600519.SH", bar(at(7, 9, 32)))
     assert [(item["action"], item["qty"]) for item in settled] == [("SELL", 100)]
     assert store.get_position("paper:lane_1", "600519.SH") is None
-    assert WorkflowApplication._settle_prior_signals(app, "lane_1", "600519.SH", bar(at(7, 9, 32))) == []
+    assert WorkflowApplication._settle_prior_signals(app, "lane_1", "600519.SH", bar(at(7, 9, 33))) == []
 
 
 def test_first_exit_is_not_overwritten_by_reduction(tmp_path):

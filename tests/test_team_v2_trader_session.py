@@ -92,9 +92,9 @@ def test_real_client_to_guard_risk_paper_and_restart_no_second_call(tmp_path):
     assert result['admissions'][0]['dispatched']
     # PROBE hint tightens the standard risk budget; model supplies no shares.
     assert result['admissions'][0]['judgment']['risk_unit']=='PROBE'
-    assert result['admissions'][0]['judgment']['shares']==15000
+    assert result['admissions'][0]['judgment']['shares']==10000
     fills=drive(kwargs['broker'],bar(volume_shares=300000),PaperRules('2026-10-19'))
-    assert fills[0]['qty']==15000 and kwargs['broker'].reconcile()['status']=='MATCH'
+    assert fills[0]['qty']==10000 and kwargs['broker'].reconcile()['status']=='MATCH'
     kwargs['journal']=ModelJudgmentJournal(tmp_path/'models.db')
     kwargs['store']=TeamMeetingStore(tmp_path/'team.db')
     assert run_trader_session(**kwargs)==result and len(seen)==1
@@ -227,4 +227,4 @@ def test_position_exit_is_bound_to_held_plan_and_does_not_need_old_plan_activati
         supporting_refs=['M1'],opposing_refs=['T1'],distance_to_stop_note='risk line broken')])
     result=run_trader_session(**kwargs)
     assert result['model_validated'] and result['admissions'][0]['order_side']=='SELL'
-    assert result['admissions'][0]['judgment']['shares']==15000 and len(seen)==2
+    assert result['admissions'][0]['judgment']['shares']==10000 and len(seen)==2

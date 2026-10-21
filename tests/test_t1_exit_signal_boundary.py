@@ -89,6 +89,15 @@ def test_yesterday_lot_still_allows_a_fresh_exit():
     assert result.action == 'REDUCE_SIGNAL' and result.effective
 
 
+def test_yesterday_dated_lot_releases_even_before_position_cache_day_roll():
+    from liangjian_funnel.runtime.execution_eligibility import sellable_qty
+    store=EventStore([lot(700,'2026-10-20','2026-10-21')],700,0)
+    assert sellable_qty(store,'paper:lane_1','002270.SZ',AT)==700
+    # A wrongly optimistic cache cannot make today's acquired lot sellable.
+    store=EventStore([lot(700,'2026-10-21','2026-10-22')],700,700)
+    assert sellable_qty(store,'paper:lane_1','002270.SZ',AT)==0
+
+
 def test_next_open_reassesses_fresh_price_not_the_old_action():
     import json
     from types import SimpleNamespace

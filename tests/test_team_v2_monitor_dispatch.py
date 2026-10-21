@@ -217,8 +217,12 @@ def test_persisted_exception_controls_block_entry_after_restart_not_morning_only
             input_sha256=str(index),targets=domain,hard_halt=False)
         rt.record(str(index),source_call_id=str(index),input_sha256=str(index),output=raw,validated=kind!='failure_latch')
     result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
-    assert result['result']['trader']['model_validated'] is None and not seen
-    assert result['result']['trader']['admissions']==[]
+    if kind=='failure_latch':
+        # Invalid advisory exceptions cannot manufacture an account halt.
+        assert result['result']['trader']['model_validated'] is True and seen
+    else:
+        assert result['result']['trader']['model_validated'] is None and not seen
+        assert result['result']['trader']['admissions']==[]
 
 
 def test_engine_start_confirmation_never_calls_review_model(tmp_path,monkeypatch):

@@ -27,6 +27,14 @@ def bar(end, interval='1m'):
                      high=11, low=9, close=10, volume=100, amount=1000, source_id='TEST')
 
 
+def prior_day_position(store,now):
+    store.ensure_virtual_account('paper:lane_1','lane_1',initial_cash=100000)
+    store.commit_fill(intent_id='old-buy',intent_key='old-buy',account_id='paper:lane_1',
+        signal_id='old-signal',plan_id='p',symbol=SYMBOL,action='BUY',qty=100,
+        price=10,fee=5,bar_end=now-timedelta(days=1),cash_after=98995,
+        position={'total_qty':100,'sellable_qty':0,'avg_cost':10.05},stop_level=9.5)
+
+
 @pytest.mark.parametrize('stamp,five,fifteen', [
     ('09:34:59', None, None), ('09:35:00', '09:35:00', None),
     ('11:29:59', '11:25:00', '11:15:00'), ('11:30:00', '11:30:00', '11:30:00'),
@@ -93,10 +101,10 @@ def test_entry_gap_cannot_silence_valid_hard_stop(tmp_path, global_bad, current_
     store = RuntimeStore(tmp_path/'state.db')
     store.create_execution_plan('p', 'lane_1', SYMBOL, status=PlanStatus.ACTIVE_TODAY,
                                 payload={'stop_level': 9.5})
-    # This test checks signal generation only. T+1 settlement tests remain
-    # separate; a stop event is never represented here as an actual sale.
-    store.get_position = lambda *a: {'quantity': 100, 'sellable_quantity': 0}
     now = at('13:02:00')
+    # A valid prior-day dated lot proves signal eligibility; no actual fill is
+    # inferred from the stop event or an untyped cached position stub.
+    prior_day_position(store,now)
     engine = MonitorEngine(store)
     result = engine.process_minute('lane_1', {SYMBOL: bar(now)} if current_bar else {},
         minute_snapshot_id='frozen', now=now, data_ok=not global_bad,
@@ -112,7 +120,7 @@ def test_closed_decision_bar_and_current_risk_quote_are_separate(tmp_path):
     store.create_execution_plan('p', 'lane_1', SYMBOL, status=PlanStatus.ACTIVE_TODAY,
         valid_from=now-timedelta(minutes=1), expires_at=now+timedelta(hours=1),
         payload={'stop_level': 9.5})
-    store.get_position = lambda *a: {'quantity': 100, 'sellable_quantity': 100}
+    prior_day_position(store,now)
     result = MonitorEngine(store).process_minute('lane_1', {SYMBOL: closed},
         risk_bars={SYMBOL: risk}, decision_bar_end=closed.bar_end,
         minute_snapshot_id='separate', now=now)
