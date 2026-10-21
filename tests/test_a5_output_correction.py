@@ -52,7 +52,10 @@ def test_unknown_evidence_requires_new_model_output_and_preserves_original(tmp_p
     request = model.calls[0][0][0]['content']
     assert 'citation_catalog' in request
     target = tmp_path / 'a5/2026-09-03'
-    raw = json.loads(next(target.glob('*-model-*.json')).read_text(encoding='utf-8'))
+    # Linux directory iteration may yield the repair capture first; inspect the
+    # original capture explicitly rather than relying on filesystem ordering.
+    raw = json.loads(next(p for p in target.glob('*-model-*.json')
+        if '-repair-model-' not in p.name).read_text(encoding='utf-8'))
     assert raw['output'] == original and raw['validation_status'] == 'RAW_NOT_APPROVED'
     correction = json.loads(next(target.glob('*-repair-model-*.json')).read_text(encoding='utf-8'))
     assert correction['parent_output_hash'] == raw['output_hash']

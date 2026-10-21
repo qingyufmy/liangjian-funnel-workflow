@@ -2,3 +2,5 @@
 /LATEST_RESULTS/*.json text eol=lf
 /LATEST_RESULTS/*.sha256 text eol=lf
 /tests/fixtures/a2_review_domain_20261013/*.json -text
+# Frozen evidence owns exact bytes; do not checkout-normalize CRLF originals.
+tests/fixtures/team_v2_a2_isolated_invalid_stages_20261019.json -text
