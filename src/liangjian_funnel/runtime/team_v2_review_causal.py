@@ -1,6 +1,7 @@
 """A5 causal facts from frozen originals, not a re-evaluation or counterfactual fill."""
 from collections import Counter
 from copy import deepcopy
+from datetime import datetime
 import hashlib,json
 
 
@@ -32,6 +33,19 @@ def plan_causal_projection(full):
         else:
             previous['count']+=1;previous['last_at']=event.get('minute_end');previous['last_evidence_id']=event.get('evidence_id')
     for pid in by_plan:by_plan[pid]['condition_samples']=list(states[pid].values())
+    archived=replay.get('archived_inputs') or {};day=full.get('trade_date')
+    columns=['bar_end','open','high','low','close','volume','amount']
+    for pid,entry in by_plan.items():
+        symbol=entry['plan'].get('symbol');packet=archived.get(symbol) or {};bars=[]
+        for bar in packet.get('five_minute',[]):
+            try:at=datetime.fromisoformat(bar['bar_end'])
+            except (ValueError,TypeError,KeyError):continue
+            if at.utcoffset() is not None and at.date().isoformat()==day and bar.get('interval')=='5m':
+                bars.append([deepcopy(bar.get(column)) for column in columns])
+        entry['closed_5m']=dict(columns=columns,rows=bars,bar_count=len(bars),
+            source_input_sha256=packet.get('sha256'),source_evidence_id=packet.get('evidence_id'),
+            source_path='$.legacy_facts.a3_plan_replay.archived_inputs.'+str(symbol)+'.five_minute',
+            availability='SOURCE_SAMPLES_NOT_COMPLETENESS_ASSERTION',not_a_hypothetical_fill=True)
     for field,target in (('lifecycles','legacy_lifecycle'),):
         for item in a4.get(field,[]):
             if item.get('plan_id') in by_plan:by_plan[item['plan_id']][target].append(deepcopy(item))
