@@ -75,7 +75,7 @@ def test_hard_stop_and_t1_still_apply(disabled):
     result = run(plan, bars, context, disabled=disabled)
     assert result["action"] == "FORCED_RISK_EXIT"
     assert result["reason_codes"] == formal["reason_codes"]
-    assert "BLOCKED_T1" in result["reason_codes"]
+    assert "T1_LOCKED" in result["reason_codes"]
 
 
 def test_no_future_bars_even_in_counterfactual():

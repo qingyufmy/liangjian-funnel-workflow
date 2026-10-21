@@ -23,7 +23,7 @@ from ..data.mootdx import MinuteBar, map_symbol
 from .state import PersistenceBlockedError, PersistenceError, RuntimeStore, StateTransitionError
 from .risk import RiskGovernor
 from .stock_trading_rules import stock_trading_rules
-from .execution_eligibility import sell_eligibility
+from .execution_eligibility import sell_eligibility, sellable_qty
 from .execution_accounting import FeeSchedule, OrderFeeLedger
 from .entry_contract import next_complete_minute
 
@@ -555,7 +555,9 @@ class PaperBroker:
             eligibility = sell_eligibility(position)
             if eligibility["reason"]:
                 return self._blocked(parsed, eligibility["reason"])
-            sellable = int(eligibility["sellable_qty"])
+            sellable = sellable_qty(self.store,self.account_id,parsed.symbol,bar.bar_end)
+            if sellable is None:return self._blocked(parsed,'SELLABLE_QUANTITY_UNKNOWN')
+            if sellable<=0:return self._blocked(parsed,'T1_LOCKED')
             requested = parsed.requested_qty
             if requested is None:
                 requested = sellable if parsed.action in {SimulationActionType.SELL, SimulationActionType.FORCED_RISK_EXIT} else max(
@@ -566,7 +568,7 @@ class PaperBroker:
             if qty <= 0:
                 return self._blocked(parsed, "INVALID_SELL_QTY")
             if qty > sellable:
-                return self._blocked(parsed, "BLOCKED_T1")
+                return self._blocked(parsed, "T1_LOCKED")
             frozen_qty = qty
             capacity_raw = min(int(float(bar.volume) * self.config.max_volume_participation), sellable)
             capacity = rules.sell_quantity(capacity_raw, sellable) if capacity_model else frozen_qty

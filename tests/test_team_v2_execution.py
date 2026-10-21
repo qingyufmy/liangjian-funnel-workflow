@@ -189,7 +189,7 @@ def test_t1_applies_to_model_exit_but_next_day_expired_plan_can_sell(tmp_path):
     admit_trader_signal(**args)
     drive(b,bar(volume_shares=300000),PaperRules('2026-10-19'))
     same_day=admit_trader_signal(**(args|dict(signal_id='exit1',action='SELL_SIGNAL')))
-    assert not same_day['dispatched'] and 'T1_NOT_SELLABLE' in same_day['judgment']['reason_codes']
+    assert not same_day['dispatched'] and 'T1_LOCKED' in same_day['judgment']['reason_codes']
     tomorrow=stamp('20')
     restarted=broker(b.path,'20')
     result=admit_trader_signal(**(args|dict(broker=restarted,signal_id='exit2',action='SELL_SIGNAL',

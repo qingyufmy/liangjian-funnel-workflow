@@ -4181,7 +4181,7 @@ class RuntimeStore:
             held = connection.execute("SELECT * FROM virtual_positions WHERE account_id=? AND symbol=?", (account_id, symbol)).fetchone()
             selling = action in {"SELL", "REDUCE", "FORCED_RISK_EXIT"}
             if selling and (held is None or qty > int(held["sellable_qty"])):
-                raise StateTransitionError("BLOCKED_T1")
+                raise StateTransitionError("T1_LOCKED")
             if selling and rules.sell_quantity(qty, int(held["sellable_qty"])) != qty:
                 raise StateTransitionError("INVALID_SELL_QTY")
             old_total = int(held["total_qty"]) if held else 0

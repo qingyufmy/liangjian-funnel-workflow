@@ -117,7 +117,7 @@ def test_new_limit_fill_keeps_t1_and_stop_protection(tmp_path):
     assert store.get_position(broker.account_id, "600001.SH")["sellable_qty"] == 0
     assert broker.apply(action, minute()).status == "DUPLICATE"
     exit_action = action.model_copy(update={"signal_id": "s2", "action": action.action.__class__("SELL"), "order_type": "LEGACY_REFERENCE"})
-    assert broker.apply(exit_action, minute()).reason_code == "BLOCKED_T1"
+    assert broker.apply(exit_action, minute()).reason_code == "T1_LOCKED"
 
 
 def test_signal_returns_differ_per_event_and_missing_session_not_shifted(tmp_path):

@@ -5446,7 +5446,7 @@ class WorkflowApplication:
         durable_events.extend(row for row in self.store.list_monitor_events(
             lane_id=primary_lane_id, from_time=current, to_time=current,
         ) if row.get("action") == "DATA_BLOCK" or row.get("reason_code") in {
-            "T1_RISK_PENDING", "SELLABLE_QUANTITY_UNKNOWN"})
+            "T1_LOCKED", "T1_RISK_PENDING", "SELLABLE_QUANTITY_UNKNOWN"})
         primary_plans = {
             str(plan.get("plan_id") or ""): plan
             for plan in lane_plans.get(primary_lane_id, ())

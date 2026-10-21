@@ -61,7 +61,7 @@ def test_volume_cap_is_shared_input_not_a_fresh_allowance_for_each_order():
 
 def test_t1_zero_sellable_and_limit_down_do_not_execute():
     sell=order(side='SELL',sellable_qty=0)
-    assert match(o=sell).reason_code=='T1_NOT_SELLABLE'
+    assert match(o=sell).reason_code=='T1_LOCKED'
     sell=replace(sell,sellable_qty=1000)
     assert match(o=sell,b=bar(limit_down=True)).reason_code=='LIMIT_DOWN_LOCKED'
 

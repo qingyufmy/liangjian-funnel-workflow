@@ -114,6 +114,9 @@ class InternalEventProjector:
                     '数量：'+_number(judgment.get('shares'))+'；模式：'+_code(str(raw.get('mode', '')).upper()),
                     '来源：'+_code(binding.get('plan_origin')),
                     '原因：'+','.join(_code(code) for code in codes[:12]),
+                    '风险复核：'+('STOP_TOO_TIGHT（止损距小于1×日线ATR14，仅提示复核）'
+                        if 'STOP_TOO_TIGHT' in (judgment.get('quantity_audit') or {}).get('review_flags',[])
+                        else '无新增止损过紧标记或日线ATR证据不足'),
                     '裁决引用：'+_sha(row[1])[:16], '裁决不等于成交'), now)
                 if status == 'REJECTED' and str(raw.get('mode', '')).upper() == 'CONTROL':
                     count = self.outbox.record_guard_rejection(account, day, row[1])

@@ -1,0 +1,149 @@
+{
+  "source": {
+    "at": "2026-10-21T16:33:44.179227+08:00",
+    "head": "fa2b9b900c9a362380c0488c5ddd7ddc8b0b602f",
+    "production_writes": 0
+  },
+  "call": {
+    "call_id": "A5:team-a5:2026-10-21:MIDDAY",
+    "output_json": "{\"a2_review\":{\"data_limitations\":[\"A2_AUDIT_UNREADABLE\",\"A2_STAGE_NOT_FOUND\",\"A2 输出验证失败\"],\"defects\":[\"A2 三份模型调用全部 validated=0，存在 opposing refs 无效与覆盖不一致问题（model_judgments 中 A2 调用记录）\",\"A2 缺失导致全体计划缺少主线确认，A6 被迫降级所有计划为 PROBE\"],\"evidence_ids\":[\"A5:MODEL\",\"A5:METHOD:A2\"],\"opposing_refs\":[\"NO_OPPOSING_EVIDENCE_FOUND\"],\"opposing_search_scope\":[\"METRICS\",\"LEGACY\"],\"strengths\":[],\"summary\":\"A2 今日状态为 NOT_AVAILABLE：无任何候选、主题或复核输出，且三份 A2 CLOSE_REVIEW 模型调用均未通过验证（issues 包含 TEAM_OPPOSING_REFS_INVALID 与 A2_ROTATION_COVERAGE_MISMATCH）。\",\"verdict\":\"DATA_LIMITED\"},\"a3_review\":{\"data_limitations\":[\"A2 上游缺失导致主题审查降级\",\"无实际成交结果可验证计划质量\"],\"defects\":[\"第一优先计划 000333.SZ 当日 09:51 被 A4 以 TREND_PRE_ENTRY_STRUCTURE_INVALIDATED 失效，结构判断脆弱\",\"9 个计划中 8 个为 P3 优先级，可能反映了主题支持不足\"],\"evidence_ids\":[\"A5:METHOD:A3\",\"METRICS:DAILY\"],\"opposing_refs\":[\"A5:MODEL\"],\"strengths\":[\"独立验证：A3 计划公式覆盖 1.0，无 MACD 错配、无价格水平异常、无路线合同不符\",\"A3 在数据降级环境下仍产出完整计划集，未放宽任何硬性约束\"],\"summary\":\"A3 在 A2 不可用情况下仍生成了 9 个 TREND_MA5 计划，独立复算显示公式覆盖率为 1.0、价格水平有效、路线合同匹配，未发现技术性缺陷。但第一优先计划 000333.SZ 开盘不到一小时即被 A4 判定结构失效（PLAN_INVALIDATED），暗示该股结构判断在极短时间被市场否定。\",\"verdict\":\"HEALTHY\"},\"a4_review\":{\"data_limitations\":[\"独立验证状态 DEGRADED，部分字段如 AMOUNT 不可比较\",\"301230.SZ 无通达信源数据\"],\"defects\":[\"cross_source_status 对全部 9 只计划均为 MISMATCH，VOLUME 字段跨源不匹配样本计数达 247\",\"archived_tdx_status 对 8 个计划为 MISMATCH，生产档案与通达信数据显著分歧\",\"657 条 DATA_BLOCK 观察表明行情数据持续中断，属于数据工程问题\"],\"evidence_ids\":[\"A5:MODEL\",\"METRICS:STRATEGY_PORTFOLIO\"],\"opposing_refs\":[\"A5:METHOD:A4\"],\"strengths\":[\"观察覆盖完整：所有计划每分钟均有落盘记录，无缺失分钟；唯一有效动作为 PLAN_INVALIDATED，符合规则不得视为信号\"],\"summary\":\"A4 全天无买入信号，但这不是零机会的直接证据：657 条观察为 DATA_BLOCK，独立验证显示 A4 使用的行情数据源与通达信/腾讯在 9 个计划全部出现交叉源 MISMATCH，其中 VOLUME 字段不匹配数量高达 247（cross_source_field_checks），生产档案与独立源也存在 8 例 PRODUCTION_ARCHIVE_DIVERGENCE。这构成严重数据可信度问题，而非交易员能力缺陷。\",\"verdict\":\"NEEDS_ATTENTION\"},\"a6_review\":{\"data_limitations\":[\"无实际成交可用于检验 A6 风险判断质量\"],\"defects\":[],\"evidence_ids\":[\"A5:A6\",\"METRICS:DAILY\"],\"opposing_refs\":[\"A5:MODEL\"],\"strengths\":[\"A6 对 A2 降级及时响应，通过 degradation_tags 和风险单位 CLAMP 控制风险\",\"utilization_cap 65，与 PM 决策目标 40 兼容，未阻挡合理放行\"],\"summary\":\"A6 在 A2 缺失与市场 DATA_BLOCK 背景下采取保守策略：所有计划均限制为 PROBE 风险单位，风险预算 15000，最大批次 1，未出现过度收紧信号。未发现否决动作，亦无异常复核记录。\",\"verdict\":\"HEALTHY\"},\"core_defects\":[{\"blocked_by_data\":false,\"confidence\":\"HIGH\",\"evidence_ids\":[\"A5:MODEL\",\"METRICS:STRATEGY_PORTFOLIO\"],\"layer\":\"ENGINE\",\"opposing_refs\":[\"A5:METHOD:A4\"],\"problem\":\"A4 生产行情数据与独立源（通达信/腾讯）在全部 9 个计划上交叉源 MISMATCH，VOLUME 字段跨源不匹配 247 条，生产档案与通达信在 8 个计划上分歧，表明数据管道存在严重可信度问题。\",\"severity\":\"HIGH\"},{\"blocked_by_data\":false,\"confidence\":\"HIGH\",\"evidence_ids\":[\"A5:MODEL\",\"A5:METHOD:A2\"],\"layer\":\"A2\",\"opposing_refs\":[\"NO_OPPOSING_EVIDENCE_FOUND\"],\"opposing_search_scope\":[\"ACCOUNT\",\"LEGACY\"],\"problem\":\"A2 三份模型调用全部验证失败（validated=0），包含 TEAM_OPPOSING_REFS_INVALID 与 A2_ROTATION_COVERAGE_MISMATCH，导致当日无任何主题、候选与主线判断，下游 A3/A6 被迫降级。\",\"severity\":\"HIGH\"},{\"blocked_by_data\":false,\"confidence\":\"MEDIUM\",\"evidence_ids\":[\"A5:LEGACY\",\"METRICS:DAILY\"],\"layer\":\"ENGINE\",\"opposing_refs\":[\"A5:MODEL\"],\"problem\":\"工程任务存在大量失败：team-internal 交付未确认 165 次、monitor 阻塞 47 次、auction-evidence 不完整 4 次，可能影响数据到达与业务链路。\",\"severity\":\"MEDIUM\"}],\"envelope\":{\"as_of\":\"2026-10-21T11:37:01.499799+08:00\",\"config_hash\":\"411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73\",\"config_version\":\"team-v2/1\",\"execution_trade_date\":\"2026-10-21\",\"input_snapshot_ids\":[\"90c951e65fa1b399cbc135076e861fb8cfe531c7451b39b4b4ee38645229761f\",\"8575a2d55f1db715ee1a7ca3e6d1fa625eb1669b71ed1065639c7165b3894579\"],\"knowledge_cutoff\":\"2026-10-21T11:37:01.499799+08:00\",\"market_regime\":\"DATA_BLOCK\",\"model_name\":\"deepseek-v4-pro\",\"prompt_version\":\"agent-5/2.0.7\",\"reason_codes\":[],\"run_id\":\"team-a5:2026-10-21:MIDDAY\",\"schema_version\":\"team-envelope/1\",\"source_trade_date\":\"2026-10-21\",\"stage_id\":\"A5\",\"status\":\"FROZEN\"},\"executive_summary\":\"今日上午账户无任何买入信号与成交，使用率维持零。A2 主题审查不可用（A2 状态 NOT_AVAILABLE），导致全部计划被降级为 PROBE 风险单位。独立验证显示 A4 行情数据源与通达信等独立源存在大面积不一致（cross_source_status 对全部 9 个计划均为 MISMATCH），且 657 条 A4 观察为 DATA_BLOCK，市场环境处于 DATA_BLOCK 状态，因此无信号主要由数据缺失而非策略/执行缺陷解释。\",\"handoff_notes\":{\"to_a1\":[\"明日盘前补充宏观产业链主题覆盖，至少提供一个结构性主线，否则 A2 连续不可用将导致系统长期只出不进\"],\"to_a3\":[],\"to_a4\":[\"明日开盘前检查行情数据源与通达信一致性，若 VOLUME 或 OHLC 继续 MISMATCH，则暂缓发布任何买入信号并上报引擎\"],\"to_a6\":[\"若独立验证继续显示数据源 MISMATCH，建议将市场 regime 维持 DATA_BLOCK 并禁止新开仓，直至数据管道修复\"]},\"hypotheses\":[{\"automatic_production_change\":false,\"condition\":\"当 A2 主题审查不可用或降级（A2_REVIEW_DEGRADED, A2_UNAVAILABLE）时，暂停所有新开仓计划，仅保留已持仓管理\",\"evidence_ids\":[\"A5:A6\",\"METRICS:DAILY\"],\"expected_effect\":\"减少在无主线确认下的无效观察与潜在亏损，提高信号质量\",\"falsification_criteria\":\"暂停后错过可验证的大幅盈利机会且未降低亏损\",\"hypothesis_id\":\"H-20261021-A2_DEGRADE_STOP\",\"layer\":\"A6\",\"min_observation_days\":5,\"opposing_refs\":[\"A5:MODEL\"],\"success_criteria\":\"在 A2 不可用日无新增亏损信号，同时不牺牲后续有效机会\",\"validation_method\":\"REPLAY\"},{\"automatic_production_change\":false,\"condition\":\"当 A4 盘中行情数据与独立源在 VOLUME 字段的交叉源不匹配率超过 80% 时，阻止 A4 产生任何 BUY 信号\",\"evidence_ids\":[\"A5:MODEL\",\"METRICS:STRATEGY_PORTFOLIO\"],\"expected_effect\":\"避免基于错误成交量数据触发的假信号\",\"falsification_criteria\":\"数据不匹配但实际成交未受影响，或错过大量正确信号\",\"hypothesis_id\":\"H-20261021-EXOGENOUS_VOLUME_MISMATCH\",\"layer\":\"ENGINE\",\"min_observation_days\":5,\"opposing_refs\":[\"A5:METHOD:A4\"],\"success_criteria\":\"在数据不匹配期间零错误买入，之后恢复时信号正常\",\"validation_method\":\"PAPER_OBSERVATION\"}],\"method_feedback\":{\"A1\":[],\"A2\":[],\"A3\":[],\"A4\":[],\"A6\":[]},\"missed_opportunity_reviews\":[],\"model_value_assessment\":[{\"control_group\":\"无模型输出时的空候选基线\",\"evidence_ids\":[\"A5:MODEL\",\"A5:METHOD:A2\"],\"judgment_type\":\"FOCUS/WATCH 决策与主题复核\",\"layer\":\"A2\",\"model_group\":\"A2 CLOSE_REVIEW 输出\",\"opposing_refs\":[\"NO_OPPOSING_EVIDENCE_FOUND\"],\"opposing_search_scope\":[\"METRICS\",\"LEGACY\"],\"verdict\":\"INSUFFICIENT\"},{\"control_group\":\"无计划或仅 P1 计划\",\"evidence_ids\":[\"A5:METHOD:A3\",\"METRICS:DAILY\"],\"judgment_type\":\"计划 PASS/VETO 与优先级\",\"layer\":\"A3\",\"model_group\":\"A3 生成的 9 个计划\",\"opposing_refs\":[\"A5:MODEL\"],\"verdict\":\"INSUFFICIENT\"},{\"control_group\":\"确定性链的护栏信号\",\"evidence_ids\":[\"A5:METHOD:A4\",\"METRICS:STRATEGY_PORTFOLIO\"],\"judgment_type\":\"入场信号与确认\",\"layer\":\"A4\",\"model_group\":\"A4 交易员信号\",\"opposing_refs\":[\"A5:MODEL\"],\"verdict\":\"INSUFFICIENT\"},{\"control_group\":\"无 A6 干预的计划集\",\"evidence_ids\":[\"A5:A6\",\"METRICS:DAILY\"],\"judgment_type\":\"风险裁决与风险预算\",\"layer\":\"A6\",\"model_group\":\"A6 批准计划\",\"opposing_refs\":[\"A5:MODEL\"],\"verdict\":\"INSUFFICIENT\"}],\"overall_verdict\":\"DATA_LIMITED\",\"review_kind\":\"MIDDAY\",\"risk_governor_value\":{\"evidence_ids\":[\"A5:A6\",\"METRICS:DAILY\"],\"opposing_refs\":[\"A5:MODEL\"],\"over_tightening\":\"INSUFFICIENT\",\"veto_group_vs_pass_group\":\"UNAVAILABLE：无 veto 或 pass 组信号产生\"},\"schema_version\":\"a5-daily-review/2.0.0\",\"signal_reviews\":[],\"team_scorecard\":{\"attribution\":[{\"deviation\":\"实际买入信号数量 0 远低于每日目标区间下限 2（metrics.targets.daily_buy_signals_minimum=2）\",\"evidence_ids\":[\"METRICS:DAILY\"],\"opposing_refs\":[\"A5:MODEL\"],\"owner\":\"A4\"},{\"deviation\":\"市场风险环境处于 DATA_BLOCK，A2 不可用导致全体计划降级 PROBE，使用率目标 40% 实际 0%\",\"evidence_ids\":[\"A5:MODEL\",\"METRICS:DAILY\"],\"opposing_refs\":[\"A5:A6\"],\"owner\":\"ENGINE\"}],\"drawdown\":\"UNAVAILABLE（无持仓与成交）\",\"entry_hit_rate\":\"UNAVAILABLE\",\"nav_vs_benchmark\":\"team_v2.nav=1000000，基准数据 UNAVAILABLE\",\"role_kpis\":{\"A1\":\"a1_catalyst_evidence.theme_count=0\",\"A2\":\"a2_theme_count=0，a2_focus_count=0，a2_watch_count=0，状态 NOT_AVAILABLE\",\"A3\":\"a3_plan_count=9，a3_strategy_counts.TREND_MA5=9，公式验证全部 MATCH\",\"A4\":\"a4_trade_signal_count=0，a4_action_counts.DATA_BLOCK=657，a4_effective_event_count=1\",\"A6\":\"未否决任何计划，所有计划 PROBE，risk_budget=15000，无过度收紧\"},\"slot_usage\":\"无持仓与订单，槽位使用为零\",\"utilization_vs_target\":\"team_v2.utilization_pct=0，PM 决策目标 40%（pm_deployment_targets.target_pct=40），偏差极大且暂无归因到单一角色\"},\"trade_date\":\"2026-10-21\",\"trader_vs_deterministic\":{\"evidence_ids\":[\"METRICS:DAILY\",\"A5:MODEL\"],\"opposing_refs\":[\"NO_OPPOSING_EVIDENCE_FOUND\"],\"opposing_search_scope\":[\"MODEL\",\"METRICS\"],\"summary\":\"今日上午交易员路径与确定性链路径均未产生任何买入信号：trader_signal 数量为 0，唯一有效事件是 000333.SZ 的 PLAN_INVALIDATED。确定性链中也没有其它有效入场或退出动作。二者无法比较。\"},\"unresolved_questions\":[{\"question\":\"A4 生产行情档案与通达信源在 VOLUME 字段大面积不匹配的根本原因是什么？\",\"reason\":\"MISSING_DATA\",\"resolution\":\"需要引擎检查当日数据管道配置与原始行情源快照\"},{\"question\":\"A2 三份模型输出验证失败的 common cause 是否可规避？\",\"reason\":\"INSUFFICIENT_SAMPLE\",\"resolution\":\"需积累至少 10 个交易日模型验证记录后做方法校准\"}],\"what_would_change_my_mind\":[\"若下午 A4 数据源恢复稳定（独立验证 cross_source_status 不再全 MISMATCH）且产生合规买入信号，则今日 DATA_LIMITED 结论需改为 NEEDS_ATTENTION 或 HEALTHY\",\"若确认 VOLUME 字段不匹配仅为已知的归档显示问题而非原始数据错误，则核心缺陷之一降级\"]}",
+    "output_hash": "78e2c5980cd3ae367ef02d40dbca812b4a421d5cdfd31863f4b701f7d333142f",
+    "input_hash": "f8754d63c74cbb27f086d4e854d968d8166de0e25f2d47f6b97f2f7a5136949f",
+    "prompt_hash": "3a40a4ee2eab837eb22da084e6247007f145b2d3cd314746fb026a17e8d7b777",
+    "catalog": {
+      "catalog_json": "{\"categories\":[\"LEGACY\",\"ACCOUNT\",\"A6\",\"MODEL\",\"METRICS\",\"SIGNAL\"],\"items\":[{\"category\":\"LEGACY\",\"id\":\"A5:LEGACY\",\"sha256\":\"44eb07aa12579884deda2554204e681c3540ead4480b72356cd36003eec2d70f\"},{\"category\":\"ACCOUNT\",\"id\":\"A5:ACCOUNT\",\"sha256\":\"8c293db6fd9ed37891170a0f5e7f85a23a3d4396c9a3d3bb0acaceb6a0f73ec4\"},{\"category\":\"A6\",\"id\":\"A5:A6\",\"sha256\":\"c05b43e008810a897b16e03bea7438f259934421563bd2dbee4ad58d651bd0e2\"},{\"category\":\"MODEL\",\"id\":\"A5:MODEL\",\"sha256\":\"8f4b7550527f876709ab0a18c168515b96f26313712fdaebe9875bc314ca3633\"},{\"category\":\"METRICS\",\"id\":\"METRICS:DAILY\",\"sha256\":\"00b3440ed357f4078a7b8eab9ebef5476b6d9bb8f10ad4220bcdb672c59868fb\"},{\"category\":\"METRICS\",\"id\":\"METRICS:STRATEGY_PORTFOLIO\",\"sha256\":\"79065566dccb09d091f936b732ab0794d7521e8d6daa31adfb90a944598c339a\"},{\"category\":\"METRICS\",\"id\":\"A5:METHOD:A1\",\"sha256\":\"d63b22e61c4628a15d9c2a6de0a36e0582147df511f6afd0a58136d2566af044\"},{\"category\":\"METRICS\",\"id\":\"A5:METHOD:A2\",\"sha256\":\"5dae8c5072f9e178df5ec9ef77bbb65a66175784234114c5f66daf70ae82a286\"},{\"category\":\"METRICS\",\"id\":\"A5:METHOD:A3\",\"sha256\":\"cc6411f91e1b9931608bfca56f8b5d8496c26063110194c881318a46a7f5a687\"},{\"category\":\"METRICS\",\"id\":\"A5:METHOD:A4\",\"sha256\":\"3ef8fc208a66fc3a969b79709c4680f3880b7152cd01f4317c0b5d280564951f\"},{\"category\":\"METRICS\",\"id\":\"A5:METHOD:A6\",\"sha256\":\"0710945a672e38c4bdec6421b0b9d6669f3afeb5e1ff8cb0e22a0f1e62bfd771\"}]}",
+      "catalog_sha256": "e2dd61ac443291c5a487117e6bfd786015066194e02b4d3688358b180b610782"
+    }
+  },
+  "context_projection": [
+    {
+      "decision_id": "a5-review:team-a5:2026-10-21:MIDDAY",
+      "source_sha256": "11e7d65678ace9a6099619ec962926bdfc91d323e2be252f5cc5cb100cd22074",
+      "bytes": 94927,
+      "body_keys": [
+        "account_id",
+        "call_id",
+        "confirmed_defect_symbols",
+        "counterexample_domain",
+        "facts",
+        "max_output_tokens",
+        "model",
+        "prompt_hashes",
+        "required_envelope",
+        "run_id",
+        "signal_domain",
+        "source_trade_date",
+        "timeout_seconds"
+      ],
+      "fact_keys": [
+        "a2",
+        "a3",
+        "a4",
+        "a6",
+        "account_id",
+        "citation_catalog",
+        "consistency",
+        "counterexamples",
+        "full_team_fact_sha256",
+        "independent_verification",
+        "input_hash",
+        "legacy_fact_sha256",
+        "legacy_operational_evidence",
+        "method_calibration",
+        "metrics",
+        "model_judgments",
+        "observed_at",
+        "outcomes",
+        "paper_broker",
+        "projection_schema",
+        "record_fallback",
+        "review_kind",
+        "schema_version",
+        "signals_for_review",
+        "strategy_portfolio_diagnostics",
+        "trade_date"
+      ],
+      "old_metric_tokens": [
+        "0",
+        "1",
+        "10",
+        "1000000",
+        "194",
+        "2",
+        "20",
+        "2026",
+        "21",
+        "23",
+        "40",
+        "5",
+        "65",
+        "657",
+        "69",
+        "8",
+        "853",
+        "854",
+        "9"
+      ],
+      "scorecard_claim_source_paths": {
+        "0": [
+          "$.a2.candidates.archived_remainder.count",
+          "$.a2.candidates.detailed_count",
+          "$.a2.candidates.total_count"
+        ],
+        "1": [
+          "$.a3.plans.rows[0][5]",
+          "$.a4.legacy.model_projection.representative_event_count",
+          "$.a4.legacy.observation_groups.rows[0][2]"
+        ],
+        "9": [
+          "$.a3.plan_scope.session_plan_count",
+          "$.a3.plans.row_count",
+          "$.a4.legacy.observation_groups.rows[4][1]"
+        ],
+        "657": [
+          "$.metrics.a4_action_counts.DATA_BLOCK"
+        ],
+        "4E+1": [
+          "$.a4.legacy.observation_groups.rows[10][4]",
+          "$.a6.rows.pm_decisions[0].result_json.deployment_target.baseline_range[0]",
+          "$.a6.rows.pm_decisions[0].result_json.deployment_target.target_pct"
+        ],
+        "1.5E+4": [
+          "$.a6.rows.risk_meetings[0].result_json.envelopes[0].risk_budget",
+          "$.a6.rows.risk_meetings[0].result_json.envelopes[1].risk_budget",
+          "$.a6.rows.risk_meetings[0].result_json.envelopes[2].risk_budget"
+        ],
+        "1E+6": [
+          "$.metrics.team_v2.nav",
+          "$.paper_broker.snapshot.account.cash",
+          "$.paper_broker.snapshot.account.nav"
+        ]
+      },
+      "validator_args": {
+        "required_envelope": {
+          "as_of": "2026-10-21T11:37:01.499799+08:00",
+          "config_hash": "411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73",
+          "config_version": "team-v2/1",
+          "execution_trade_date": "2026-10-21",
+          "input_snapshot_ids": [
+            "90c951e65fa1b399cbc135076e861fb8cfe531c7451b39b4b4ee38645229761f",
+            "8575a2d55f1db715ee1a7ca3e6d1fa625eb1669b71ed1065639c7165b3894579"
+          ],
+          "knowledge_cutoff": "2026-10-21T11:37:01.499799+08:00",
+          "market_regime": "DATA_BLOCK",
+          "model_name": "deepseek-v4-pro",
+          "prompt_version": "agent-5/2.0.7",
+          "reason_codes": [],
+          "run_id": "team-a5:2026-10-21:MIDDAY",
+          "schema_version": "team-envelope/1",
+          "source_trade_date": "2026-10-21",
+          "stage_id": "A5",
+          "status": "FROZEN"
+        },
+        "signal_domain": {},
+        "counterexample_domain": [],
+        "confirmed_defect_symbols": []
+      }
+    }
+  ]
+}

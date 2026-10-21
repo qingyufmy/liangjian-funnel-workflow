@@ -361,7 +361,7 @@ def test_t1_zero_sellable_quantity_is_still_an_open_position() -> None:
 
     assert stopped.action == A4Action.FORCED_RISK_EXIT.value
     assert stopped.state == "EXIT_PENDING"
-    assert stopped.reason_codes == ("HARD_STOP", "BLOCKED_T1")
+    assert stopped.reason_codes == ("HARD_STOP", "T1_LOCKED")
 
 
 @pytest.mark.parametrize(

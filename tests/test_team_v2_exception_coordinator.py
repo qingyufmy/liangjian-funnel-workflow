@@ -106,7 +106,8 @@ def test_exception_hook_failure_does_not_discard_trader_or_minute_protection(tmp
     args,seen,raw,clock=prepared(tmp_path)
     def callback(**kw):raise RuntimeError('PRIVATE_INTERNAL_DETAIL')
     result=run(args,bar(tm='10:00:00'),exception_handler=callback)
-    assert result['status']=='DEGRADED' and result['trader']['model_validated']
+    assert result['status']=='MINUTE_PROTECTED' and result['trader']['model_validated']
+    assert result['risk_exception_scope']=='EXCEPTION_SESSION_ONLY_NO_ACCOUNT_LATCH'
     assert result['risk_exception']['reason_code']=='A6_EXCEPTION_COORDINATOR_FAILED'
     assert result['risk_exception']['consecutive_failures']==1
     assert 'PRIVATE_INTERNAL_DETAIL' not in json.dumps(result)
@@ -142,7 +143,7 @@ def test_a6_exit_cannot_sell_todays_filled_inventory(tmp_path):
     clock[0]=stamp(tm='10:00:00');broker.on_bar(bar(tm='09:59:00'));clock[0]=stamp(tm='10:01:00')
     result=run(args,bar(tm='10:00:00'),exception_handler=callback)
     admission=result['risk_exception']['admissions'][0]
-    assert not admission['dispatched'] and admission['judgment']['reason_codes']==['T1_NOT_SELLABLE']
+    assert not admission['dispatched'] and admission['judgment']['reason_codes']==['T1_LOCKED']
 
 
 def test_coordinator_commit_crash_after_sell_reservation_does_not_duplicate_order(tmp_path,monkeypatch):

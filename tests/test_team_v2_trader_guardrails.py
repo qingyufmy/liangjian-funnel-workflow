@@ -68,7 +68,7 @@ def test_entry_cutoff_is_not_an_exit_cutoff_and_expired_held_plan_can_exit():
                    now=at, closed_5m_end=at)
     assert result.dispatch_allowed and result.risk_decision.shares == 1000
     today = replace(held, sellable_qty=0)
-    assert 'T1_NOT_SELLABLE' in guard(action='SELL_SIGNAL', positions=(today,)).reason_codes
+    assert 'T1_LOCKED' in guard(action='SELL_SIGNAL', positions=(today,)).reason_codes
 
 
 def test_add_requires_profit_and_remaining_batches_even_when_model_wants_more():

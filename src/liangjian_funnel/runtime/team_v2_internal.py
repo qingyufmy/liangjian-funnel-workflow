@@ -49,6 +49,7 @@ class InternalSender:
         self.env_file = Path(env_file)
         self.env = env
         self.transport = transport
+        self.last_receipt = {}
 
     def _destination(self):
         value = self.env.get('SHADOW_RESEARCH_WEBHOOK')
@@ -77,6 +78,7 @@ class InternalSender:
 
     def send(self, body):
         text = _body_text(body)
+        self.last_receipt = {'http_status':None,'provider_code':None,'provider_message_sha256':None}
         destination = self._destination()
         if destination is None:
             return 'NOT_CONFIGURED'
@@ -84,6 +86,7 @@ class InternalSender:
             with httpx.Client(transport=self.transport, timeout=2, follow_redirects=False, trust_env=False) as client:
                 with client.stream('POST', destination, content=text.encode(),
                         headers={'Content-Type': 'application/json'}) as response:
+                    self.last_receipt['http_status']=response.status_code
                     if response.status_code < 200 or response.status_code >= 300:
                         return 'UNKNOWN'
                     chunks = []; size = 0
@@ -94,8 +97,17 @@ class InternalSender:
                         chunks.append(chunk)
                     result = json.loads(b''.join(chunks))
                     code = result.get('code') if isinstance(result, dict) else None
+                    message=result.get('msg') if isinstance(result,dict) else None
+                    if isinstance(message,str):
+                        self.last_receipt['provider_message_sha256']=hashlib.sha256(message.encode()).hexdigest()
+                        self.last_receipt['provider_message_bytes']=len(message.encode())
+                        self.last_receipt['message_class']=next((label for label,pattern in (
+                            ('KEYWORD_POLICY',r'(?i)keyword'),('SIGNATURE_POLICY',r'(?i)sign|timestamp'),
+                            ('RATE_LIMIT',r'(?i)rate|frequen'),('IP_POLICY',r'(?i)\bip\b|white.?list'))
+                            if re.search(pattern,message)), 'UNCLASSIFIED')
                     if type(code) is not int:
                         return 'UNKNOWN'
+                    self.last_receipt['provider_code']=code
                     return 'SENT' if code == 0 else 'REJECTED'
         except Exception:
             # No provider response, exception text, destination, or request is
@@ -119,6 +131,10 @@ class InternalOutbox:
                 CREATE TABLE IF NOT EXISTS team_guard_rejections (
                     account_id TEXT NOT NULL,trade_date TEXT NOT NULL,decision_id TEXT NOT NULL,
                     PRIMARY KEY(account_id,trade_date,decision_id));
+                CREATE TABLE IF NOT EXISTS team_internal_delivery_receipts (
+                    event_id TEXT PRIMARY KEY,observed_at TEXT NOT NULL,receipt_json TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS team_internal_failure_notices (
+                    event_id TEXT PRIMARY KEY,noticed_at TEXT NOT NULL);
             ''')
 
     def enqueue(self, *, account_id, trade_date, kind, source_id, body, observed_at, priority=50):
@@ -184,16 +200,29 @@ class InternalOutbox:
             with closing(self.store._connect()) as db, db:
                 db.execute("UPDATE team_notifications SET status=?,result_code=? WHERE event_id=? AND status='SENDING'",
                     (status, 'INTERNAL_' + outcome, event_id))
+                receipt=getattr(sender,'last_receipt',{})
+                allowed={'http_status','provider_code','provider_message_sha256','provider_message_bytes','message_class'}
+                safe={key:value for key,value in receipt.items() if key in allowed}
+                db.execute('INSERT OR IGNORE INTO team_internal_delivery_receipts VALUES (?,?,?)',
+                    (event_id,now.isoformat(),canonical(safe)))
             result['sent'] += outcome == 'SENT'
             if outcome == 'NOT_CONFIGURED':
                 result['reason_code'] = 'INTERNAL_WEBHOOK_NOT_CONFIGURED'
                 break
+            if outcome in {'UNKNOWN','REJECTED'}:break
         with closing(self.store._connect()) as db:
             unconfirmed = db.execute("SELECT COUNT(*) FROM team_notifications WHERE trade_date=? "
                 "AND status IN ('SENDING','UNKNOWN','REJECTED')", (day,)).fetchone()[0]
             pending = db.execute("SELECT COUNT(*) FROM team_notifications WHERE trade_date=? AND status='PENDING'", (day,)).fetchone()[0]
+            unseen=[r[0] for r in db.execute("SELECT n.event_id FROM team_notifications n "
+                "LEFT JOIN team_internal_failure_notices f ON n.event_id=f.event_id "
+                "WHERE n.trade_date=? AND n.status IN ('SENDING','UNKNOWN','REJECTED') AND f.event_id IS NULL",(day,))]
+            for event in unseen:
+                db.execute('INSERT OR IGNORE INTO team_internal_failure_notices VALUES (?,?)',(event,now.isoformat()))
+            db.commit()
         result['unconfirmed'] = unconfirmed
         result['pending'] = pending
-        if unconfirmed and result['reason_code'] == 'INTERNAL_FLUSH_COMPLETED':
+        result['new_failure_notices']=len(unseen)
+        if unseen and result['reason_code'] == 'INTERNAL_FLUSH_COMPLETED':
             result['reason_code'] = 'INTERNAL_DELIVERY_UNCONFIRMED'
         return result

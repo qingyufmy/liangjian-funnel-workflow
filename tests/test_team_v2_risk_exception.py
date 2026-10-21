@@ -98,22 +98,23 @@ def record(rt,mid,raw,*,now=AT,hard=False,domain=None):
     return rt.record(mid,source_call_id='call:'+mid,input_sha256='input:'+mid,output=raw,validated=True),context
 
 
-def test_atomic_controls_failure_latch_retry_and_restart(tmp_path):
+def test_atomic_controls_invalid_exception_never_latches_account_and_valid_review_recovers(tmp_path):
     rt=runtime(tmp_path);first,ctx=record(rt,'one',response())
     assert len(ctx['targets'])==2 and first['consecutive_failures']==0
     assert record(rt,'one',response())[0]==first
     broken=response();broken['exception_actions'].pop()
     bad,_=record(rt,'two',broken,now=AT+timedelta(minutes=5))
-    assert bad['status']=='DEGRADED' and bad['risk_unit']=='PROBE' and bad['max_batches']==1
+    assert bad['status']=='DEGRADED' and bad['failure_scope']=='EXCEPTION_SESSION_ONLY'
+    assert not bad['position_directives'] and not bad['account_record_required']
     rt=runtime(tmp_path)
     halt,_=record(rt,'three',broken,now=AT+timedelta(minutes=10))
-    assert halt['status']=='HALT' and halt['consecutive_failures']==2
+    assert halt['status']=='DEGRADED' and halt['consecutive_failures']==1
     later,_=record(rt,'four',response('RESUME'),now=AT+timedelta(minutes=15),
         domain=[dict(t,trigger_cleared=True) for t in targets()])
-    assert later['status']=='HALT' and later['consecutive_failures']==2
-    assert len(later['controls'])==2
+    assert later['status']=='READY' and later['consecutive_failures']==0
+    assert not later['controls']
     with sqlite3.connect(rt.store.path) as db:
-        assert db.execute('SELECT halted FROM risk_day_state').fetchall()==[(1,)]
+        assert db.execute('SELECT halted FROM risk_day_state').fetchall()==[]
         assert db.execute('SELECT count(*) FROM risk_exception_reviews').fetchone()==(4,)
 
 
@@ -173,10 +174,11 @@ def test_abandoned_requests_tighten_before_next_entry_and_expire_once_without_re
             input_sha256=str(index),targets=targets(),hard_halt=False,source_call_id='A6:'+str(index),
             deadline_at=at+timedelta(seconds=20))
         state=rt.restrictions('paper','2026-10-19')
-        assert state['pending_reviews']==1 and state['consecutive_failures']>=1
+        assert state['pending_reviews']==1 and state['consecutive_failures']==0
+        assert state['pending_review_scope']=='EXCEPTION_SESSION_ONLY'
         assert rt.expire_pending('paper','2026-10-19',now=at+timedelta(seconds=21))==[str(index)]
         assert rt.expire_pending('paper','2026-10-19',now=at+timedelta(seconds=22))==[]
-        assert rt.restrictions('paper','2026-10-19')['consecutive_failures']==index+1
+        assert rt.restrictions('paper','2026-10-19')['consecutive_failures']==0
 
 
 def test_pending_requests_are_scoped_to_account_and_date(tmp_path):

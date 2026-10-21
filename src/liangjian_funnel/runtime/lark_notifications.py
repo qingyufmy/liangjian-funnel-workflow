@@ -166,6 +166,7 @@ _DISPLAY_LABELS = {
     "A4_FORCED_EXIT_WITHOUT_POSITION": "策略产生了无持仓离场指令，已作为异常阻断",
     "A4_BEHAVIOR_TYPE_MISSING": "股票类型尚未确定，不能选择盘中策略",
     "BLOCKED_T1": "受 A 股当日买入次日可卖规则限制，等待下一交易日离场",
+    "T1_LOCKED": "受 A 股当日买入次日可卖规则限制，等待下一交易日按新价格重评",
     "ENTRY_NEXT_BAR_MISSED": "入场信号后的下一根完整分钟线未能成交",
     "LIMIT_TOUCH_WITHOUT_FILL_EVIDENCE": "仅触及限价，缺少可成交证据",
     "LIMIT_NOT_REACHED": "有效分钟内价格未到买入限价",
@@ -1415,8 +1416,8 @@ class WorkflowLarkPublisher:
             if pending or exit_blocked:
                 plan_id = str(event.get("plan_id") or event_payload.get("plan_id") or "")
                 symbol = _stock_code(event.get("symbol") or event_payload.get("symbol"))
-                t1_locked = (event.get("reason_code") == "T1_RISK_PENDING"
-                    or eligibility.get("reason") == "BLOCKED_T1")
+                t1_locked = (event.get("reason_code") in {"T1_LOCKED", "T1_RISK_PENDING"}
+                    or eligibility.get("reason") in {"T1_LOCKED", "BLOCKED_T1"})
                 day = now.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat()
                 source_id = f"{event.get('lane_id') or ''}:{symbol}:{day}:risk-pending"
                 outputs.append(self._send(
@@ -1497,7 +1498,7 @@ class WorkflowLarkPublisher:
                 blocked = eligibility.get("reason")
                 explanation = (
                     "当日买入股份受T+1限制，尚未执行；风险任务保留至后续交易时段。"
-                    if blocked == "BLOCKED_T1" else
+                    if blocked in {"T1_LOCKED", "BLOCKED_T1"} else
                     "可卖数量尚未核实，禁止执行。" if not eligibility or blocked else
                     "仅对可卖部分进入执行核验；技术触发不代表已经成交。"
                 )

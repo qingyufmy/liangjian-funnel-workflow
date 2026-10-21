@@ -27,7 +27,8 @@ def _item(row,keys,optional=frozenset()):
 
 
 def validate_daily_review(output,catalog,*,required_envelope,trade_date,review_kind,
-        signal_domain,counterexample_domain,confirmed_defect_symbols=frozenset(),metrics=None):
+        signal_domain,counterexample_domain,confirmed_defect_symbols=frozenset(),metrics=None,
+        numeric_domain=None):
     """Domains and numbers come from frozen server facts, not model inference.
 
     The lexical numeric guard covers the scorecard's numeric claims. Whether a
@@ -80,7 +81,8 @@ def validate_daily_review(output,catalog,*,required_envelope,trade_date,review_k
             # suffix, return or comparison written after the name.
             text=re.sub(r'(?:沪深300|中证1000|中证500|上证指数)(?!\d)','BENCHMARK ',str(value))
             return {Decimal(v) for v in re.findall(r'(?<![A-Za-z0-9_:+])[-+]?\d+(?:\.\d+)?',text)}
-        if not numbers({k:score[k] for k in score_keys-{'attribution'}})<=numbers(metrics or {}):
+        allowed=(set(map(Decimal,numeric_domain)) if numeric_domain is not None else numbers(metrics or {}))
+        if not numbers({k:score[k] for k in score_keys-{'attribution'}})<=allowed:
             issue('SCORECARD_NUMBER_NOT_IN_METRICS')
     schemas={
         'model_value_assessment':({'layer','judgment_type','model_group','control_group','verdict'},

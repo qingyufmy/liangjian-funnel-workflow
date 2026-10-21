@@ -66,6 +66,18 @@ def run_risk_exception(*,repository,client,journal,store,meeting_id,call_id,acco
     values=json.loads(canonical(values))
     validate_risk_exception(None,values['EVIDENCE_CATALOG'],**validator_args)
     request=repository.prepare_messages('A6',values,required_envelope=required_envelope,session='INTRADAY_EXCEPTION')
+    from ..pipeline.team_v2_prompts import with_runtime_contract
+    request=with_runtime_contract(request,dict(session='INTRADAY_EXCEPTION',
+        inactive_arrays={'envelope_adjustments':[],'overnight_reviews':[],'risk_event_attribution':[]},
+        exception_targets=frozen['targets'],resume_allowed=sorted(validator_args['resume_allowed']),
+        allowed_refs=[item['id'] for item in values['EVIDENCE_CATALOG']['items']],
+        utilization_cap=dict(max_pct=str(engine_utilization_cap),basis='必须非空，即使cap_pct为0',
+            supporting_refs='1至3个目录原ID',opposing_refs='1至3个目录原ID或哨兵+至少两类检索范围'),
+        capacity_for_tomorrow=dict(max_slots=capacity_slots,cluster_caps=cluster_caps,
+            required='plans_acceptable/cluster_quota/risk_unit/response_to_pm/notes/supporting_refs/opposing_refs',
+            notes='1至3条非空；0容量也必须说明依据，不用空数组占位'),
+        exception_action='每对象恰好一条；NO_ACTION也须非空release_condition和1至2条what_would_change_my_mind；不得新增对象',
+        t1='sellable_qty为0不能称可执行卖出；只记录风险待办，次日新价重评；硬止损仍归引擎。'))
     expected=dict(run_id=run_id,role='A6',session='INTRADAY_EXCEPTION',source_trade_date=source_trade_date,
         execution_trade_date=trade_date,model=model,prompt_hash=request.prompt.sha256,
         input_hash=request.input_hash,catalog_hash=request.evidence_catalog_hash)

@@ -133,7 +133,7 @@ def test_risk_03_same_day_hard_stop_stays_pending_until_t1_release(tmp_path: Pat
         _action("paper:lane", "stop", day1 + timedelta(minutes=2), "FORCED_RISK_EXIT"),
         _bar(day1 + timedelta(minutes=3), open_=8.5, close=8.4),
     )
-    assert blocked.reason_code == "BLOCKED_T1"
+    assert blocked.reason_code == "T1_LOCKED"
     assert len(store.list_fills("paper:lane")) == 1
     day2 = datetime(2026, 9, 18, 9, 30, tzinfo=TZ)
     broker.start_trading_day(day2.date())
@@ -223,6 +223,12 @@ def test_risk_07_new_reduce_episode_is_distinct_but_same_episode_is_idempotent(t
     at = datetime(2026, 9, 18, 10, 0, tzinfo=TZ)
     store.create_execution_plan("plan", "lane", "600519.SH", status=PlanStatus.ACTIVE_TODAY, payload={"stop_level": 9})
     plan = store.get_execution_plan("plan")
+    # A reduction episode must own sellable prior-day lots. The old test
+    # accidentally asserted effective sells with no position at all.
+    broker=PaperBroker(store,model='lane',config=SimulationConfig(initial_cash=100_000))
+    prior=at-timedelta(days=1)
+    assert broker.apply(_action('paper:lane','owned',prior),_bar(prior+timedelta(minutes=1))).status is SimulationStatus.FILLED
+    broker.start_trading_day(at.date())
     engine = MonitorEngine(store)
     first = engine._emit_effective("lane", plan, at, "snap-1", MonitorAction.REDUCE_SIGNAL.value, "REDUCE")
     duplicate = engine._emit_effective("lane", plan, at, "snap-1", MonitorAction.REDUCE_SIGNAL.value, "REDUCE")

@@ -30,10 +30,13 @@ def _hard_exit(broker,*,plan,bar,at,account_id):
         # Hard exits do not consult a PM slot, morning eligibility or model.
         # They still respect owned quantity, pending sells, T+1 and source flags.
         if not bar.closed or not bar.tradability_known or bar.halted:return reject('HARD_EXIT_TRADABILITY_UNPROVEN')
+        # Ledger positions are computed by the same dated-lot sellable_qty used
+        # by legacy A4, under this admission's transaction and plan scope.
         quantity=sum(p['sellable_qty'] for p in snapshot['positions'] if p['plan_id']==plan.plan_id and p['symbol']==plan.symbol)
+        if quantity<=0:return reject('T1_LOCKED')
         quantity-=sum(p['remaining_qty'] for p in snapshot['open_orders'] if p['side']=='SELL'
             and p['plan_id']==plan.plan_id and p['symbol']==plan.symbol)
-        if quantity<=0:return reject('T1_OR_SELL_ALREADY_RESERVED')
+        if quantity<=0:return reject('SELL_ALREADY_RESERVED')
         return dict(judgment=dict(status='APPROVED',reason_codes=['ENGINE_HARD_STOP'],shares=quantity,risk_unit='NONE'),
             order=dict(side='SELL',qty=quantity,order_type='MARKET',limit_price=None,
                 no_chase_price=str(plan.no_chase),tradable=True))
@@ -83,8 +86,12 @@ def run_control_minute(*,session_kwargs,closed_bars,deadline_monotonic,monotonic
             except Exception:
                 bad_plans.add(plan.plan_id)
                 errors.append(dict(plan_id=plan.plan_id,reason_code='CONTROL_HARD_EXIT_FAILED'))
+    ledger=getattr(broker,'ledger',broker)
+    reassess=getattr(ledger,'record_t1_open_reassessment',None)
+    reassessments=reassess(at=current,closed_bars=closed_bars,decisions=hard) if callable(reassess) else ()
     result=dict(status='DEGRADED' if errors else 'MINUTE_PROTECTED',minute_end=minute.isoformat(),
         execution_cutoff=expected.isoformat(),fills=fills,hard_exits=hard,errors=errors,trader=None)
+    if reassessments:result['t1_open_reassessments']=reassessments
     if not model_enabled:return {**result,'trader_skip_reason':'CONTROL_MODEL_CONTEXT_UNAVAILABLE'}
     if not is_closed_trader_tick(expected):return result
     if (not (set(closed_bars)-bad_symbols)
@@ -146,11 +153,19 @@ def run_control_minute(*,session_kwargs,closed_bars,deadline_monotonic,monotonic
         try:
             result['risk_exception']=exception_handler(trader_result=result['trader'],envelopes=args['envelopes'],
                 all_plans=args['all_plans'],closed_bars=closed_bars,deadline_monotonic=deadline_monotonic,monotonic=monotonic)
-            if result['risk_exception']['status'] in ('DEGRADED','HALT','DATA_LIMITED'):result['status']='DEGRADED'
+            if result['risk_exception'].get('account_record_required') is True:
+                result['status']='DEGRADED'
+            elif result['risk_exception']['status'] in ('DEGRADED','DATA_LIMITED'):
+                result['risk_exception_scope']='EXCEPTION_SESSION_ONLY_NO_ACCOUNT_LATCH'
         except Exception:
             from .team_v2_exception_coordinator import record_coordinator_failure
             try:failed=record_coordinator_failure(args)
             except Exception:failed=dict(status='DEGRADED',failure_persisted=False,internal_alert_status='PENDING')
-            result.update(status='DEGRADED',risk_exception=dict(failed,reason_code='A6_EXCEPTION_COORDINATOR_FAILED'))
+            account_halt=failed.get('account_record_required') is True
+            if account_halt:result['status']='DEGRADED'
+            result.update(risk_exception=dict(failed,reason_code='A6_EXCEPTION_COORDINATOR_FAILED',
+                failure_scope='EXCEPTION_SESSION_ONLY',account_record_required=account_halt,
+                recovery_condition='NEXT_FRESH_CLOSED_TICK_REEVALUATES_ENGINE_TRIGGERS'),
+                risk_exception_scope='EXCEPTION_SESSION_ONLY_NO_ACCOUNT_LATCH')
         result['phase_timings']={'risk_exception_ms':max(0,(monotonic()-risk_started)*1000)}
     return result

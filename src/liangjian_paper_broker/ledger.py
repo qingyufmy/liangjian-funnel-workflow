@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import asdict, replace
-from datetime import datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 import hashlib
 import json
@@ -17,6 +17,7 @@ import sqlite3
 from typing import Callable
 
 from .matching import MinuteBar, PaperOrder, PaperRules, local_time, match_order, money, number, total_fees
+from .sellability import sellable_qty
 
 ZERO = Decimal("0")
 
@@ -110,7 +111,11 @@ class LocalPaperBroker:
 
     @staticmethod
     def _sellable(c,symbol,plan_id,day):
-        return sum(r[0] for r in c.execute("SELECT qty FROM paper_lots WHERE symbol=? AND plan_id=? AND open_date<? AND qty>0",(symbol,plan_id,day)))
+        lots=[dict(qty=r[0],acquired_trade_date=r[1]) for r in c.execute(
+            "SELECT qty,open_date FROM paper_lots WHERE symbol=? AND plan_id=? AND qty>0",(symbol,plan_id))]
+        result=sellable_qty(lots,as_of=date.fromisoformat(day),total_qty=sum(x['qty'] for x in lots))
+        if result is None:raise ValueError('SELLABLE_QUANTITY_UNKNOWN')
+        return result
 
     def place_order(self,symbol,side,qty,*,order_type,limit_price,client_order_id,plan_id,signal_id,
                     no_chase_price=None,tradable=False) -> str:
@@ -140,7 +145,7 @@ class LocalPaperBroker:
         if side == "SELL":
             reserved = sum(self._order(r).remaining_qty for r in self._open(c) if r["symbol"]==symbol and r["plan_id"]==plan_id and self._order(r).side=="SELL")
             available = self._sellable(c,symbol,plan_id,day)-reserved
-            if qty>available: raise ValueError("PAPER_T1_NOT_SELLABLE")
+            if qty>available: raise ValueError("T1_LOCKED: PAPER_T1_NOT_SELLABLE")
             o = replace(o,sellable_qty=qty)
         c.execute("INSERT INTO paper_orders VALUES (?,?,?,?,?,?,?,?)",(oid,client_order_id,request_hash,day,symbol,plan_id,"OPEN",dump(asdict(o))))
         if self._reserved(c)>self._meta(c,"cash"): raise ValueError("PAPER_INSUFFICIENT_CASH")
@@ -237,6 +242,17 @@ class LocalPaperBroker:
                 raise ValueError("PAPER_ADMISSION_DECISION_INVALID")
             # Validate persisted judgment data before any paper order is placed.
             judgment=json.loads(json.dumps(response["judgment"],sort_keys=True,allow_nan=False))
+            if 'T1_LOCKED' in judgment.get('reason_codes',[]):
+                pending_key='t1-pending:'+day+':'+bound['symbol']
+                # Single task for this owned account/symbol/day, not an order
+                # and not one task for each repeating hard-stop/model tick.
+                pending=dict(
+                    reason_code='T1_LOCKED',symbol=bound['symbol'],plan_id=bound['plan_id'],
+                    trade_date=day,observed_at=now.isoformat(),source_signal_id=signal_id,
+                    trigger_action=bound.get('action'),closed_bar=bound.get('closed_bar'),
+                    not_an_executable_order=True,state='REQUIRES_FRESH_OPEN_REASSESSMENT')
+                c.execute('INSERT OR IGNORE INTO exec_ledger VALUES (?,?,?)',
+                    (pending_key,'T1_RISK_PENDING',dump(pending)))
             halt=response.get('halt_reason')
             if halt is not None:
                 if halt not in {'DAILY_LOSS_HALT','DRAWDOWN_HALT','A6_DEGRADED_HALT'} or response['order'] is not None:
@@ -373,15 +389,45 @@ class LocalPaperBroker:
         return tuple(fills)
 
     def _positions(self,c,day):
-        groups=defaultdict(lambda:{"qty":0,"sellable_qty":0,"cost":ZERO})
+        groups=defaultdict(lambda:{"qty":0,"lots":[],"cost":ZERO})
         for row in c.execute("SELECT * FROM paper_lots WHERE qty>0 ORDER BY symbol,plan_id,lot_id"):
             p=groups[(row["symbol"],row["plan_id"])];p["qty"]+=row["qty"];p["cost"]+=Decimal(row["cost"])
-            if row["open_date"]<day:p["sellable_qty"]+=row["qty"]
+            p['lots'].append(dict(qty=row['qty'],acquired_trade_date=row['open_date']))
         marks={r["symbol"]:r for r in c.execute("SELECT * FROM paper_marks")};result=[]
         for (symbol,plan_id),p in sorted(groups.items()):
+            available=sellable_qty(p['lots'],as_of=date.fromisoformat(day),total_qty=p['qty'])
+            if available is None:raise ValueError('SELLABLE_QUANTITY_UNKNOWN')
             mark=marks.get(symbol);value=Decimal(mark["price"])*p["qty"] if mark else None
-            result.append(dict(symbol=symbol,plan_id=plan_id,qty=p["qty"],sellable_qty=p["sellable_qty"],avg_cost=str(p["cost"]/p["qty"]),market_value=str(value) if value is not None else None,mark_trade_date=mark["trade_date"] if mark else None,mark_minute_end=mark["minute_end"] if mark else None))
+            result.append(dict(symbol=symbol,plan_id=plan_id,qty=p["qty"],sellable_qty=available,avg_cost=str(p["cost"]/p["qty"]),market_value=str(value) if value is not None else None,mark_trade_date=mark["trade_date"] if mark else None,mark_minute_end=mark["minute_end"] if mark else None))
         return tuple(result)
+
+    def record_t1_open_reassessment(self,*,at,closed_bars,decisions):
+        """Audit natural first-tick reassessment, never replay pending orders."""
+        now=local_time(at);day=now.date().isoformat()
+        if now.time()<time(9,30):return ()
+        results=[]
+        with self._tx() as c:
+            pending=c.execute("SELECT event_id,payload_json FROM exec_ledger WHERE kind='T1_RISK_PENDING'").fetchall()
+            held={(x['symbol'],x['plan_id']) for x in self._positions(c,day)}
+            for row in pending:
+                old=json.loads(row['payload_json'])
+                if old['trade_date']>=day or (old['symbol'],old['plan_id']) not in held:continue
+                bar=closed_bars.get(old['symbol'])
+                trusted=bool(bar is not None and bar.closed and bar.tradability_known
+                    and local_time(bar.minute_end)==now.replace(second=0,microsecond=0)-timedelta(minutes=1))
+                status='FRESH_RULES_EVALUATED' if trusted else 'DATA_LIMITED_RETRY_FRESH_RULES'
+                value=dict(reason_code='T1_OPEN_REASSESSMENT',source_pending_event_id=row['event_id'],
+                    symbol=old['symbol'],plan_id=old['plan_id'],trade_date=day,observed_at=now.isoformat(),
+                    due_at=now.replace(hour=9,minute=35,second=0,microsecond=0).isoformat(),
+                    first_attempt_by_0935=now.time()<=time(9,35),status=status,
+                    new_price=str(bar.close) if trusted else None,
+                    new_price_as_of=bar.minute_end.isoformat() if trusted else None,
+                    old_action_replayed=False,decisions=[x for x in decisions
+                        if x.get('binding',{}).get('symbol')==old['symbol']],not_an_executable_order=True)
+                key='t1-open:'+day+':'+old['symbol']+':'+status
+                c.execute('INSERT OR IGNORE INTO exec_ledger VALUES (?,?,?)',
+                    (key,'T1_OPEN_REASSESSMENT',dump(value)));results.append(value)
+        return tuple(results)
 
     def get_positions(self):
         with self._tx(readonly=True) as c:return self._positions(c,local_time(self.clock()).date().isoformat())

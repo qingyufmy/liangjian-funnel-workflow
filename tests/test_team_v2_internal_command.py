@@ -59,9 +59,11 @@ def test_missing_internal_secret_and_unknown_delivery_remain_operationally_degra
     settings,b=prepared(tmp_path);send,seen=sender(tmp_path)
     assert run_internal_delivery(settings,clock=lambda:stamp(),calendar=CAL,sender=send)['status']=='DATA_LIMITED'
     send,seen=sender(tmp_path,handler=lambda request:__import__('httpx').Response(500),env={'SHADOW_RESEARCH_WEBHOOK':URL})
-    for tm in ('10:00:00','10:01:00'):
+    for index,tm in enumerate(('10:00:00','10:01:00')):
         result=run_internal_delivery(settings,clock=lambda:stamp(tm=tm),calendar=CAL,sender=send)
-        assert result['status']=='DATA_LIMITED' and result['reason_code']=='INTERNAL_DELIVERY_UNCONFIRMED'
+        assert result['status']==('DATA_LIMITED' if index==0 else 'READY')
+        assert result['reason_code']==('INTERNAL_DELIVERY_UNCONFIRMED' if index==0 else 'INTERNAL_FLUSH_COMPLETED')
+        assert result['unconfirmed']==1  # old failure remains visible, not re-alerted every minute
     assert len(seen)==1
 
 

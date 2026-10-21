@@ -170,7 +170,7 @@ def match_order(order: PaperOrder, bar: MinuteBar, rules: PaperRules, *, spendab
     if price<=0:return no('NO_REPORTED_TRADES')
     if order.side == "BUY" and (order.qty % 100 or order.remaining_qty % 100):
         return no("BUY_ROUND_LOT_REQUIRED","REJECTED")
-    if order.side == "SELL" and order.sellable_qty <= 0: return no("T1_NOT_SELLABLE")
+    if order.side == "SELL" and order.sellable_qty <= 0: return no("T1_LOCKED")
     if order.order_type == "LIMIT":
         if (order.side == "BUY" and bar.low > order.limit_price
                 or order.side == "SELL" and bar.high < order.limit_price):

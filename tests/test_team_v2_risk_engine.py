@@ -104,7 +104,7 @@ def test_t1_exit_cannot_sell_today_bought_shares():
     pos = (PositionRisk("p1", "000001.SZ", "FINANCE", 100, 0, D("1000")),)
     d = adjudicate_signal("s1", "SELL_SIGNAL", plan(), envelope(), account(), pos,
                            RiskLimits(), now=NOW, regime="ICE_POINT")
-    assert d.status == "REJECTED" and "T1_NOT_SELLABLE" in d.reason_codes
+    assert d.status == "REJECTED" and "T1_LOCKED" in d.reason_codes
 
 
 def test_a6_failure_tightens_once_then_halts_without_resuming_hard_halt():

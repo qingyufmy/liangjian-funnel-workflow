@@ -31,4 +31,6 @@ def run_internal_delivery(settings, *, clock=None, calendar=None, sender=None):
     return dict(status='READY' if good else 'DATA_LIMITED', trade_date=now.date().isoformat(),
         reason_code=delivery['reason_code'], projection_reason_codes=projection['reason_codes'],
         attempted=delivery['attempted'], sent=delivery['sent'],
-        pending=delivery.get('pending'),unconfirmed=delivery.get('unconfirmed'))
+        pending=delivery.get('pending'),unconfirmed=delivery.get('unconfirmed'),
+        delivery_health='UNCONFIRMED' if delivery.get('unconfirmed') else 'CONFIRMED',
+        new_failure_notices=delivery.get('new_failure_notices',0))

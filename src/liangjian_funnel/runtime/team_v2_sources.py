@@ -29,6 +29,28 @@ def stamp(value):
     return value.astimezone(TZ)
 
 
+def publication_daily_atr14(payload):
+    """Verified prior-day daily Wilder ATR, audit only, never a new entry veto."""
+    from ..pipeline.local_fact_cache import canonical_json_hash
+    facts=payload.get('strategy_facts')
+    if not isinstance(facts,dict):return None
+    shadow=facts.get('shadow_inputs')
+    if not isinstance(shadow,dict):return None
+    evidence=shadow.get('atr14_evidence')
+    if not isinstance(evidence,dict) or evidence.get('status')!='AVAILABLE':return None
+    try:
+        body={k:v for k,v in evidence.items() if k!='evidence_sha256'}
+        if (evidence.get('schema_version')!='publication-atr-evidence/1'
+                or evidence.get('atr_method')!='WILDER_TR14_SEED_MEAN'
+                or evidence.get('symbol')!=payload.get('symbol')
+                or evidence.get('adjust')!='none'
+                or canonical_json_hash(body)!=evidence.get('evidence_sha256')
+                or stamp(evidence['last_closed_daily_bar_end'])>stamp(evidence['knowledge_at'])):return None
+        value=Decimal(str(evidence['atr14']))
+        return value if value.is_finite() and value>0 else None
+    except (ValueError,TypeError,KeyError,ArithmeticError):return None
+
+
 def read_planning_scope(settings, *, now, calendar):
     """One short RO transaction, same lane/date as the original opening scope.
 
@@ -81,7 +103,7 @@ def read_planning_scope(settings, *, now, calendar):
             # PLANNING deliberately does not claim today's actual tradability.
             plan = PlanRisk(row['plan_id'],row['symbol'],label,row['status'],start,end,
                 price,stop,low,high,chase,invalidation_price=stop,tradable=True,data_ready=True,
-                **plan_risk_fields(raw))
+                daily_atr14=publication_daily_atr14(raw),**plan_risk_fields(raw))
             value=asdict(plan)
             value.update(valid_from=start.isoformat() if start is not None else None,expires_at=end.isoformat())
             plans.append(value); regimes.add(regime)
@@ -250,7 +272,7 @@ def read_execution_scope(settings, *, now, calendar, morning_source, positions):
                 raise ValueError
             plan=PlanRisk(pid,row['symbol'],label,row['status'],start,expiry,**geometry,
                 invalidation_price=geometry['stop_price'],tradable=False,data_ready=False,
-                **plan_risk_fields(raw))
+                daily_atr14=publication_daily_atr14(raw),**plan_risk_fields(raw))
             plans.append(asdict(plan))
             if (old is not None and row['status']=='ACTIVE_TODAY' and start is not None
                     and start.date()==now.date() and expiry.date()==now.date() and start<=now<expiry):

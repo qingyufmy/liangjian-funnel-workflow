@@ -46,11 +46,12 @@ def apply_exception_review(output,*,targets,previous_controls,validated,previous
                     valid=False;break
                 seen.add(key)
             valid=valid and seen==set(domain)
-    latched=previous_failures>=2
-    count=previous_failures if latched else 0 if valid else previous_failures+1
-    status='HALT' if latched or count>=2 or hard_halt else 'READY' if valid else 'DEGRADED'
+    # A failed advisory exception cannot acquire account-wide authority.
+    # Hard engine/morning halts remain independent and cannot be resumed here.
+    count=0 if valid else previous_failures+1
+    status='HALT' if hard_halt else 'READY' if valid else 'DEGRADED'
     actions=[]
-    if valid and not latched:
+    if valid:
         for row in rows:
             key=(row['target'],row['target_id']);action=row['action']
             if action=='HALT_NEW_ENTRY':controls[key]=dict(target=key[0],target_id=key[1],action=action,owner='A6')
@@ -58,12 +59,16 @@ def apply_exception_review(output,*,targets,previous_controls,validated,previous
             if action in ('EXIT','REDUCE_HALF'):
                 actions.append(dict(target=key[0],target_id=key[1],action=action,reason_code=row.get('reason_code')))
     return dict(status=status,consecutive_failures=count,
-        risk_unit='NONE' if status=='HALT' else 'PROBE' if status=='DEGRADED' else None,
-        max_batches=1 if status in ('HALT','DEGRADED') else None,
+        risk_unit='NONE' if status=='HALT' else None,
+        max_batches=1 if status=='HALT' else None,
         controls=[controls[k] for k in sorted(controls)],position_directives=actions,
-        reason_codes=['A6_DEGRADED_HALT'] if count>=2 else ['ENGINE_HARD_HALT'] if hard_halt
+        reason_codes=['ENGINE_HARD_HALT'] if hard_halt
             else ['A6_REVIEW_DEGRADED'] if not valid else [],
-        internal_alert_status='PENDING' if count>=2 else 'NOT_REQUIRED')
+        failure_scope='EXCEPTION_SESSION_ONLY' if not valid else None,
+        affected_targets=[dict(target=k[0],target_id=k[1]) for k in sorted(domain)] if not valid else [],
+        recovery_condition='NEXT_FRESH_CLOSED_TICK_REEVALUATES_ENGINE_TRIGGERS' if not valid else None,
+        account_record_required=hard_halt,
+        internal_alert_status='PENDING' if not valid else 'NOT_REQUIRED')
 
 
 class RiskExceptionRuntime:
@@ -122,6 +127,10 @@ class RiskExceptionRuntime:
             state=db.execute('SELECT consecutive_failures,halted,last_observed_at FROM risk_day_state WHERE account_id=? AND trade_date=?',
                 (account_id,trade_date)).fetchone()
             if state and datetime.fromisoformat(state[2])>observed_at:raise ValueError('A6_EXCEPTION_OUT_OF_ORDER')
+            last=db.execute("SELECT max(json_extract(context_json,'$.observed_at')) FROM risk_exception_requests "
+                "WHERE json_extract(context_json,'$.account_id')=? AND json_extract(context_json,'$.trade_date')=?",
+                (account_id,trade_date)).fetchone()[0]
+            if last and datetime.fromisoformat(last)>observed_at:raise ValueError('A6_EXCEPTION_OUT_OF_ORDER')
             context=dict(base,observed_at=observed_at.isoformat(),controls=json.loads(prior[0]) if prior else [],
                 control_version=prior[1] if prior else 0,day_state=list(state) if state else None,
                 deadline_at=deadline_at.isoformat() if deadline_at is not None else None)
@@ -156,8 +165,9 @@ class RiskExceptionRuntime:
             origins=[json.loads(r[0]) for r in db.execute('SELECT evidence_json FROM risk_exception_control_origins '
                 'WHERE account_id=? AND trade_date=? ORDER BY target,target_id',(account_id,trade_date))]
         return dict(controls=json.loads(controls[0]) if controls else [],
-            consecutive_failures=max(state[0] if state else 0,2 if state and state[1] else 0,
-                min(2,pending)),utilization_cap=cap[0] if cap else None,pending_reviews=pending,origins=origins)
+            consecutive_failures=max(state[0] if state else 0,2 if state and state[1] else 0),
+            utilization_cap=cap[0] if cap else None,pending_reviews=pending,
+            pending_review_scope='EXCEPTION_SESSION_ONLY',origins=origins)
 
     def expire_pending(self,account_id,trade_date,*,now):
         """An abandoned expired request is one failure, never a provider retry."""
@@ -203,9 +213,9 @@ class RiskExceptionRuntime:
             if ((prior[1] if prior else 0)!=context['control_version']
                     or (list(state) if state else None)!=context['day_state']):
                 raise ValueError('A6_EXCEPTION_STATE_CHANGED')
-            failures=max(state[0],2 if state[1] else 0) if state else 0
             result=apply_exception_review(output,targets=context['targets'],previous_controls=context['controls'],
-                validated=validated,previous_failures=failures,hard_halt=context['hard_halt'])
+                validated=validated,previous_failures=0,
+                hard_halt=context['hard_halt'] or bool(state and (state[1] or state[0]>=2)))
             cap=context['utilization_cap']
             if result['status']=='READY':
                 # The strict model schema checked the engine ceiling. Persist
@@ -238,9 +248,8 @@ class RiskExceptionRuntime:
             db.execute('INSERT INTO risk_exception_controls VALUES (?,?,?,?) ON CONFLICT(account_id,trade_date) DO UPDATE SET '
                 'controls_json=excluded.controls_json,version=excluded.version',
                 (account,day,canonical(result['controls']),context['control_version']+1))
-            db.execute('INSERT INTO risk_day_state VALUES (?,?,?,?,?) ON CONFLICT(account_id,trade_date) DO UPDATE SET '
-                'consecutive_failures=excluded.consecutive_failures,halted=excluded.halted,last_observed_at=excluded.last_observed_at',
-                (account,day,result['consecutive_failures'],int(result['consecutive_failures']>=2),context['observed_at']))
+            # Never write/reset morning account risk_day_state from a model
+            # exception. Invalid advisory rows are audit-only for this session.
             db.execute('INSERT INTO risk_exception_reviews VALUES (?,?,?,?,?,?)',
                 (meeting_id,account,day,source_call_id,binding,canonical(result)))
         return result

@@ -519,7 +519,7 @@ def test_invalidated_same_day_position_records_t1_risk_not_sell_signal(tmp_path)
 
     target = next(event for event in result.events if event.symbol == "600519.SH")
     assert target.action == MonitorAction.NO_ACTION.value
-    assert target.reason_code == "T1_RISK_PENDING"
+    assert target.reason_code == "T1_LOCKED"
     pending = store.list_monitor_events(lane_id="lane-a")[-1]
     assert not pending['effective']
     assert __import__('json').loads(pending['payload_json'])['risk_pending']['trigger_reason'] == 'PLAN_INVALIDATED'

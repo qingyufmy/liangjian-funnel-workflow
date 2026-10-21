@@ -12,6 +12,7 @@ import json
 from zoneinfo import ZoneInfo
 
 from ..pipeline.team_v2_review_schema import validate_daily_review
+from ..pipeline.numeric_fact_domain import numeric_fact_domain,numeric_domain_hash
 from .team_v2_eod import _response
 from .team_v2_store import canonical
 
@@ -132,11 +133,19 @@ def run_team_review(*,repository,client,journal,store,review_id,call_id,account_
     store.freeze_control_context('a5-review:'+review_id,source_sha256=binding,body=context)
     runtime=TeamReviewRuntime(store);previous=runtime.load(review_id,input_sha256=binding)
     if previous is not None:return previous
+    number_domain=numeric_fact_domain(facts)
     args=dict(required_envelope=required_envelope,trade_date=trade_date,review_kind=review_kind,
         signal_domain=signal_domain,counterexample_domain=counterexample_domain,
-        confirmed_defect_symbols=confirmed_defect_symbols,metrics=facts['metrics'])
+        confirmed_defect_symbols=confirmed_defect_symbols,metrics=facts['metrics'],numeric_domain=number_domain)
     request=repository.prepare_messages('A5',dict(A5_FACT_SNAPSHOT=facts,EVIDENCE_CATALOG=catalog),
         required_envelope=required_envelope,session=session)
+    from ..pipeline.team_v2_prompts import with_runtime_contract
+    request=with_runtime_contract(request,dict(session=session,
+        schema='a5-daily-review/2.0.0',preserve_all_root_fields=True,
+        style='紧凑JSON：摘要和每层summary各不超过100字；每条strength/defect/limitation不超过60字；'
+            '只列有直接原件支持的重点，每层每类至多2条；hypotheses至多1条；不重复叙述相同计数。'
+            '未知明确UNAVAILABLE，不将模型raw校验失败冒充服务端最终阶段失败。',
+        scorecard_numbers='只引用A5_FACT_SNAPSHOT中原有数值，不自行推算新数字；每项原数需能回溯路径。'))
     # No silent truncation to fit provider limits, and no model repair recall.
     if sum(len(m['content']) for m in request.messages)>250000:raise ValueError('A5_MODEL_CONTEXT_TOO_LARGE')
     output,valid,issues=_response(request=request,client=client,journal=journal,call_id=call_id,
@@ -146,6 +155,8 @@ def run_team_review(*,repository,client,journal,store,review_id,call_id,account_
     result=dict(status='READY' if valid else 'A5_DEGRADED_NO_APPROVED_REPORT',source_call_id=call_id,
         trade_date=trade_date,review_kind=review_kind,account_id=account_id,
         fact_sha256=facts['input_hash'],report=output if valid else None,reason_codes=list(issues),
+        numeric_claim_audit=dict(source_fact_sha256=facts['input_hash'],
+            domain_sha256=numeric_domain_hash(number_domain),source_paths=number_domain),
         strategy_change_authorized=False)
     return runtime.record(review_id=review_id,input_sha256=binding,account_id=account_id,trade_date=trade_date,
         review_kind=review_kind,source_call_id=call_id,result=result,card=close_card(facts,review_status=result['status']))

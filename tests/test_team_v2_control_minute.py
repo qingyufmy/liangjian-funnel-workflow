@@ -45,7 +45,8 @@ def test_closed_minute_then_single_five_minute_client_and_real_next_bar_fill(tmp
     clock[0]=stamp(tm='10:02:00');second=run(args,bar(tm='10:01:00',volume_shares=300000))
     assert second['trader'] is None and not second['fills']  # no backdating the 10:01 intent
     clock[0]=stamp(tm='10:03:00');third=run(args,bar(tm='10:02:00',volume_shares=300000))
-    assert third['fills'][0]['qty']==15000 and third['trader'] is None and len(seen)==1
+    # PM's PROBE downgrade now also obeys the shared 10% nominal ceiling.
+    assert third['fills'][0]['qty']==10000 and third['trader'] is None and len(seen)==1
     assert args['broker'].reconcile()['status']=='MATCH' and args['all_plans']==before
 
 

@@ -57,14 +57,16 @@ def test_failed_or_invalid_call_is_not_recalled_or_double_counted_after_commit_c
     assert b'PRIVATE_PROVIDER_DETAILS' not in (tmp_path/'team.db').read_bytes()
 
 
-def test_second_failure_latches_across_morning_and_exception_and_skips_future_http(tmp_path):
+def test_exception_failures_are_session_only_next_fresh_review_can_recover(tmp_path):
     args,seen,raw,clock,_=fixture(tmp_path,invalid=True)
     assert run_risk_exception(**args)['status']=='DEGRADED'
     clock[0]+=timedelta(minutes=5);args.update(meeting_id='second',call_id='A6:second')
-    assert run_risk_exception(**args)['status']=='HALT'
+    assert run_risk_exception(**args)['status']=='DEGRADED'
     clock[0]+=timedelta(minutes=5);args.update(meeting_id='third',call_id='A6:third')
     raw['exception_actions']=response()['exception_actions']
-    assert run_risk_exception(**args)['status']=='HALT' and len(seen)==2
+    assert run_risk_exception(**args)['status']=='READY' and len(seen)==3
+    with sqlite3.connect(args['store'].path) as db:
+        assert db.execute('SELECT * FROM risk_day_state').fetchall()==[]
 
 
 def test_not_enough_global_time_records_conservative_result_without_call(tmp_path):

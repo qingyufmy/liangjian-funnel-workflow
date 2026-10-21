@@ -1488,7 +1488,7 @@ def _exit_or_cancel(
         sellable = _sellable(plan)
         result["state"] = "EXIT_READY" if sellable else "EXIT_PENDING"
         result["action"] = action.value
-        result["reason_codes"] = [reason] if sellable else [reason, "BLOCKED_T1"]
+        result["reason_codes"] = [reason] if sellable else [reason, "T1_LOCKED"]
         result["met_conditions"] = ["POSITION_OPEN", reason]
         result["unmet_conditions"] = [] if sellable else ["SELLABLE_POSITION"]
         result["veto_conditions"] = [reason]

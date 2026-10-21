@@ -168,7 +168,7 @@ def test_apply_enforces_position_state_t1_account_status_and_forced_exit(tmp_pat
     bought = broker.apply(_action("paper:model-a", "buy", at, requested_qty=100, plan_id="p"), _bar(at + timedelta(minutes=1)))
     assert bought.status is SimulationStatus.FILLED
     assert broker.apply(_action("paper:model-a", "duplicate-buy", at + timedelta(minutes=2)), _bar(at + timedelta(minutes=3))).reason_code == "POSITION_ALREADY_OPEN"
-    assert broker.apply(_action("paper:model-a", "t1-sell", at + timedelta(minutes=2), "SELL"), _bar(at + timedelta(minutes=3))).reason_code == "BLOCKED_T1"
+    assert broker.apply(_action("paper:model-a", "t1-sell", at + timedelta(minutes=2), "SELL"), _bar(at + timedelta(minutes=3))).reason_code == "T1_LOCKED"
     assert broker.apply(_action("paper:model-a", "no-stop-add", at + timedelta(minutes=2), "ADD", stop=9), _bar(at + timedelta(minutes=3), close=8, low=7)).reason_code == "ADD_REQUIRES_OPEN_PROFIT"
 
     broker.start_trading_day(trade_date=datetime(2026, 8, 25, tzinfo=TZ).date())

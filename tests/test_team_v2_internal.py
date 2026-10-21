@@ -119,3 +119,18 @@ def test_priority_bounded_flush_and_deduped_guard_count(tmp_path):
     send,seen=sender(tmp_path,env={'SHADOW_RESEARCH_WEBHOOK':URL})
     assert box.flush(send,now=NOW,maximum=3)['sent']==3 and len(seen)==3
     assert '停止' in json.loads(seen[0].content)['content']['text']
+
+
+def test_rejected_provider_receipt_is_safe_and_only_new_incident_alerts_once(tmp_path):
+    box=outbox(tmp_path);event=enqueue(box)
+    send,seen=sender(tmp_path,lambda _:httpx.Response(200,json={'code':19024,'msg':'keywords not found PRIVATE_PROVIDER_BODY'}),
+        env={'SHADOW_RESEARCH_WEBHOOK':URL})
+    first=box.flush(send,now=NOW)
+    assert first['new_failure_notices']==1 and first['reason_code']=='INTERNAL_DELIVERY_UNCONFIRMED'
+    second=box.flush(send,now=NOW)
+    assert second['new_failure_notices']==0 and second['unconfirmed']==1
+    assert second['reason_code']=='INTERNAL_FLUSH_COMPLETED' and len(seen)==1
+    with sqlite3.connect(box.store.path) as db:
+        proof=json.loads(db.execute('SELECT receipt_json FROM team_internal_delivery_receipts WHERE event_id=?',(event,)).fetchone()[0])
+    assert proof['provider_code']==19024 and proof['http_status']==200 and proof['message_class']=='KEYWORD_POLICY'
+    assert b'PRIVATE_PROVIDER_BODY' not in box.store.path.read_bytes()

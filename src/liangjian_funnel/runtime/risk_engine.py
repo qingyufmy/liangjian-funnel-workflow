@@ -5,7 +5,7 @@ per immutable signal and reserve cash atomically with its paper order.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, time
 from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
@@ -53,6 +53,55 @@ def effective_risk_unit(plan, a6=None, pm=None, a4=None):
     return min(units, key={'NONE': 0, 'PROBE': 1, 'STANDARD': 2}.__getitem__)
 
 
+def clamp_entry_quantity(*,unit,nav,price,stop_price,risk_budget,symbol_value,
+                         position_pct,other_caps):
+    """Single PROBE nominal/risk/position clamp used at every sizing boundary.
+
+    Existing inventory and queued BUY reservations consume nominal room. Never
+    resize old lots or infer a sell from a newly tighter entry cap.
+    """
+    nav,price,stop_price,risk_budget,symbol_value,position_pct=map(_number,
+        (nav,price,stop_price,risk_budget,symbol_value,position_pct))
+    if unit not in {'NONE','PROBE','STANDARD'}:raise ValueError('RISK_UNIT_CAP_INVALID')
+    distance=price-stop_price
+    raw=risk_budget/distance if distance>0 else _ZERO
+    risk_qty=_lots(raw)
+    caps={key:max(0,int(value)) for key,value in other_caps.items()}
+    caps['POSITION_CAP']=_lots(max(_ZERO,nav*position_pct-symbol_value)/price) if price>0 else 0
+    probe=_lots(max(_ZERO,nav*Decimal('0.10')-symbol_value)/price) if price>0 else 0
+    if unit=='PROBE':caps['PROBE_NOTIONAL_CAP']=probe
+    qty=min(risk_qty,*caps.values()) if unit!='NONE' else 0
+    binding=tuple(key for key,value in caps.items() if value==qty and value<risk_qty)
+    audit=dict(nav=str(nav),price=str(price),stop_price=str(stop_price),risk_budget=str(risk_budget),
+        symbol_value=str(symbol_value),position_pct=str(position_pct),risk_unit=unit,
+        raw_risk_qty=str(raw),risk_round_lot_qty=risk_qty,cap20_qty=caps['POSITION_CAP'],
+        probe10_qty=probe if unit=='PROBE' else None,final_qty=qty,binding_limits=list(binding),
+        other_caps={key:int(value) for key,value in other_caps.items()})
+    return qty,audit
+
+
+def _cap_nominal(envelope,unit,*,plan=None,limits=None):
+    basis=envelope.quantity_audit
+    if not basis:return envelope  # historical projection; final admission rebuilds fresh below
+    limits=limits or RiskLimits()
+    qty,audit=clamp_entry_quantity(unit=unit,nav=basis['nav'],price=plan.price if plan else basis['price'],
+        stop_price=plan.stop_price if plan else basis['stop_price'],risk_budget=envelope.risk_budget,
+        symbol_value=basis['symbol_value'],position_pct=limits.max_position_pct,
+        other_caps={**basis['other_caps'],'UPSTREAM_CAP':envelope.max_shares_cap})
+    if (qty>=envelope.max_shares_cap and basis.get('risk_unit')==unit
+            and _number(basis['price'])==_number(audit['price'])
+            and _number(basis['stop_price'])==_number(audit['stop_price'])
+            and _number(basis['risk_budget'])==envelope.risk_budget):
+        return envelope
+    audit={**basis,**audit}
+    eligible=envelope.eligible and qty>0
+    return replace(envelope,max_shares_cap=min(envelope.max_shares_cap,qty),quantity_audit=audit,
+        eligible=eligible,risk_unit=envelope.risk_unit if eligible else 'NONE',
+        blocked_reasons=envelope.blocked_reasons if qty>0 else tuple(dict.fromkeys(
+            (*envelope.blocked_reasons,'PROBE_NOTIONAL_CAP' if unit=='PROBE' else 'ROUND_LOT_UNAVAILABLE'))),
+        binding_limits=tuple(dict.fromkeys((*envelope.binding_limits,*audit['binding_limits']))))
+
+
 def cap_risk_envelope(envelope, *, plan=None, a6=None, pm=None, a4=None, limits=None,
                       conservative_quantity=False):
     """Apply the common cap once, retaining provenance in the existing journal payloads."""
@@ -67,7 +116,7 @@ def cap_risk_envelope(envelope, *, plan=None, a6=None, pm=None, a4=None, limits=
         return replace(envelope,eligible=False,risk_unit='NONE',risk_budget=_ZERO,max_shares_cap=0,
             blocked_reasons=envelope.blocked_reasons or ('ENVELOPE_INELIGIBLE',))
     if unit != 'PROBE' or envelope.risk_unit != 'STANDARD':
-        return envelope
+        return _cap_nominal(envelope,unit,plan=plan,limits=limits)
     limits = limits or RiskLimits()
     factor = limits.probe_multiplier
     if envelope.high_conviction and not envelope.a6_tightened:
@@ -87,11 +136,12 @@ def cap_risk_envelope(envelope, *, plan=None, a6=None, pm=None, a4=None, limits=
         if value is not None and (value if isinstance(value, str) else _field(value, 'risk_unit')) == 'PROBE':
             sources.append(key+'.risk_unit')
     eligible = envelope.eligible and shares > 0
-    return replace(envelope, risk_unit='PROBE' if eligible else 'NONE', eligible=eligible,
+    changed=replace(envelope, risk_unit='PROBE' if eligible else 'NONE', eligible=eligible,
         risk_budget=budget, max_shares_cap=shares if eligible else 0,
         risk_cap_audit=tuple(dict.fromkeys((*envelope.risk_cap_audit, 'CLAMPED_TO_PROBE', *sources))),
         blocked_reasons=envelope.blocked_reasons if shares else tuple(dict.fromkeys(
             (*envelope.blocked_reasons, 'ROUND_LOT_UNAVAILABLE'))))
+    return _cap_nominal(changed,unit,plan=plan,limits=limits)
 
 
 def _number(value) -> Decimal:
@@ -225,6 +275,7 @@ class PlanRisk:
     max_batches: int = 1
     risk_unit: str = 'STANDARD'
     degradation_tags: tuple[str, ...] = ()
+    daily_atr14: Decimal | None = None
 
     def __post_init__(self):
         if (self.risk_unit not in {'STANDARD', 'PROBE'} or not isinstance(self.degradation_tags,(tuple,list))
@@ -235,6 +286,8 @@ class PlanRisk:
             object.__setattr__(self, key, _number(getattr(self, key)))
         if self.invalidation_price is not None:
             object.__setattr__(self, "invalidation_price", _number(self.invalidation_price))
+        if self.daily_atr14 is not None:
+            object.__setattr__(self,'daily_atr14',_number(self.daily_atr14))
         if self.valid_from is not None:
             _aware(self.valid_from)
         elif self.status != 'PENDING_MORNING_REVIEW':
@@ -263,6 +316,7 @@ class RiskEnvelope:
     plan_risk_unit: str = 'STANDARD'
     degradation_tags: tuple[str, ...] = ()
     risk_cap_audit: tuple[str, ...] = ()
+    quantity_audit: dict = field(default_factory=dict)
 
     def __post_init__(self):
         for key in ('blocked_reasons', 'binding_limits', 'degradation_tags', 'risk_cap_audit'):
@@ -280,6 +334,7 @@ class RiskDecision:
     shares: int
     reason_codes: tuple[str, ...]
     risk_unit: str
+    quantity_audit: dict = field(default_factory=dict)
 
 
 def build_risk_envelope(plan: PlanRisk, account: AccountRisk, positions: tuple[PositionRisk, ...],
@@ -360,7 +415,15 @@ def _build_envelope(plan, account, positions, limits, *, now, regime, cluster_si
         "CASH_RESERVE": account.cash - account.frozen_cash - account.nav * limits.min_cash_reserve_pct,
     }
     caps = {key: _lots(value / plan.price) if plan.price > 0 else 0 for key, value in room.items()}
-    qty = min(risk_qty, *caps.values()); binding = tuple(k for k, v in caps.items() if v == qty and v < risk_qty)
+    qty,quantity_audit=clamp_entry_quantity(unit=unit,nav=account.nav,price=plan.price,
+        stop_price=plan.stop_price,risk_budget=risk_budget,
+        symbol_value=sum((p.market_value for p in existing),_ZERO),position_pct=limits.max_position_pct,
+        other_caps={key:value for key,value in caps.items() if key!='POSITION_CAP'})
+    binding=quantity_audit['binding_limits']
+    quantity_audit['daily_atr14']=str(plan.daily_atr14) if plan.daily_atr14 is not None else None
+    tight=bool(plan.daily_atr14 is not None and 0<plan.price-plan.stop_price<plan.daily_atr14)
+    quantity_audit['stop_distance_atr']=str((plan.price-plan.stop_price)/plan.daily_atr14) if plan.daily_atr14 else None
+    quantity_audit['review_flags']=['STOP_TOO_TIGHT'] if tight else []
     if qty <= 0: reasons.extend(k for k, v in caps.items() if v <= 0); reasons.append("ROUND_LOT_UNAVAILABLE")
     return RiskEnvelope(plan.plan_id, plan.symbol, now.date().isoformat(), not reasons,
                         unit if not reasons else "NONE", risk_budget, plan.max_batches,
@@ -368,7 +431,7 @@ def _build_envelope(plan, account, positions, limits, *, now, regime, cluster_si
                         a6_tightened, high_conviction, purpose, plan.risk_unit, plan.degradation_tags,
                         ('CLAMPED_TO_PROBE', *tuple(['plan.risk_unit'] if plan.risk_unit=='PROBE' else []),
                          *tuple('plan.'+tag for tag in plan.degradation_tags))
-                        if unit=='PROBE' and regime_unit=='STANDARD' else ())
+                        if unit=='PROBE' and regime_unit=='STANDARD' else (),quantity_audit)
 
 
 def conservative_envelope(envelope: RiskEnvelope, *, consecutive_failures: int) -> RiskEnvelope:
@@ -400,13 +463,14 @@ def adjudicate_signal(signal_id: str, action: str, plan: PlanRisk, envelope: Ris
         if not plan.data_ready: return reject("DATA_NOT_READY")
         held = [p for p in positions if p.symbol == plan.symbol and p.plan_id == plan.plan_id]
         qty = sum(p.sellable_qty for p in held)
-        if not qty: return reject("T1_NOT_SELLABLE")
+        if not qty: return reject("T1_LOCKED")
         # Never expand an exact position into a different plan or broker account.
         shares = qty if action == "SELL_SIGNAL" else max(1, qty // 2)
         return RiskDecision(signal_id, plan.plan_id, "APPROVED", shares, (), "NONE")
     fresh = build_risk_envelope(plan, account, positions, limits, now=now, regime=regime,
                                cluster_signals_today=cluster_signals_today, action=action,
                                high_conviction=envelope.high_conviction, a6_tightened=envelope.a6_tightened)
+    upstream_cap=envelope.max_shares_cap
     envelope = cap_risk_envelope(envelope, plan=plan, limits=limits)
     if not envelope.eligible or not fresh.eligible:
         return reject(*(envelope.blocked_reasons or fresh.blocked_reasons or ("ENVELOPE_INELIGIBLE",)))
@@ -415,6 +479,7 @@ def adjudicate_signal(signal_id: str, action: str, plan: PlanRisk, envelope: Ris
     shares = min(envelope.max_shares_cap, fresh.max_shares_cap, risk_cap)
     if shares <= 0: return reject("ROUND_LOT_UNAVAILABLE")
     codes = tuple(dict.fromkeys((*fresh.binding_limits, *envelope.risk_cap_audit, *fresh.risk_cap_audit,
-        *(("A6_RISK_BUDGET_CAP",) if risk_cap < min(envelope.max_shares_cap, fresh.max_shares_cap) else ()))))
+        *(("A6_RISK_BUDGET_CAP",) if risk_cap < min(upstream_cap, fresh.max_shares_cap) else ()))))
     return RiskDecision(signal_id, plan.plan_id, "REDUCED" if codes else "APPROVED",
-                        shares, codes, effective_risk_unit(plan, envelope, fresh))
+                        shares, codes, effective_risk_unit(plan, envelope, fresh),
+                        {**fresh.quantity_audit,'final_qty':shares,'binding_limits':list(codes)})

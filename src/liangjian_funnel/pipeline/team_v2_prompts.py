@@ -44,6 +44,24 @@ class TeamMessageRequest:
     evidence_catalog_hash: str
 
 
+def with_runtime_contract(request,contract):
+    """Append server schema facts at the final request edge and bind their bytes.
+
+    Authored role bytes remain untouched; this is not a validation relaxation.
+    """
+    if len(request.messages)!=2 or not request.messages[1]['content'].startswith('RUNTIME_INPUT\n'):
+        raise ValueError('TEAM_RUNTIME_CONTRACT_BINDING_INVALID')
+    runtime=json.loads(request.messages[1]['content'].removeprefix('RUNTIME_INPUT\n'))
+    runtime['server_output_contract']=contract
+    content='RUNTIME_INPUT\n'+json.dumps(runtime,ensure_ascii=False,sort_keys=True,
+        separators=(',',':'),allow_nan=False)
+    messages=(request.messages[0],MappingProxyType({'role':'user','content':content}))
+    binding=json.dumps([dict(message) for message in messages],ensure_ascii=False,
+        sort_keys=True,separators=(',',':'),allow_nan=False)
+    return TeamMessageRequest(request.prompt,messages,hashlib.sha256(binding.encode()).hexdigest(),
+        request.evidence_catalog_hash)
+
+
 _ENVELOPE_KEYS = frozenset('schema_version run_id stage_id source_trade_date execution_trade_date as_of '
     'knowledge_cutoff input_snapshot_ids config_version config_hash prompt_version model_name market_regime '
     'status reason_codes'.split())

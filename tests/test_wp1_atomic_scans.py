@@ -179,7 +179,7 @@ def test_research_scan_preserves_protective_gates_and_no_short_circuit_pass(prot
     assert result['action'] != 'BUY_SIGNAL'
     if protection == 'STOP':
         assert result['action'] == 'FORCED_RISK_EXIT'
-        assert 'BLOCKED_T1' in result['reason_codes']
+        assert 'T1_LOCKED' in result['reason_codes']
         assert result['ablation']['sequence_evidence']['evidence_scope'] == 'NOT_REACHED'
     if protection == 'MARKET': assert result['ablation']['status'] == 'DATA_LIMITED'
 

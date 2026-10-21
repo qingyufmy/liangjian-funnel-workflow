@@ -832,7 +832,7 @@ class MonitorEngine:
         self, lane_id, minute, snapshot_id, prior_events, current_events, bars, observation_end,
     ):
         for row in prior_events:
-            if row.get('reason_code') != 'T1_RISK_PENDING':
+            if row.get('reason_code') not in {'T1_LOCKED', 'T1_RISK_PENDING'}:
                 continue
             try:
                 original_minute = datetime.fromisoformat(row['minute_end'])
@@ -861,6 +861,8 @@ class MonitorEngine:
                 reason_code='T1_OPEN_REASSESSMENT', effective=False,
                 payload={'plan_id': body.get('plan_id'), 'symbol': symbol,
                     'source_pending_event_id': row.get('event_id'),
+                    'due_at': minute.replace(hour=9,minute=35,second=0,microsecond=0).isoformat(),
+                    'first_attempt_by_0935': (minute.hour,minute.minute)<=(9,35),
                     'minute_snapshot_id': snapshot_id, 'status': status,
                     'new_price': bar.close if trusted else None,
                     'new_price_as_of': bar.bar_end.isoformat() if trusted else None,
@@ -1231,7 +1233,7 @@ class MonitorEngine:
                     MonitorAction.NO_ACTION.value, "EXIT_WITHOUT_POSITION", plan_id, symbol)
             available = sellable_qty(self.store, account, symbol, minute)
             if available is None or available <= 0:
-                pending_reason = "T1_RISK_PENDING" if available == 0 else "SELLABLE_QUANTITY_UNKNOWN"
+                pending_reason = "T1_LOCKED" if available == 0 else "SELLABLE_QUANTITY_UNKNOWN"
                 # A durable non-executable risk task, not an effective SELL.
                 # One row per account/symbol/day survives restarts and all
                 # repeated REDUCE/SELL/hard-stop ticks. Never auto-submit it.
@@ -1250,6 +1252,7 @@ class MonitorEngine:
                             "trigger_bar_end": observed_bar.bar_end.isoformat() if observed_bar is not None else None,
                             "trigger_low": observed_bar.low if observed_bar is not None else None,
                             "source_observed_at": minute.isoformat(),
+                            "audit_reason_code": pending_reason,
                             "not_an_executable_order": True},
                         "strategy": dict(strategy_result or {})},
                 )
