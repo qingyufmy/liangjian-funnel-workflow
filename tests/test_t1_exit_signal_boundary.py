@@ -98,6 +98,16 @@ def test_yesterday_dated_lot_releases_even_before_position_cache_day_roll():
     assert sellable_qty(store,'paper:lane_1','002270.SZ',AT)==0
 
 
+@pytest.mark.parametrize('cache',['missing',None,'expired',False])
+def test_missing_or_invalid_display_cache_never_overrides_dated_lots(cache):
+    store=EventStore([lot(700,'2026-10-20','2026-10-21')],700,0)
+    if cache=='missing':store.position.pop('sellable_qty')
+    else:store.position['sellable_qty']=cache
+    assert sellable_qty(store,'paper:lane_1','002270.SZ',AT)==700
+    store.lots=[lot(700)]
+    assert sellable_qty(store,'paper:lane_1','002270.SZ',AT)==0
+
+
 def test_next_open_reassesses_fresh_price_not_the_old_action():
     import json
     from types import SimpleNamespace
