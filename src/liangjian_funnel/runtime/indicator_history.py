@@ -3,6 +3,7 @@ import json
 import hashlib
 from datetime import datetime, timedelta
 from collections.abc import Mapping
+from .history_freshness import session_grid, validate_session_seed
 
 
 def prepare_pattern_history(plans, *, now, calendar, minute_store, provider):
@@ -17,10 +18,7 @@ def prepare_pattern_history(plans, *, now, calendar, minute_store, provider):
         prior=calendar.previous_trading_day(target);symbol=str(plan['symbol']);key=(symbol,prior)
         if key not in memo:
             cutoff=now.replace(year=prior.year,month=prior.month,day=prior.day,hour=15,minute=0,second=0,microsecond=0)
-            expected=set()
-            for hour in (9,13):
-                start=cutoff.replace(hour=hour,minute=30 if hour==9 else 0)
-                expected.update(start+timedelta(minutes=5*n) for n in range(1,25))
+            expected=set(session_grid(prior))
             row=dict(symbol=symbol,status='DATA_LIMITED',required_5m_count=48,
                 source_trade_date=prior.isoformat(),history_cutoff=cutoff.isoformat(),requests=0)
             present=set();selected=[]
@@ -31,6 +29,7 @@ def prepare_pattern_history(plans, *, now, calendar, minute_store, provider):
             try:
                 if cutoff>now:raise ValueError('PATTERN_HISTORY_CUTOFF_NOT_CLOSED')
                 cached=minute_store.load_latest(symbol,'5m',limit=96,before=cutoff+timedelta(seconds=1))
+                row['actual_latest_date']=max((b.bar_end.date().isoformat() for b in cached),default=None)
                 selected=[b for b in cached if native(b)]
                 present={b.bar_end for b in selected}
                 if not expected<=present:
@@ -46,6 +45,10 @@ def prepare_pattern_history(plans, *, now, calendar, minute_store, provider):
                     minute_store.write(bars)
                     present|={b.bar_end for b in bars}
                     selected=bars
+                selected,strict=validate_session_seed(symbol,selected,target_trade_date=target,
+                    calendar=calendar,as_of=now,actual_latest_date=row.get('actual_latest_date'))
+                if strict['status']!='READY':raise ValueError('PATTERN_HISTORY_48_INCOMPLETE')
+                row['actual_latest_date']=prior.isoformat()
                 evidence=[b.model_dump(mode='json') for b in sorted(selected,key=lambda b:b.bar_end)]
                 row.update(status='READY',reason_code='OK',available_5m_count=48,opening_prefix_ready=True,
                     native_rowset_sha256=hashlib.sha256(json.dumps(evidence,sort_keys=True,separators=(',',':')).encode()).hexdigest(),

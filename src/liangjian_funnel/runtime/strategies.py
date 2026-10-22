@@ -594,6 +594,16 @@ def evaluate_strategy(
         entry_confirmation_source_sha256=confirmation_source_sha256,
         entry_confirmation_plan_id=(market_context or {}).get("entry_confirmation_plan_id"),
     )
+    # LJ-052 is a server-owned source gate. Never block an existing holding's
+    # stop/exit, and never let current-session warmup erase an invalid seed.
+    seed=(market_context or {}).get('historical_5m_readiness')
+    if (isinstance(seed,Mapping) and seed.get('status')!='READY'
+            and result.get('action') not in {'SELL_SIGNAL','REDUCE_SIGNAL','FORCED_RISK_EXIT'}
+            and (not _position_open(payload) or result.get('action') in {'BUY_SIGNAL','ADD_SIGNAL'})):
+        result.update(state='DATA_BLOCKED',action=A4Action.DATA_BLOCK.value,
+            reason_codes=_unique([*result.get('reason_codes',()),seed.get('reason_code') or
+                'HISTORICAL_5M_PREVIOUS_SESSION_UNPROVEN']))
+        result['historical_5m_readiness']=dict(seed)
     # Policy is a frozen runtime input, not an edit to the persisted A3 plan.
     # Absence deliberately retains the historical one-bar contract for replay.
     policy = _lookup(payload, ("market_context", "runtime_policy"))

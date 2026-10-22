@@ -3,7 +3,7 @@
 No legacy application/store constructor, source fetch, activation or customer
 I/O. Later edges consume the frozen first edge, never silently rebuild it.
 """
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, time
 from decimal import Decimal as D
 import hashlib
@@ -88,6 +88,19 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
         hard_halt=bool(snapshot['global_halt'] or basis['halt_reason_codes']))
     envelopes=tuple(build_planning_envelope(p,view,tuple(positions),limits,now=now,regime=source['market_regime']) for p in plans)
     envelopes=tuple(probe_envelope(e,first_policy,now=now,probe_multiplier=limits.probe_multiplier) for e in envelopes)
+    from .history_freshness import inspect_plan_seeds
+    seed_freshness=inspect_plan_seeds(source['plans'],path=settings.minute_cache_dir/'minute_bars.sqlite3',
+        target_trade_date=now.date(),calendar=calendar,as_of=now)
+    missing={r['plan_id']:r for r in seed_freshness['plans'] if r['status']!='READY'}
+    envelopes=tuple(replace(e,eligible=False,risk_unit='NONE',risk_budget=D(0),max_shares_cap=0,
+        blocked_reasons=tuple(dict.fromkeys((*e.blocked_reasons,missing[e.plan_id]['reason_code']))),
+        degradation_tags=tuple(dict.fromkeys((*e.degradation_tags,'DATA_LIMITED'))))
+        if e.plan_id in missing else e for e in envelopes)
+    if missing:
+        from .provider_health import queue_internal
+        queue_internal(settings,kind='PLAN_HISTORY_INCOMPLETE',source_id='morning-seed:'+source['trade_date'],
+            text='盘前历史5分钟种子未齐：'+','.join(sorted({r['symbol'] for r in missing.values()}))+
+            '；必须为上一交易日闭合48根，晨会已标数据受限。',now=now)
     raw=(settings.root/'config/team_v2_deployment.yaml').read_bytes()
     policy=yaml.safe_load(raw)
     if policy.get('schema_version')!='team-deployment/1':raise ValueError('DEPLOYMENT_POLICY_INVALID')
@@ -107,6 +120,7 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
         risk_limits_sha256=hashlib.sha256((settings.root/'config/risk_limits.yaml').read_bytes()).hexdigest(),
         external_adjustment=external,rule_preflight=rule_source,
         emotion_baseline={k:v for k,v in emotion_baseline.items() if k not in ('catalogue','previous_streaks','source_results')},
+        seed_freshness=seed_freshness,
         authority='PLANNING_ONLY_NOT_EXECUTION_PERMISSION')
     return store.record_morning_engine(ACCOUNT,source['trade_date'],body)
 
@@ -139,6 +153,15 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
         return dict(status='BLOCKED',reason_code='MORNING_RISK_POLICY_CHANGED')
     envelopes=_envelopes(frozen['envelopes'])
     meeting_plans=meeting_plan_facts(frozen['source']['plan_rows'])
+    missing={r['plan_id']:r for r in frozen.get('seed_freshness',{}).get('plans',[]) if r['status']!='READY'}
+    for fact in meeting_plans:
+        if fact['plan_id'] not in missing:continue
+        old=fact['publication_facts'].get('source_data_limits') or {}
+        detail=dict(old,status='DATA_LIMITED',authority='0589_PLAN_HISTORY_GAPS',
+            reason_codes=list(dict.fromkeys([*old.get('reason_codes',()),missing[fact['plan_id']]['reason_code']])),
+            history_readiness=missing[fact['plan_id']],
+            a6_explicit_review_required=True,maximum_risk_unit='PROBE')
+        fact['publication_facts']={**fact['publication_facts'],'DATA_LIMITED':True,'source_data_limits':detail}
     catalog={'categories':['ACCOUNT','MARKET','PLAN'], 'items':[
         {'id':'MORNING:ACCOUNT','category':'ACCOUNT','value':frozen['snapshot']},
         {'id':'MORNING:MARKET','category':'MARKET','value':{'market_regime':source['market_regime'],

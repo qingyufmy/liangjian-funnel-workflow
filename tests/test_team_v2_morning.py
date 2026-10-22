@@ -41,6 +41,14 @@ def fixture(tmp_path, *, trade_date='2026-10-19'):
         db.execute('INSERT INTO execution_plans VALUES (?,?,?,?,?,?,?)',('p1',settings.research_primary_lane_id,
             raw['symbol'],'PENDING_MORNING_REVIEW',trade_date+'T09:32:00+08:00',trade_date+'T15:00:00+08:00',json.dumps(raw)))
     clock=SimpleNamespace(now=datetime.fromisoformat(trade_date+'T08:33:00+08:00'))
+    # This wiring fixture promises a usable plan; provide the now-explicit
+    # previous-session native seed instead of bypassing the LJ-052 source gate.
+    from liangjian_funnel.data.cache import MinuteBarStore
+    from liangjian_funnel.data.mootdx import MinuteBar
+    from liangjian_funnel.runtime.history_freshness import session_grid
+    MinuteBarStore(settings.minute_cache_dir).write(tuple(MinuteBar(symbol=raw['symbol'],interval='5m',
+        bar_end=end,open=10,high=10.1,low=9.9,close=10,volume=100,amount=1000,
+        source_id='fixture:native',adjust_mode='none') for end in session_grid(date.fromisoformat(source_day))))
     return settings,clock
 
 

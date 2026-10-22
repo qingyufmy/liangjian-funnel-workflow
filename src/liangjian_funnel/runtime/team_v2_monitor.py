@@ -191,11 +191,17 @@ def _run_monitor_control(application,*,now=None,clock=None,client=None,tradabili
             # Existing closed local cache only; this is ATR/V6 warmup, never
             # a source request or a replacement for missing current buckets.
             try:
-                past=application.minute_store.load_latest(plan.symbol,'5m',limit=20,
-                    before=current.replace(hour=0,minute=0,second=0,microsecond=0))
+                from .history_freshness import read_previous_session_seed
+                past,seed=read_previous_session_seed(application.minute_store.path,plan.symbol,
+                    target_trade_date=current.date(),calendar=calendar,as_of=current)
                 context['historical_5m']=[item.model_dump(mode='json') for item in past]
+                context['historical_5m_readiness']=seed
             except Exception:
                 context['historical_5m']=[]
+                context['historical_5m_readiness']={'status':'DATA_BLOCKED',
+                    'reason_code':'HISTORICAL_5M_PREVIOUS_SESSION_UNPROVEN'}
+            if context['historical_5m_readiness']['status']!='READY':
+                entry_proven[plan.plan_id]=False
         contexts[plan.plan_id]=context
         from .team_v2_trader_inputs import model_closed_context
         model_contexts[plan.plan_id]=model_closed_context(context,bars,cutoff=cutoff)

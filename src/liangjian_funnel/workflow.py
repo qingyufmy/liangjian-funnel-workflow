@@ -5436,11 +5436,15 @@ class WorkflowApplication:
                 if confirmation_overlay or any(str(json.loads(p.get("payload_json") or "{}").get("strategy_profile")) == "MA520_SWING"
                        for p in lane_plans[lane_id] if p.get("symbol") == symbol):
                     try:
-                        past = self.minute_store.load_latest(symbol, "5m", limit=360,
-                            before=current.replace(hour=0, minute=0, second=0, microsecond=0))
+                        from .runtime.history_freshness import read_previous_session_seed
+                        past, seed = read_previous_session_seed(self.minute_store.path,symbol,
+                            target_trade_date=current.date(),calendar=self.trading_calendar,as_of=current)
                         contexts[symbol]["historical_5m"] = [bar.model_dump(mode="json") for bar in past]
+                        contexts[symbol]["historical_5m_readiness"] = seed
                     except Exception:
                         contexts[symbol]["historical_5m"] = []
+                        contexts[symbol]["historical_5m_readiness"] = {"status":"DATA_BLOCKED",
+                            "reason_code":"HISTORICAL_5M_PREVIOUS_SESSION_UNPROVEN"}
             # A cache/database write failure is a system-level boundary: the
             # entire lane must fail closed.  Provider gaps/fetch failures are
             # retained in ``data_errors`` and only block their own symbols.

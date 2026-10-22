@@ -36,7 +36,9 @@ def prepared(tmp_path,monkeypatch, *, trade_date='2026-10-19'):
     def quote(symbol,at,**kwargs):
         return QuoteResult(symbol=symbol,complete=True,reason_code='OK',quote=MarketQuote(symbol=symbol,
             quote_time=clock.now,price=10,open=10,previous_close=10,volume=10000,amount=100000))
-    app=SimpleNamespace(settings=settings,trading_calendar=CAL,market_data=object(),_fetch_live_bars=bars,_fetch_live_quote=quote)
+    from liangjian_funnel.data.cache import MinuteBarStore
+    app=SimpleNamespace(settings=settings,trading_calendar=CAL,market_data=object(),_fetch_live_bars=bars,_fetch_live_quote=quote,
+        minute_store=MinuteBarStore(settings.minute_cache_dir))
     import liangjian_funnel.runtime.live_market as live
     monkeypatch.setattr(live,'load_or_refresh_live_market_state',lambda *a,**kw:dict(status='READY',
         as_of=clock.now.isoformat(),trade_date=clock.now.date().isoformat(),entry_permission='ALLOW'))
