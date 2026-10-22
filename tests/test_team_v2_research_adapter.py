@@ -1,5 +1,4 @@
 """Actual ResearchPipeline dispatch to Team blind review, no live resources."""
-from fixture_model_stream import sse_model_response
 from datetime import datetime
 from copy import deepcopy
 import json
@@ -74,7 +73,7 @@ def actual_fixture(tmp_path, *, veto=False, invalid=False, eligibility='QUALIFIE
             output['core_watch_pool'][0]['no_chase_price'] = 999
         if quarantine:
             output['core_watch_pool'][0]['trade_brief'] = {}
-        return sse_model_response(200, json={'choices': [{'message': {'content': json.dumps(output)}}]}, request=request)
+        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(output)}}]}, request=request)
     settings = Settings.from_env({'LIANGJIAN_MODEL_API_KEY': 'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'}, root=tmp_path)
     journal = ModelJudgmentJournal(tmp_path / 'models.sqlite3'); store = TeamMeetingStore(tmp_path / 'team.sqlite3')
     calendar = SimpleNamespace(is_trading_day=lambda day: day.isoformat() == '2026-10-16',

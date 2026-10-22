@@ -1,5 +1,4 @@
 """Actual A6 client transport mocked; durable failure latch and original JSON."""
-from fixture_model_stream import sse_model_response
 from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
@@ -36,7 +35,7 @@ def fixture(tmp_path,*,invalid=False,offline=False):
     def handler(request):
         seen.append(json.loads(request.read()))
         if offline:raise httpx.ConnectError('PRIVATE_PROVIDER_DETAILS',request=request)
-        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
     settings=Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path)
     kwargs=dict(repository=repo,client=OpenAICompatibleModelClient(settings,transport=httpx.MockTransport(handler),max_attempts=1),
         journal=ModelJudgmentJournal(tmp_path/'model.db'),store=TeamMeetingStore(tmp_path/'team.db'),

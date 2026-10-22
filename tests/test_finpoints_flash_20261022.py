@@ -52,9 +52,8 @@ def test_real_client_preserves_exact_url_model_and_json_for_each_role(tmp_path, 
         assert request.headers['authorization'] == 'Bearer synthetic-test-only-no-real-key'
         assert body['response_format'] == {'type': 'json_object'}
         # Provider switching must not leak Ark-specific options onto Finpoints.
-        assert body['thinking'] == {'type':'disabled'}
-        assert 'enable_thinking' not in body and 'reasoning_effort' not in body
-        return httpx.Response(200, headers={'Content-Type':'text/event-stream'}, content='data: '+json.dumps({'choices':[{'delta':{'content':'{"ok":true}'}}]})+'\n\ndata: [DONE]\n\n')
+        assert 'thinking' not in body
+        return httpx.Response(200, json={'choices':[{'message':{'content':'{"ok":true}'}}]})
     client = OpenAICompatibleModelClient(configured(tmp_path), transport=httpx.MockTransport(handler))
     response = client.complete(MODEL, [{'role':'user','content':'synthetic facts'}],stage=role,team_session=session,max_output_tokens=1024)
     assert response.output == {'ok': True} and len(seen) == 1

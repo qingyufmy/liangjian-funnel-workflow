@@ -1,5 +1,4 @@
 """Natural EOD CLI path: existing account, exact morning policy, mock HTTP."""
-from fixture_model_stream import sse_model_response
 from datetime import datetime
 import json
 import sqlite3
@@ -36,7 +35,7 @@ def prepared(tmp_path,*,bad=None):
                 for value in node:refs(value)
         refs(raw)
         if bad==role:raise httpx.ConnectError('PRIVATE_PROVIDER_DETAIL',request=request)
-        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
     api=OpenAICompatibleModelClient(settings,transport=httpx.MockTransport(handler),max_attempts=1)
     return settings,clock,api,seen
 

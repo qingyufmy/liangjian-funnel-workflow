@@ -1,4 +1,3 @@
-from fixture_model_stream import sse_model_response
 from datetime import datetime,timedelta
 from pathlib import Path
 import json
@@ -47,7 +46,7 @@ def test_exact_authored_radar_http_to_schema_and_research_judgment_only(tmp_path
     raw=radar();raw['envelope']=envelope
     def handler(request):
         seen.append(json.loads(request.read()))
-        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
     settings=Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path)
     client=OpenAICompatibleModelClient(settings,transport=httpx.MockTransport(handler),max_attempts=1)
     journal=ModelJudgmentJournal(tmp_path/'research.db')
@@ -96,7 +95,7 @@ def test_pm_intraday_flash_http_schema_only_not_live_activation(tmp_path):
     raw = pmi(); raw['envelope'] = envelope; seen = []
     def handler(request):
         seen.append(json.loads(request.read()))
-        return sse_model_response(200, json={'choices': [{'message': {'content': json.dumps(raw)}}]}, request=request)
+        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(raw)}}]}, request=request)
     server = context(tmp_path); server.pop('required_envelope')
     result = call_intraday_research(role='A3', repository=repo,
         client=OpenAICompatibleModelClient(settings, transport=httpx.MockTransport(handler), max_attempts=1),

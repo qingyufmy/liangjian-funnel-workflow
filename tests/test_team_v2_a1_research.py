@@ -1,4 +1,3 @@
-from fixture_model_stream import sse_model_response
 from copy import deepcopy
 from contextlib import closing
 from datetime import datetime
@@ -56,7 +55,7 @@ def fixture(tmp_path, *, mutate=None,discovery=False):
             for i,row in enumerate(output['industry_chain_graph']):
                 row.update(source_refs=['policy-ref'],chain_position=('UPSTREAM','MIDSTREAM','DOWNSTREAM')[(i//12)%3])
             if mutate:mutate(output)
-        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(output)}}]},request=request)
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(output)}}]},request=request)
     settings=Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path)
     journal=ModelJudgmentJournal(tmp_path/'model.db');store=TeamMeetingStore(tmp_path/'team.db')
     calendar=SimpleNamespace(is_trading_day=lambda _:True,next_trading_day=lambda _:datetime.fromisoformat('2026-10-19').date())

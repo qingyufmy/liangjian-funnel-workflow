@@ -1,4 +1,3 @@
-from fixture_model_stream import sse_model_response
 from contextlib import closing
 from copy import deepcopy
 from datetime import date,datetime,time,timedelta
@@ -223,7 +222,7 @@ def test_actual_a5_http_mock_selects_mature_method_then_research_reader_excludes
     output['method_feedback']['A2']=[dict(method_id=method_id or method['method_id'],stance=stance,evidence_ids=['A5:METHOD:A2'],
         opposing_refs=['A5:LEGACY'],note='Do not inject stock 000001.SZ return 999 into another model')]
     client=OpenAICompatibleModelClient(Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path),
-        transport=httpx.MockTransport(lambda request:sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(output)}}]},request=request)),max_attempts=1)
+        transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(output)}}]},request=request)),max_attempts=1)
     result=run_team_review(repository=TeamPromptRepository(Path(__file__).resolve().parents[1]/'prompts/team_v2'),client=client,
         journal=journal,store=store,review_id='actual-a5',call_id='actual-a5-model',account_id='paper',run_id=envelope['run_id'],
         model=envelope['model_name'],trade_date='2026-09-25',source_trade_date='2026-09-24',review_kind='POST_CLOSE',clock=lambda:ASOF,

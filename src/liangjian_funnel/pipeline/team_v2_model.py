@@ -29,8 +29,7 @@ _SAFE_MODEL_FAILURE_CODES = frozenset('''
     RESPONSE_JSON_INVALID RESPONSE_BODY_TOO_LARGE MODEL_OUTPUT_TRUNCATED
     STREAM_SSE_INVALID STREAM_UPSTREAM_ERROR STREAM_CHOICES_INVALID STREAM_DELTA_INVALID
     STREAM_CONTENT_INVALID STREAM_EMPTY STREAM_DONE_MISSING STREAM_CONTENT_MISSING
-    CHOICES_INVALID MESSAGE_INVALID FINPOINTS_STREAM_REQUIRED
-    MODEL_STREAM_TELEMETRY_PERSIST_FAILED
+    CHOICES_INVALID MESSAGE_INVALID
     PM_FIRST_PACKET_TIMEOUT PM_TOTAL_TIMEOUT
 '''.split())
 
@@ -121,7 +120,6 @@ def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJ
         status=getattr(exc,'status_code',None) if isinstance(exc,ModelClientError) else None
         code=getattr(exc,'reason_code',None) if isinstance(exc,ModelClientError) else None
         observe(status='TRANSPORT_FAILED',exception_class=type(exc).__name__,
-            provider_stream=(getattr(exc,'diagnostics',None) or {}).get('provider_stream'),
             failure_code=code if code in _SAFE_MODEL_FAILURE_CODES else 'UNCLASSIFIED_MODEL_FAILURE',
             provider_attempts=attempts if type(attempts) is int and attempts>=0 else None,
             http_status=status if type(status) is int and 100<=status<=599 else None,
@@ -144,7 +142,6 @@ def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJ
         validation = TeamValidation(False, ("TEAM_VALIDATOR_FAILED",), (), 0)
     output_text=json.dumps(response.output,ensure_ascii=False,sort_keys=True,separators=(',',':'))
     observe(status='VALIDATED' if validation.valid else 'VALIDATION_FAILED',
-        provider_stream=response.provider_stream_telemetry,
         provider_attempts=response.attempts,provider_latency_ms=response.latency_ms,
         output_chars=len(output_text),output_bytes=len(output_text.encode('utf-8')),
         validation_issues=list(validation.issues),reasoning_tokens=response.reasoning_tokens,

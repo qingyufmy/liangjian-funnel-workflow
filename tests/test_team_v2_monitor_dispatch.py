@@ -1,4 +1,3 @@
-from fixture_model_stream import sse_model_response
 from copy import deepcopy
 from contextlib import closing
 from datetime import timedelta
@@ -53,7 +52,7 @@ def prepared(tmp_path,monkeypatch, *, trade_date='2026-10-19'):
         raw['decision_id']=runtime['inputs']['DECISION_ID'];raw['minute_snapshot_id']=runtime['inputs']['MINUTE_SNAPSHOT_ID']
         raw['signals'][0].update(supporting_refs=['LIVE:MARKET'],opposing_refs=['TECH:p1'],tech_reference_review=[
             dict(item=k,status=v,my_read='isolated alternative evidence LIVE:MARKET') for k,v in refs['p1'].items() if v=='UNMET'])
-        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
     trader=OpenAICompatibleModelClient(settings,transport=httpx.MockTransport(handler),max_attempts=1)
     def proof(*args,**kwargs):
         return dict(status='KNOWN',halted=False,limit_up=False,limit_down=False,entry_tradable=True)

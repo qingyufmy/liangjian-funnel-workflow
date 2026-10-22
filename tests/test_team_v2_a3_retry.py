@@ -1,4 +1,3 @@
-from fixture_model_stream import sse_model_response
 from copy import deepcopy
 import json
 import sqlite3
@@ -59,7 +58,7 @@ def test_actual_transport_corrects_second_answer_without_r1_and_replays_no_http(
             assert row['actual_fields']['risk_unit']=='STANDARD'
             assert row['legal_fields']['risk_unit']==['PROBE']
             assert runtime['correction_attempt']==2
-        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
     args['client'].transport=httpx.MockTransport(handler)
     monkeypatch.setattr(module,'recover_plan_review',lambda *a,**k:None)
     result=module.run_plan_review(**args)
@@ -96,7 +95,7 @@ def test_deadline_final_projection_pins_last_actual_answer_not_uncalled_feedback
     clock=[100.0];monkeypatch.setattr(module.time,'monotonic',lambda:clock[0])
     def handler(request):
         seen.append(json.loads(request.read()));clock[0]=200
-        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
     args['client'].transport=httpx.MockTransport(handler)
     result=module.run_plan_review(**args,deadline_monotonic=125)
     assert result['status']=='READY' and result['provider_validated'] is False and len(seen)==1
@@ -146,7 +145,7 @@ def test_actual_14a_full16_original_corrected_with_r1_disabled(tmp_path,monkeypa
             assert len(rows)==1 and rows[0]['symbol']=='000576.SZ'
             assert rows[0]['actual_fields']['risk_unit']=='STANDARD' and rows[0]['legal_fields']['risk_unit']==['PROBE']
             output['core_watch_pool'][0]['risk_unit']='PROBE'
-        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(output)}}]},request=request)
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(output)}}]},request=request)
     args['client'].transport=httpx.MockTransport(handler)
     monkeypatch.setattr(module,'recover_plan_review',lambda *a,**k:None)
     result=module.run_plan_review(**args)

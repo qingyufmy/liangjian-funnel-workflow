@@ -1,5 +1,4 @@
 """Customer v1 unchanged; independent actual client at mocked HTTP only."""
-from fixture_model_stream import sse_model_response
 from datetime import datetime
 from decimal import Decimal
 import hashlib
@@ -57,7 +56,7 @@ def fixture(tmp_path,*,invalid=False):
         raw=report(runtime['required_envelope'])
         raw['review_kind']=runtime['session']
         if invalid:raw['unknown_order_permission']=True
-        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
     client=OpenAICompatibleModelClient(settings,transport=httpx.MockTransport(handler),max_attempts=1)
     return settings,client,seen,facts
 

@@ -1,5 +1,4 @@
 """Actual RO legacy SQL -> owned engine -> real clients at mocked HTTP -> PM."""
-from fixture_model_stream import sse_model_response
 from copy import deepcopy
 from contextlib import closing
 from datetime import date, datetime
@@ -66,7 +65,7 @@ def client(settings,*,risk_cap=65,probe=True,offline=False):
             raw['deployment_target'].update(target_pct=min(60,risk_cap),baseline_range=bounds)
         body=json.dumps(raw).replace('"C1"','"MORNING:ACCOUNT"').replace('"M1"','"MORNING:MARKET"')
         body=body.replace('"A"','"MORNING:ACCOUNT"').replace('"M"','"MORNING:MARKET"')
-        return sse_model_response(200,json={'choices':[{'message':{'content':body}}]},request=request)
+        return httpx.Response(200,json={'choices':[{'message':{'content':body}}]},request=request)
     return OpenAICompatibleModelClient(settings,transport=httpx.MockTransport(handler),max_attempts=1),seen
 
 

@@ -1,4 +1,3 @@
-from fixture_model_stream import sse_model_response
 from contextlib import closing
 from copy import deepcopy
 from dataclasses import replace
@@ -48,7 +47,7 @@ def fixture(tmp_path,mutate=None,*,rotation=False,values=(40,80,90)):
             rotation_reviews=[],reject_decisions=[],model_nominations=[],handoff_notes={'to_a3':['Check technical facts']},
             what_would_change_my_mind=['Official facts change'],unresolved_questions=[])
         if mutate:mutate(raw,len(seen))
-        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
     settings=Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path)
     adapter=TeamResearchAdapter(repository=TeamPromptRepository(root/'prompts/team_v2'),
         journal=ModelJudgmentJournal(tmp_path/'models.db'),store=TeamMeetingStore(tmp_path/'team.db'),

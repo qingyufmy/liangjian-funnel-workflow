@@ -1,5 +1,4 @@
 """0368 deterministic research projections; no model or production access."""
-from fixture_model_stream import sse_model_response
 from copy import deepcopy
 import hashlib
 import json
@@ -158,7 +157,7 @@ def test_original_invalid_capture_preserved_and_derived_audit_is_bound_and_idemp
     source = deepcopy({key: kwargs[key] for key in ('replacements', 'candidate_domain', 'engine_decisions')})
     def handler(request):
         seen.append(json.loads(request.read()))
-        return sse_model_response(200, json={'choices': [{'message': {'content': json.dumps(raw)}}]}, request=request)
+        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(raw)}}]}, request=request)
     kwargs['client'].transport = httpx.MockTransport(handler)
     result = run_plan_review(**kwargs)
     assert result['status'] == 'READY' and result['provider_validated'] is False
