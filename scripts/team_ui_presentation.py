@@ -1,6 +1,7 @@
 """Display-only identities and source-scoped facts; never trading authority."""
 import hashlib
 import json
+import math
 import re
 import sqlite3
 from datetime import datetime
@@ -21,6 +22,15 @@ def digest(value):
 
 def source(table, key, raw):
     return dict(table=table, id=key, sha256=digest(raw.encode()))
+
+
+def display_number(value):
+    """Convert persisted decimal text only; keep the source row and raw value intact."""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)): return None
+    if isinstance(value, str) and not re.fullmatch(r'-?\d+(?:\.\d+)?', value): return None
+    try: parsed = float(value)
+    except (ValueError, OverflowError): return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def receipt(root, day):
@@ -170,13 +180,15 @@ def apply(root, day, result, connect):
             records.append(dict(id='admission-' + str(admission.get('id')), at=admission.get('at'), kind='EXECUTION_ADMISSION',role='SYSTEM',
                 title='执行准入'+STATUSES.get(admission.get('status'),'状态待解释'),
                 text='准入数量：'+str(admission.get('shares'))+' 股',status=admission.get('status'),shares=admission.get('shares'),risk_unit=admission.get('risk_unit'),
+                reason_codes=admission.get('reason_codes') or [],
                 symbol=admission.get('code'), name=admission.get('name'), source=admission['source']))
     for fill in sections.get('fills',{}).get('rows') or []:
         if valid_source(fill.get('source')):
             side={'BUY':'买入','SELL':'卖出'}.get(fill.get('side'),'方向未记录')
             records.append(dict(id='fill-'+str(fill.get('fill_id')),at=fill.get('minute_end'),kind='EXECUTION_FILL',role='SYSTEM',
                 title='实际'+side+'成交',text=f"{fill.get('qty')} 股，成交价 {fill.get('price')}",
-                symbol=fill.get('symbol'),name=fill.get('name'),qty=fill.get('qty'),price=fill.get('price'),source=fill['source']))
+                symbol=fill.get('symbol'),name=fill.get('name'),side=fill.get('side'),qty=fill.get('qty'),
+                price=display_number(fill.get('price')),raw_price=fill.get('price'),source=fill['source']))
     def timed(row):
         try:return datetime.fromisoformat(row['at']).utcoffset() is not None
         except (ValueError,TypeError,KeyError):return False

@@ -108,3 +108,35 @@ def test_reader_leaves_database_bytes_and_directory_entries_unchanged(tmp_path):
     assert result['trade_records'][0]['role']=='A4'
     after={p.relative_to(root).as_posix():digest(p.read_bytes()) for p in root.rglob('*') if p.is_file()}
     assert before==after
+
+
+def test_actual_fill_section_decimal_text_and_side_are_projected_without_changing_source(tmp_path):
+    root, _, _ = fixture(tmp_path)
+    proof=dict(table='paper_fills',id='fill-1',sha256='b'*64)
+    rows=[dict(fill_id='f1',plan_id='plan-270',symbol='002270.SZ',side='SELL',qty=6340,
+               price='18.74',minute_end='2026-10-22T09:33:00+08:00',source=proof),
+          dict(fill_id='f2',plan_id='plan-270',symbol='002270.SZ',side='SELL',qty=4160,
+               price='18.725',minute_end='2026-10-22T09:34:00+08:00',source=proof)]
+    original=[dict(row) for row in rows]
+    admission=dict(id='a1',plan_id='plan-270',code='002270.SZ',status='REJECTED',shares=0,
+                   risk_unit='NONE',reason_codes=['SELL_ALREADY_RESERVED'],source=proof)
+    result=apply(root,'2026-10-22',dict(sections={'fills':dict(rows=rows)},admissions=[admission],risk={}),connect)
+    fills=[row for row in result['trade_records'] if row['kind']=='EXECUTION_FILL']
+    assert [(row['side'],row['qty'],row['price'],row['raw_price']) for row in fills]==[
+        ('SELL',6340,18.74,'18.74'),('SELL',4160,18.725,'18.725')]
+    assert all(row['role']=='SYSTEM' and row['source']==proof for row in fills)
+    assert [row['price'] for row in rows]==[row['price'] for row in original]
+    assert [row['side'] for row in rows]==[row['side'] for row in original]
+    projected=next(row for row in result['trade_records'] if row['kind']=='EXECUTION_ADMISSION')
+    assert projected['reason_codes']==['SELL_ALREADY_RESERVED']
+    assert '不持仓' not in projected['text'] and 'NONE' not in projected['text']
+
+
+@pytest.mark.parametrize('value',[True,'NaN','inf','18.725 USD',None])
+def test_invalid_fill_decimal_does_not_become_a_price(tmp_path,value):
+    root, _, _=fixture(tmp_path)
+    row=dict(fill_id='bad',symbol='002270.SZ',plan_id='plan-270',qty=1,side='SELL',price=value,
+             source=dict(id='bad',table='paper_fills',sha256='c'*64))
+    result=apply(root,'2026-10-22',dict(sections={'fills':dict(rows=[row])},risk={}),connect)
+    projected=next(item for item in result['trade_records'] if item['kind']=='EXECUTION_FILL')
+    assert projected['price'] is None and projected['raw_price']==value
