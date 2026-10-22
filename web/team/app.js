@@ -7,6 +7,7 @@ import {applyDashboard,panelClock,chinaClock,planAt} from './dashboard.js';
 import {reasonText,translateReasonMessage} from './copy/reasons.js';
 import {mountStudio,renderStudio} from './studio.js';
 import {planChart,openPlanDetail} from './plan-detail.js';
+import {healthEventText} from './health.js';
 
 const $=id=>document.getElementById(id);
 const number=(v,digits=2)=>typeof v==='number'&&Number.isFinite(v)?v.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits}):'—';
@@ -98,6 +99,14 @@ function render(){
     const frozen=d.data_mode==='FROZEN_CAPTURE_NOT_REALTIME';
     if(frozen){document.querySelector('.sample-badge').textContent='冻结原件';text($('mode-notice'),`${d.trade_date} ${d.observed_at?.slice(11,19)} 冻结记录，非实时；模型/监控仅部分覆盖。`);}
     $('system-health').replaceChildren(byText('p',`实际模式：${health.mode??'未知，未绑定实际Settings'}；持久RECORD锁：${health.record_latch===true?'已锁':health.record_latch===false?'本日原表未见锁':'未知'}`),byText('p',health.a6_day_state?`A6 原记录 ${health.a6_day_state.last_observed_at?.slice(11,19)}：连续失败 ${health.a6_day_state.consecutive_failures}；全账户停止 ${health.a6_day_state.halted?'是':'否'}。不是当前模式推断。`:'A6 当日状态原件未提供'),byText('p',frozen?`冻结版本 ${health.head_at_capture??'未知'} · 采集时生产Node ${health.production_pid_at_capture??'未知'}`:`服务本页Node PID ${d.node?.pid??'未知'} · 心跳 ${d.node?.heartbeat_at??'未知'}，不代替交易链验收`),byText('p',health.model_roles?`研究 ${health.model_roles.research??'未知'}；复盘 ${health.model_roles.review??'未知'}；盘中 ${health.model_roles.monitor??'未知'}；Team ${health.model_roles.team_intraday??'未知'}。${health.model_roles.basis??'仅来源原记录'}`:'实际研究/复盘/盘中模型角色未绑定，不按默认配置填值'),byText('p',health.last_model_result?`最近已捕获模型原答：${health.last_model_result.role} · ${health.last_model_result.captured_at} · ${health.last_model_result.validated?'校验通过':'校验失败'}。未捕获的429/403不能从此推断不存在。`:'未取得最近模型原答/HTTP错误原件'));
+    const history=d.health_history;
+    if(history){
+      const list=document.createElement('ol');list.setAttribute('aria-label','已有原件健康时间线');
+      for(const event of history.events??[]){const item=document.createElement('li'),proof=document.createElement('details');item.append(byText('time',chinaClock(event.at)),byText('span',` · ${healthEventText(event)}`));proof.append(byText('summary','查看原件来源'),byText('p',`记录 ${event.source?.id??'未记录'}；SHA ${event.source?.sha256??'缺失'}`));item.append(proof);list.append(item);}
+      $('system-health').append(byText('h3','健康时间线（已有原件）'),byText('small',`原事件最新时间 ${chinaClock(history.source_time)}；${history.gaps?.length?'仍有缺源/有界截断，不称全天完整':'各来源覆盖见原件，非历史可用率验收'}`),list.children.length?list:byText('p','没有可核的历史事件，不能据此判断全天无异常','empty'));
+      const delivery=history.notifications??{},team=history.team_reviews??{},monitor=history.monitor??{};
+      $('system-health').append(byText('p',`通知元数据：送达 ${delivery.sent??'未知'}，失败 ${delivery.failed??'未知'}。${delivery.complete?'当日查询未截断':'缺源或超出有界读取，不判断全部送达'}；不读取客户正文。`),byText('p',`客户A4有效监控信号 ${monitor.signals??'未知'}；形态确认 ${monitor.confirmations??'未知'}。Team有效执行准入 ${d.metrics?.team_effective_admissions??'未知'}（只计批准/收紧且股数大于0，按信号去重）；Team确认观测 ${team.confirmed_observations??'未知'}，模型评审对象 ${team.model_objects??'未知'}；这些不是订单数，也不把多轮观测当独立信号。`));
+    }
     if(state.positions!==null)table($('positions'),[['code','代码'],['qty','持有股数'],['sellable_qty','可卖股数'],['t1_text','T+1'],['entry','平均成本'],['price','账本估价']],state.positions.map(p=>({...p,qty:number(p.qty,0),sellable_qty:number(p.sellable_qty,0),entry:number(p.avg_cost),price:number(p.price),t1_text:p.t1_locked?`今日买入 ${number(p.t1_locked_qty,0)} 股，不可卖`:'原账本可卖量见左列',source_id:p.source?.id,source_sha256:p.source?.sha256})),{compactEvidence:true});
     if($('orders')){if(state.orders===null)$('orders').replaceChildren(byText('p','委托原件不可用，不能判断有无委托','empty'));else table($('orders'),[['code','代码'],['side','方向'],['qty','委托股数'],['limit_price','委托价'],['status_text','状态']],state.orders.map(o=>({...o,side:o.side==='SELL'?'卖出':o.side==='BUY'?'买入':'未知',status_text:({OPEN:'待成交',PARTIAL:'部分成交',FILLED:'已成交',CANCELLED:'已撤单',REJECTED:'已拒绝'})[o.status]??reasonText(o.status),source_id:o.source?.id,source_sha256:o.source?.sha256})),{compactEvidence:true});}
     if($('fills')){if(state.fills===null)$('fills').replaceChildren(byText('p','成交原件不可用，不能判断有无成交','empty'));else table($('fills'),[['symbol','代码'],['side','方向'],['qty','成交股数'],['price','成交价'],['minute_end','成交时刻']],state.fills.map(f=>({...f,side:f.side==='SELL'?'卖出':f.side==='BUY'?'买入':'未知',source_id:f.source?.id,source_sha256:f.source?.sha256})),{compactEvidence:true});}

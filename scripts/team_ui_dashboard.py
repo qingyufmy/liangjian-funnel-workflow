@@ -100,7 +100,7 @@ def project_dashboard(root,query,out,*,project,connect,source,number,scalar):
                 if binding.get('trade_date')!=day:raise ValueError('ADMISSION_DATE')
                 result['admissions'].append(dict(id=scalar(row['signal_id'],identifier=True),plan_id=scalar(binding.get('plan_id'),identifier=True),code=scalar(binding.get('symbol'),identifier=True),
                     action=scalar(binding.get('action'),identifier=True),at=scalar(body.get('observed_at'),identifier=True),mode=scalar(body.get('mode'),identifier=True),
-                    shares=number(judgment.get('shares')),risk_unit=scalar(judgment.get('risk_unit'),identifier=True),reason_codes=[scalar(x,identifier=True) for x in judgment.get('reason_codes',[])][:24],
+                    shares=number(judgment.get('shares')),status=scalar(judgment.get('status'),identifier=True),risk_unit=scalar(judgment.get('risk_unit'),identifier=True),reason_codes=[scalar(x,identifier=True) for x in judgment.get('reason_codes',[])][:24],
                     quantity_audit=quantity_audit(judgment.get('quantity_audit'),number,scalar),
                     dispatched=body.get('dispatched') if isinstance(body.get('dispatched'),bool) else None,source=source('paper_admissions',row['signal_id'],row['result_json'])))
             if admitted:
@@ -180,13 +180,29 @@ def project_dashboard(root,query,out,*,project,connect,source,number,scalar):
             for row in supplement['admissions']:
                 if row['trade_date']!=day:continue
                 body=row['result'];binding=body['binding'];judgment=body['judgment']
-                result['admissions'].append(dict(id=row['signal_id'],plan_id=binding['plan_id'],code=binding['symbol'],at=body['observed_at'],mode=body['mode'],shares=number(judgment['shares']),risk_unit=judgment['risk_unit'],reason_codes=judgment['reason_codes'],status=judgment['status'],
+                result['admissions'].append(dict(id=row['signal_id'],plan_id=binding['plan_id'],code=binding['symbol'],action=scalar(binding.get('action'),identifier=True),at=body['observed_at'],mode=body['mode'],shares=number(judgment['shares']),risk_unit=judgment['risk_unit'],reason_codes=judgment['reason_codes'],status=judgment['status'],
                     source={'table':'paper_admissions','id':row['signal_id'],'sha256':row['result_sha256'],'hash_basis':'ORIGINAL_RESULT_HASH_APPROVED_WHITELIST_NOT_FULL_RESULT_REHASH'}))
             result['metrics']['approved_admissions']=sum(a['shares'] is not None and a['shares']>0 and a['status'] in ('APPROVED','REDUCED') for a in result['admissions'])
             if frozen['model_calls_complete']:
                 result['metrics'].update(model_calls=len(rows or []),model_latency_p50_ms=latencies[(len(latencies)-1)//2] if latencies else None,model_latency_max_ms=max(latencies) if latencies else None)
                 for agent in result['agents']:agent['calls']=sum(('PM' if 'PM' in (x.get('session') or '') else x.get('role'))==agent['agent'] for x in (rows or []))
         result['known_incidents']=frozen.get('known_incidents')
+    from team_ui_health import project_health
+    history=project_health(root,day,connect)
+    result['health_history']=history
+    admissions=result['admissions']
+    result['metrics']['team_effective_admissions']=len({a['id'] for a in admissions if a.get('action') in {'BUY_SIGNAL','ADD_SIGNAL','SELL_SIGNAL','REDUCE_SIGNAL','FORCED_RISK_EXIT'} and a.get('status') in {'APPROVED','REDUCED'} and (a.get('shares') or 0)>0}) if admissions is not None and all(a.get('action') is not None for a in admissions) else None
+    monitor=history['monitor']
+    if marker.is_file() and frozen.get('monitor_complete') is not True:
+        monitor.update(signals=None,confirmations=None,complete=False,reason='FROZEN_MONITOR_ROWS_NOT_FULL_DAY')
+    result['metrics'].update(signals=monitor.get('signals'),confirmations=monitor.get('confirmations'),signal_basis=monitor.get('basis'),signal_coverage=monitor.get('coverage_basis'),signal_missing_reason=monitor.get('reason'),confirmation_missing_reason=monitor.get('confirmation_reason'))
+    result['metrics']['admission_signals_basis']='ADMISSION_REQUESTS_INCLUDING_REJECTED_NOT_EFFECTIVE_SIGNALS'
+    if monitor.get('signals') is not None and monitor.get('confirmations') is not None:result['metrics']['missing_reason']=None
+    for event in history['events']:
+        if event['kind'] in ('PROVIDER_HTTP_ERROR','JOB_FAILED','JOB_TERMINATED'):
+            result['alerts'].append(dict(id='history-'+event['source']['sha256'][:16],severity='warning',text='已有模型/调度失败原记录；仅表示当时异常，不据此断言当前仍失败。',at=event.get('at'),provenance=event['source']))
+    for delivery in history['notifications'].get('rows',[]):
+        if delivery.get('status')=='FAILED':result['alerts'].append(dict(id='delivery-'+str(delivery.get('id')),severity='warning',text='通知表保留一条失败记录；是否有后续送达需核原件，本页不补发。',at=delivery.get('at'),provenance=delivery.get('source')))
     health=result['health']
     if health.get('mode')=='RECORD' or health.get('record_latch') is True:
         result['alerts'].append(dict(id='record-mode',severity='critical',text='Team处于只记录保护；本页不能解锁或恢复受控执行。',at=health.get('observed_at') or out['observed_at'],provenance=health.get('latch_source') or health.get('runtime_source')))

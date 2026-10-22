@@ -12,15 +12,15 @@ async function listen(server:Server,port=0){await new Promise<void>(done=>server
 async function close(server:Server){server.closeAllConnections();await new Promise<void>(done=>server.close(()=>done()));}
 function app(read:()=>Promise<unknown>){const app=express(),auth=createTeamUiAccess('transport-public-fixture');app.use(express.urlencoded({extended:false}));app.post('/team/login',auth.login);app.use('/api/ui',auth.api,createTeamUiRouter({read},()=> '2026-10-22'));return app;}
 
-test('real loopback refusal is offline; same-Node HTTP recovery is observed on the next 10s scheduled poll',async()=>{
+test('real loopback refusal is offline; same-Node HTTP recovery retries within5s plus response time',async()=>{
  const server=createServer(app(async()=>({rows:[],next_since_id:0}))),port=await listen(server),base=`http://127.0.0.1:${port}`;
  const queue=scheduler(),states:string[]=[];let last:number|null=null;
  const poll=createPoller({fetchPage:()=>fetch(base+'/api/ui/events',{headers:{Authorization:'Bearer transport-public-fixture'}}),onRows:()=>{},onStatus:(_s:string,m:{state:string,received_at?:number})=>{states.push(m.state);if(m.received_at!=null)last=m.received_at;},onUnauthorized:()=>{throw Error('unexpected 401');},schedule:queue.schedule,cancel:queue.cancel,now:queue.now});
  try{
   poll.start();expect(await queue.run()).toBe(10000);expect(states).toEqual(['CURRENT']);
-  await close(server);expect(await queue.run()).toBe(10000);expect(states.at(-1)).toBe('OFFLINE');expect(queue.jobs[0]!.delay).toBe(10000);
+  await close(server);expect(await queue.run()).toBe(10000);expect(states.at(-1)).toBe('OFFLINE');expect(queue.jobs[0]!.delay).toBe(5000);
   expect(freshness(last,(last??0)+30000)).toBe('STALE');await listen(server,port);
-  expect(await queue.run()).toBe(10000);expect(states.at(-1)).toBe('CURRENT');
+  expect(await queue.run()).toBe(5000);expect(states.at(-1)).toBe('CURRENT');
  }finally{poll.stop();if(server.listening)await close(server);}
 });
 
@@ -35,7 +35,7 @@ test('real HTTP503 keeps cursor/data and backs off20/40/60; recreating auth key 
   await close(server);restarted=createServer(app(async()=>({rows:[],next_since_id:4})));await listen(restarted,port);
   // undici may first reuse the just-closed socket. That real network refusal
   // must preserve data and retry, not be mistaken for authentication success.
-  await queue.run();if(!unauthorized){expect(states.at(-1)).toBe('OFFLINE');expect(queue.jobs[0]!.delay).toBe(10000);await queue.run();}
+  await queue.run();if(!unauthorized){expect(states.at(-1)).toBe('OFFLINE');expect(queue.jobs[0]!.delay).toBe(5000);await queue.run();}
   expect(unauthorized).toBe(1);expect(queue.jobs).toEqual([]);expect(received).toHaveLength(1);
  }finally{poll.stop();if(server.listening)await close(server);if(restarted?.listening)await close(restarted);}
 });

@@ -1,5 +1,19 @@
 # 10-21 前端本机实现与交付记录
 
+## 10-22 20:23 0593真实功能缺口修复（本机待集成，不是发布）
+
+正常只读dashboard现消费`team_ui_health.py`：真实risk_meetings/pm_decisions、精确当日两晨会claim元数据、当日Node日志至多3MiB/12000行/60ms解析、monitor rowid尾1201（含前日边界才认当前日覆盖）、notification_deliveries至多501条、Team trader_sessions至多501条。失败/截断/缺表均明确缺源，不改CLAIMED、不造429、不把PM服务端fallback标模型通过、不把历史终态未收口写当前运行。Node日志只按白名单结构化运行事件/有限HTTP状态提取元数据，不输出消息/客户正文/URL。正常worker仍2个、450ms；API无写库/业务调用/模型/通知。
+
+生产可读固定`state/team_v2/ui_health_events.json`的小OPS公开receipt：body schema=`team-ui-health-events/1`、producer=`PINNED_READ_ONLY_OPS`、trade_date/captured_at/events及canonical body_sha256；事件逐原件id/SHA绑定。它属于正常API路径，不是frozen-only示例。模型切换只由真实OPS原件给时间，恢复200标本回执观测界而非首次/精确恢复点；无原HTTP错误元数据时不补08:35的429。producer/install由独立OPS负责，最终批准后才写VM。
+
+首页客户A4有效信号按原monitor有效行动计算，confirmed按plan+闭合5m+形态去重布尔标志，不数START_CONFIRMATION；Team有效执行准入仅计批准/收紧且股数>0并按signal去重，和客户A4、Team重复确认观测、模型对象、订单数分列。源不完整仍null，原15条冻结尾段不会被新代码冒成全日count0。通知只读kind/status/source/attempt/reason/time元数据；失败提示历史待核，不补发、不由“当前连通”抹除旧失败。
+
+真实已核新元数据原件SHA`c20c5c62464307315569e23a58134c9add55f4a953d35d73c6a500e74607d567`：712事件、客户A4有效信号1/confirmed0；Team44会话confirmed观察0、模型对象0；2准入只1批准10500SELL；16通知15送达/1历史失败。隔离同生产API投影11项原数核对0差异，12个实际450ms子进程0失败、最长250ms（本机非VM资源门）。元数据fixture不重建原Node日志或捏造失败正文，原始body SHA与重构小字段的SHA不混称。
+
+OFFLINE分支改为≤5s重试等待；常态10s、BUSY20→40→60不变。每轮dashboard/events各2s超时，单元反例包含两次1.9s HTTP完成及DOM回调实得8.8s；仍须主控真实浏览器时效复验，旧10.281s观察不冒新代码严格门PASS。实际Node重启仍需重新登录，不绕8h会话。
+
+本机全套47文件279测试通过（包含分支上既有外部2b故障注入测试，最终候选统计由主代理集成后独立给出）；随后metadata鲁棒性和QA可选参数窄改相关19项/typecheck再过。build通过。新QA入口可同时载旧账本/真实分钟包/新metadata/OPS公开receipt，全部只写新OS临时fixture、用同API/鉴权/worker源码，不覆盖原件。还欠：主控新DOM/三宽/实际网络时效、生产真实Node日志/资源门、Claude最终批准与部署；不把本机绿冒上线。
+
 ## 10-22 17:49 WP5 功能门（本机待审，不是上线）
 
 按0593功能MVP接入只读综合dashboard：原账本现金/净值/已实现、按正剩余lot投影的持仓及T+1可卖量、当日委托成交、准入、原计划几何和PROBE/DATA_LIMITED、逐项条件/详情、实际模型journal原答与角色、锁和A6日状态、缺源/失败告警。账户三表与估值在同一paper.db RO事务读取，不宣称跨数据库原子；无当日完整信号/确认/供应商HTTP原件时数字仍未知，不把0调用说成模型主动观望。3条原计划按15:00有效期显示到期，不改原行。

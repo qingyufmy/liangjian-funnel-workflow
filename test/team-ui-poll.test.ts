@@ -26,3 +26,11 @@ test('late response after stop is ignored and requests never overlap',async()=>{
   finish({ok:true,status:200,json:async()=>({rows:[{cursor_id:1}],next_since_id:1})});await vi.advanceTimersByTimeAsync(100000);
   expect(onRows).not.toHaveBeenCalled();expect(poll.cursor()).toBe(0);
 });
+
+test('offline recovery includes two2s HTTP completions and DOM callback within10s; normal delay stays10s',async()=>{
+ vi.useFakeTimers();let failed=true,renderedAt=0;const statuses:string[]=[];
+ const wait=(ms:number)=>new Promise(done=>setTimeout(done,ms));
+ const poll=createPoller({initialDelay:0,fetchPage:async()=>{if(failed)throw new TypeError('offline');await wait(1900);await wait(1900);return {ok:true,status:200,json:async()=>({rows:[],next_since_id:0})};},onRows:()=>{},onPage:()=>{renderedAt=Date.now();},onStatus:(_s:string,m:{state:string})=>statuses.push(m.state),onUnauthorized:vi.fn()});
+ poll.start();await vi.advanceTimersByTimeAsync(0);expect(statuses).toEqual(['OFFLINE']);const restoredAt=Date.now();failed=false;
+ await vi.advanceTimersByTimeAsync(8799);expect(renderedAt).toBe(0);await vi.advanceTimersByTimeAsync(1);expect(renderedAt-restoredAt).toBe(8800);expect(statuses.at(-1)).toBe('CURRENT');poll.stop();
+});
