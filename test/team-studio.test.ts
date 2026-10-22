@@ -18,3 +18,6 @@ test('chart only draws supplied closed bars and never joins missing time interva
   const source={zone_values:[10,11],stop:9,bars:[{at:'2026-10-21T10:00:00+08:00',close:10,closed:true},{at:'2026-10-21T10:05:00+08:00',close:11,closed:true},{at:'2026-10-21T10:15:00+08:00',close:10.5,closed:true},{at:'2026-10-21T10:20:00+08:00',close:20,closed:false}]};
   const before=JSON.stringify(source),m=chartModel(source);expect(m.coverage).toMatchObject({count:3,gapped:true});expect(m.segments).toHaveLength(2);expect(m.zone.h).toBeGreaterThan(0);expect(m.points.every((p:{y:number})=>p.y>=8&&p.y<=118)).toBe(true);expect(JSON.stringify(source)).toBe(before);
 });
+test('chart rejects invalid times/zero prices and includes an explicitly supplied target, never fabricated OHLC',()=>{
+ const m=chartModel({target:14,stop:9,zone_values:[10,11],bars:[{at:'bad',close:10,closed:true},{at:'2026-10-22T10:00:00+08:00',close:0,closed:true},{at:'2026-10-22T10:05:00+08:00',close:11,closed:true}]});expect(m.bars).toHaveLength(1);expect(m.targetY).toBe(8);expect(m.bars[0].open).toBeUndefined();
+});

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 
 const runFile = promisify(execFile);
@@ -12,6 +13,7 @@ export interface TeamUiQuery {
   readonly offset: number;
   readonly days: number;
   readonly since_id?: number;
+  readonly plan_id?: string;
 }
 export class TeamUiQueryError extends Error {}
 
@@ -35,10 +37,15 @@ export function parseTeamUiQuery(path: string, query: URLSearchParams, today: st
   else if (role) {
     if (!roles.has(role[1]!)) return null;
     person = role[1]!; kind = `role-${role[2]}`;
-  } else if (["/events", "/review/scoreboard", "/review/lessons", "/settings"].includes(path)) kind = path.slice(1);
+  } else if (["/dashboard", "/summary", "/system/health", "/events", "/review/scoreboard", "/review/lessons", "/settings", "/account/positions", "/account/lots", "/account/orders"].includes(path)) kind = path.slice(1);
   else return null;
   if (query.getAll("trade_date").length > 1) throw new TeamUiQueryError("INVALID_QUERY");
   if (!day && query.has("trade_date")) tradeDate = query.get("trade_date")!;
+  if (query.has('date')) {
+    if (query.getAll('date').length !== 1 || (day && query.get('date') !== tradeDate) ||
+        (query.has('trade_date') && query.get('date') !== tradeDate)) throw new TeamUiQueryError('CONFLICTING_DATE');
+    tradeDate = query.get('date')!;
+  }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(tradeDate) || !Number.isFinite(Date.parse(`${tradeDate}T00:00:00Z`)) ||
       new Date(`${tradeDate}T00:00:00Z`).toISOString().slice(0, 10) !== tradeDate) throw new TeamUiQueryError("INVALID_DATE");
   if (day && query.has("trade_date") && query.get("trade_date") !== tradeDate) throw new TeamUiQueryError("CONFLICTING_DATE");
@@ -49,7 +56,10 @@ export function parseTeamUiQuery(path: string, query: URLSearchParams, today: st
   }
   const offset=integer(query,'offset',0,0,1_000_000);
   if(kind==='events'&&offset!==0)throw new TeamUiQueryError('INVALID_CURSOR');
+  const planId=query.get('plan_id');
+  if(query.has('plan_id')&&(kind!=='plans'||offset!==0||query.getAll('plan_id').length!==1||!planId||!/^[A-Za-z0-9_.:-]{1,240}$/.test(planId)))throw new TeamUiQueryError('INVALID_PLAN');
   return { kind, trade_date: tradeDate, ...(person ? { role: person } : {}),
+    ...(planId?{plan_id:planId}:{}),
     ...(kind === 'events' ? {since_id:integer(query,'since_id',0,0,Number.MAX_SAFE_INTEGER)} : {}),
     limit: integer(query, "limit", 50, 1, 500), offset, days: integer(query, "days", 20, 1, 20) };
 }
@@ -68,7 +78,7 @@ export class TeamUiReadPool {
 
   read(query: TeamUiQuery): Promise<unknown> {
     // Explicit field order makes semantically equal queries share one worker/cache.
-    const key = JSON.stringify([query.kind,query.trade_date,query.role ?? null,query.limit,query.offset,query.days,query.since_id ?? 0]);
+    const key = JSON.stringify([query.kind,query.trade_date,query.role ?? null,query.limit,query.offset,query.days,query.since_id ?? 0,query.plan_id??null]);
     const cached = this.cache.get(key);
     if (cached && cached.until > this.now()) { this.hits += 1; return Promise.resolve(cached.value); }
     if (cached) this.cache.delete(key);
@@ -94,9 +104,12 @@ export class TeamUiReadPool {
  * 450ms child deadline leaves margin inside the 500ms HTTP budget. */
 export class TeamUiReadOnly extends TeamUiReadPool {
   constructor(rootDir: string, pythonBin: string) {
+    let startTicks: string|null=null;
+    try { const stat=readFileSync('/proc/self/stat','utf8');const fields=stat.slice(stat.lastIndexOf(')')+2).trim().split(/\s+/);if(/^\d+$/.test(fields[19]??''))startTicks=fields[19]!; } catch { /* Non-Linux/local tests must not fabricate process evidence. */ }
+    const runtime=Object.freeze({pid:process.pid,process_start_ticks:startTicks});
     super(async query => {
       const { stdout } = await runFile(pythonBin,
-        ["-B", resolve(rootDir, "scripts/team_ui_readonly.py"), rootDir, JSON.stringify(query)],
+        ["-B", resolve(rootDir, "scripts/team_ui_readonly.py"), rootDir, JSON.stringify({...query,_runtime:runtime})],
         { cwd: rootDir, timeout: 450, maxBuffer: 512 * 1024, windowsHide: true });
       const result: unknown = JSON.parse(stdout);
       if (!result || typeof result !== "object" || "error" in result) throw new Error("TEAM_UI_SOURCE_UNAVAILABLE");

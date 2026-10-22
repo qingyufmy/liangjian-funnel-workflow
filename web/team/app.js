@@ -2,7 +2,8 @@ import {ROLES,STATE_LABELS} from './roles.js';
 import {emptyState,reduceEvent,addedPositions,orderedPlans} from './model.js';
 import {createStage} from './stage.js';
 import {conditionLabel,strategyLabel,planStatusLabel,clusterLabel} from './labels.js';
-import {createPoller} from './poll.js';
+import {createPoller,freshness} from './poll.js';
+import {applyDashboard,panelClock,chinaClock,planAt} from './dashboard.js';
 import {reasonText,translateReasonMessage} from './copy/reasons.js';
 import {mountStudio,renderStudio} from './studio.js';
 import {planChart,openPlanDetail} from './plan-detail.js';
@@ -10,7 +11,8 @@ import {planChart,openPlanDetail} from './plan-detail.js';
 const $=id=>document.getElementById(id);
 const number=(v,digits=2)=>typeof v==='number'&&Number.isFinite(v)?v.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits}):'—';
 const text=(node,value)=>{node.textContent=value==null?'—':String(value);};
-const readonlyStatus=message=>{text($('connection'),message);const busy=message==='稍后刷新';$('refresh-status').hidden=!busy;text($('refresh-status'),busy?(state.events?'稍后刷新 · 保留上次数据':'稍后刷新'):'');};
+let lastSuccessfulRead=null,transportState='UNKNOWN';
+const readonlyStatus=(message,meta={})=>{transportState=meta.state??transportState;if(meta.received_at!=null)lastSuccessfulRead=meta.received_at;const label=transportState==='OFFLINE'?'后端离线':transportState==='BUSY'?'后端繁忙':freshness(lastSuccessfulRead)==='STALE'?'数据延迟':state.dashboard?.data_mode==='FROZEN_CAPTURE_NOT_REALTIME'?'冻结原件 · 非实时':message;text($('connection'),label);const warning=['后端离线','后端繁忙','数据延迟'].includes(label);$('refresh-status').hidden=!warning;text($('refresh-status'),warning?`${label} · 保留上次数据，非实时${meta.retry_ms?` · ${meta.retry_ms/1000}秒后重试`:''}`:'');};
 const role=id=>ROLES.find(r=>r.id===id);
 const taskStatus=value=>({VALIDATED:'校验通过',VALIDATION_FAILED:'校验未通过',ENGINE_TRACKING_NO_REVIEW_CANDIDATE:'引擎跟踪，没有需模型评审的候选',queued:'等待运行',running:'运行中',now:'运行中',done:'已结束',PENDING:'等待运行',RUNNING:'运行中'})[value]??reasonText(value);
 const taskLabel=value=>({A1:'基本面研究',A2:'题材研究',A3:'交易计划',A4:'团队交易员','Team A4':'团队交易员',A5:'团队复盘',A6:'团队风控',PM:'组合经理'})[value]??translateReasonMessage(value??'任务');
@@ -19,6 +21,7 @@ let state=emptyState(),scene=null,reviewScene=null,demoTimer=null,sse=null,repla
 mountStudio();
 $('stage-toggle').onclick=()=>{const expanded=$('stage-toggle').getAttribute('aria-expanded')!=='true';$('stage-toggle').setAttribute('aria-expanded',String(expanded));text($('stage-toggle'),expanded?'收起 3D':'展开 3D');$('scene-shell').hidden=!expanded;$('workstation-stage').hidden=expanded;if(expanded&&!scene)mountStage(false);};
 for(const b of $('plan-filters').querySelectorAll('button'))b.onclick=()=>{planFilter=b.dataset.filter;for(const item of $('plan-filters').querySelectorAll('button'))item.setAttribute('aria-pressed',String(item===b));renderPlans();};
+$('plan-sort').onchange=()=>renderPlans();
 function stateIcon(value){
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 20 20');svg.setAttribute('aria-hidden','true');svg.classList.add('state-icon');
   const path=document.createElementNS(svg.namespaceURI,'path');
@@ -32,28 +35,31 @@ const updateScrollHint=()=>{$('scene-shell').dataset.hasMore=String($('scene').s
 $('scene').addEventListener('scroll',updateScrollHint,{passive:true});
 new ResizeObserver(updateScrollHint).observe($('scene'));
 new ResizeObserver(updateScrollHint).observe($('role-fallback'));
-$('role-picks').replaceChildren(...ROLES.map(r=>{const b=byText('button',r.short);b.type='button';b.setAttribute('aria-label',`近看${r.name}`);b.onclick=()=>scene?.focus(r.id);return b;}));
-$('overview').onclick=()=>scene?.focus('all');
+const focusScene=id=>{if($('scene-shell').hidden)$('stage-toggle').click();scene?.focus(id);};
+$('role-picks').replaceChildren(...ROLES.map(r=>{const b=byText('button',r.short);b.type='button';b.setAttribute('aria-label',`近看${r.name}`);b.onclick=()=>focusScene(r.id);return b;}));
+$('overview').onclick=()=>focusScene('all');
 for(const r of ROLES){const option=byText('option',r.name);option.value=r.id;$('preview-role').append(option);}
 $('role-notes').replaceChildren(...ROLES.map(r=>{const article=document.createElement('article');article.append(byText('b',r.name),byText('p',r.cues[0]),byText('p',r.cues[1]),byText('p',`work：${r.work}`));return article;}));
 function table(host,columns,rows,{compactEvidence=false}={}){
-  if(!rows.length){host.replaceChildren(byText('p',host.id==='positions'?'还没有持仓':'今天暂无可执行计划','empty'));return;}
+  if(!rows.length){host.replaceChildren(byText('p',({positions:'当前账本没有持仓',orders:'今天尚无委托',fills:'今天尚无成交',admissions:'今天尚无执行准入记录'})[host.id]??'当前筛选没有计划','empty'));return;}
   const table=document.createElement('table'),head=document.createElement('thead'),tr=document.createElement('tr');
   for(const [,label]of columns)tr.append(byText('th',label));head.append(tr);table.append(head);
   const body=document.createElement('tbody');
-  for(const row of rows){const line=document.createElement('tr');for(const [key]of columns){const cell=document.createElement('td');if(key==='security'){cell.append(byText('b',row.name??row.code),byText('small',row.code));}else if(key==='status'){const chip=byText('span',planStatusLabel(row.status),'status-chip');chip.dataset.status=row.status;cell.append(chip);}else cell.append(byText('span',key==='strat'?strategyLabel(row[key]):key==='cluster'?clusterLabel(row[key]):row[key]));line.append(cell);}const details=document.createElement('details');details.append(byText('summary','来源'),byText('p',`原计划：${row.source_id??'缺少记录ID'} · SHA ${row.source_sha256??'缺失'}`),byText('p',`计划策略 ${strategyLabel(row.strat)}；计划状态 ${planStatusLabel(row.status)}；所属分组 ${clusterLabel(row.cluster)}`));if(row.status_source_id)details.append(byText('p',`状态更新：${row.status_source_id} · ${row.status_source_at} · SHA ${row.status_source_sha256}`));if(compactEvidence)line.firstElementChild.append(details);else{const evidence=document.createElement('td');evidence.append(details);line.append(evidence);}body.append(line);}
+  for(const row of rows){const line=document.createElement('tr');for(const [key,label]of columns){const cell=document.createElement('td');cell.dataset.label=label;if(key==='security'){cell.append(byText('b',row.name??row.code),byText('small',row.code));}else if(key==='status'){const chip=byText('span',planStatusLabel(row.status),'status-chip');chip.dataset.status=row.status;cell.append(chip);}else cell.append(byText('span',key==='strat'?strategyLabel(row[key]):key==='cluster'?clusterLabel(row[key]):row[key]));line.append(cell);}const details=document.createElement('details');details.append(byText('summary','来源'),byText('p',`记录：${row.source_id??'缺少记录ID'} · SHA ${row.source_sha256??'缺失'}`));if(row.strat)details.append(byText('p',`计划策略 ${strategyLabel(row.strat)}；计划状态 ${planStatusLabel(row.status)}；所属分组 ${clusterLabel(row.cluster)}`));if(row.status_source_id)details.append(byText('p',`状态更新：${row.status_source_id} · ${row.status_source_at} · SHA ${row.status_source_sha256}`));if(compactEvidence)line.firstElementChild.append(details);else{const evidence=document.createElement('td');evidence.dataset.label='证据';evidence.append(details);line.append(evidence);}body.append(line);}
   if(!compactEvidence)tr.append(byText('th','证据'));
   table.append(body);host.replaceChildren(table);
 }
 function renderPlans(){
   if(state.plans===null)return;
   let rows=orderedPlans(state.plans);text($('plan-count'),`${rows.length} 份可查看 · 已作废 ${state.plans.length-rows.length}`);
-  if(planFilter==='invalidated')rows=state.plans.filter(r=>r.status==='INVALIDATED');
+  if(planFilter==='invalidated')rows=state.plans.filter(r=>['INVALIDATED','EXPIRED','SUPERSEDED','REJECTED','ABANDONED'].includes(r.status));
   if(planFilter==='zone')rows=rows.filter(r=>r.in_zone===true);
+  if(planFilter==='filled'){const ids=new Set((state.fills??[]).map(f=>f.plan_id));rows=rows.filter(r=>ids.has(r.id));}
+  const sort=$('plan-sort').value;if(sort==='distance')rows=rows.slice().sort((a,b)=>(a.distance_pct??Infinity)-(b.distance_pct??Infinity));if(sort==='rr')rows=rows.slice().sort((a,b)=>(b.rr??b.planned_rr??-Infinity)-(a.rr??a.planned_rr??-Infinity));
   const visible=expandedPlans?rows:rows.slice(0,10);
-  const display=visible.map(r=>({...r,price_text:typeof r.price==='number'?number(r.price,2):'—',distance_text:r.distance_pct==null?'待同刻报价':`${r.distance_side==='BELOW'?'下':'上'} ${number(r.distance_pct,2)}%`,rr_text:r.rr==null?'—':number(r.rr,2),confirmation_text:r.conditions?.length?`${r.conditions.filter(c=>c.status==='MET').length}/${r.conditions.length} 满足`:'待逐项原件'}));
-  table($('plans'),[['security','股票'],['strat','形态'],['price_text','现价'],['distance_text','距区间'],['rr_text','盈亏比'],['confirmation_text','确认进度'],['status','状态']],display,{compactEvidence:true});
-  const rendered=$('plans').querySelectorAll('tbody tr');rendered.forEach((line,i)=>{const plan=visible[i];const chart=document.createElement('td');chart.className='plan-chart-cell';chart.append(planChart(plan,true));line.insertBefore(chart,line.children[2]);const button=byText('button','查看详情','plan-open');button.type='button';button.setAttribute('aria-label',`查看${plan.code}计划详情`);button.onclick=()=>openPlanDetail(plan);line.lastElementChild.append(button);});
+  const display=visible.map(r=>({...r,price_text:typeof r.price==='number'?number(r.price,2):'—',zone_text:r.zone,stop_text:number(r.stop),target_text:number(r.target),risk_text:r.risk_unit??'未提供',data_text:r.data_limits?.data_limited===true?'数据受限':r.data_limits?.data_limited===false?'已记录数据完整':'数据状态未记录',distance_text:r.distance_pct==null?'待同刻报价':r.in_zone?'区间内':`${r.distance_side==='BELOW'?'下':'上'} ${number(r.distance_pct,2)}%`,rr_text:r.rr!=null?number(r.rr,2):r.planned_rr!=null?`${number(r.planned_rr,2)}（计划）`:'—',confirmation_text:r.conditions?.length?`${r.conditions.filter(c=>c.status==='MET').length}/${r.conditions.length} 满足`:'待逐项原件'}));
+  table($('plans'),[['security','股票'],['strat','形态'],['zone_text','区间'],['stop_text','止损'],['target_text','目标'],['price_text','最后闭合观测价'],['distance_text','距区间'],['rr_text','盈亏比'],['confirmation_text','确认进度'],['risk_text','仓位上限'],['data_text','数据状态'],['status','状态']],display,{compactEvidence:true});
+  const rendered=$('plans').querySelectorAll('tbody tr');rendered.forEach((line,i)=>{const plan=visible[i];const chart=document.createElement('td');chart.className='plan-chart-cell';chart.dataset.label='今日闭合观测';chart.append(planChart(plan,true));line.insertBefore(chart,line.children[2]);const button=byText('button','查看详情','plan-open');button.type='button';button.setAttribute('aria-label',`查看${plan.code}计划详情`);button.onclick=()=>void loadPlanDetail(plan);line.lastElementChild.append(button);});
   const firstHead=$('plans').querySelector('thead tr');if(firstHead){const th=byText('th','今日走势');firstHead.insertBefore(th,firstHead.children[2]);}
   if(rows.length>10){const button=byText('button',expandedPlans?'收起至前 10 条':`展开全部 ${rows.length} 条`,'expand-plans');button.type='button';button.setAttribute('aria-expanded',String(expandedPlans));button.onclick=()=>{expandedPlans=!expandedPlans;renderPlans();};$('plans').append(button);}
 }
@@ -84,9 +90,20 @@ function render(){
   text($('raw-contracts'),JSON.stringify({'策略':state.focus?strategyLabel(state.focus.strat):undefined,'条件':state.conds?.labels?.map(conditionLabel),'风险说明':state.risk?.reason_code?reasonText(state.risk.reason_code):undefined,'模式':state.risk?.latch_record?'只记录保护':undefined},null,2));
   if(state.risk){const r=state.risk;text($('risk'),`新开 ${r.open??'—'} / ${r.max_open??'—'}，风险 ${r.risk_pct??'—'}%，现金 ${r.cash_pct??'—'}%，同簇 ${r.cluster??'—'}。${r.latch_record?'只记录保护锁':r.blocked?'风控拦截':'未报告拦截，不代表执行链已验证'}`);}
   if(state.feed.length){text($('feed-count'),`${state.feed.length} 条`);$('feed').replaceChildren(...state.feed.slice(-25).sort((a,b)=>(b.at??'').localeCompare(a.at??'')).map(f=>{const li=document.createElement('li');li.append(byText('b',role(f.id).name),byText('time',f.at?.slice(11,16)??'未提供时刻'),byText('p',translateReasonMessage(f.text)));return li;}));}
-  if(state.alerts.length){const title=byText('h2','需要你看');title.id='attention-title';$('needs-attention').replaceChildren(title,...state.alerts.slice(-5).map(a=>{const box=document.createElement('div'),details=document.createElement('details');box.append(byText('p',`${a.at?.slice(11,16)??'时刻未提供'}，${a.who??'来源缺失'}：${translateReasonMessage(a.text??'说明缺失')}`));details.append(byText('summary','查看说明与来源'),byText('p',translateReasonMessage(a.text)),byText('p',`原观测 ${a.at??'缺失'}；记录 ${a.provenance?.id??'未提供'}；SHA ${a.provenance?.sha256??'未提供'}`));box.append(details);return box;}));}
+  if(state.alerts.length){const title=byText('h2','需要你看');title.id='attention-title';const alerts=state.alerts.slice().sort((a,b)=>({critical:0,error:1,warning:2,info:3}[a.severity]??2)-({critical:0,error:1,warning:2,info:3}[b.severity]??2));const item=a=>{const box=document.createElement('div'),details=document.createElement('details');box.append(byText('p',`${a.at?.slice(11,16)??'时刻未提供'}，${a.who??'来源缺失'}：${translateReasonMessage(a.text??'说明缺失')}`));details.append(byText('summary','查看来源'),byText('p',`原观测 ${a.at??'缺失'}；记录 ${a.provenance?.id??'未提供'}；SHA ${a.provenance?.sha256??'未提供'}`));box.append(details);return box;};$('needs-attention').replaceChildren(title,...alerts.slice(0,3).map(item));if(alerts.length>3){const more=document.createElement('details');more.append(byText('summary',`其余 ${alerts.length-3} 条提示`),...alerts.slice(3).map(item));$('needs-attention').append(more);}}
   renderPlans();
   if(state.positions!==null){text($('position-count'),`账本记录 ${state.positions.length}`);table($('positions'),[['code','代码'],['name','标的'],['qty','数量'],['entry','入场'],['price','现价'],['stop','止损'],['src','来源']],state.positions);}
+  if(state.dashboard){
+    const d=state.dashboard,health=d.health??{};text($('health-clock'),`数据时间 ${(health.observed_at??d.observed_at)?.slice(11,19)??'未知'}`);
+    const frozen=d.data_mode==='FROZEN_CAPTURE_NOT_REALTIME';
+    if(frozen){document.querySelector('.sample-badge').textContent='冻结原件';text($('mode-notice'),`${d.trade_date} ${d.observed_at?.slice(11,19)} 冻结记录，非实时；模型/监控仅部分覆盖。`);}
+    $('system-health').replaceChildren(byText('p',`实际模式：${health.mode??'未知，未绑定实际Settings'}；持久RECORD锁：${health.record_latch===true?'已锁':health.record_latch===false?'本日原表未见锁':'未知'}`),byText('p',health.a6_day_state?`A6 原记录 ${health.a6_day_state.last_observed_at?.slice(11,19)}：连续失败 ${health.a6_day_state.consecutive_failures}；全账户停止 ${health.a6_day_state.halted?'是':'否'}。不是当前模式推断。`:'A6 当日状态原件未提供'),byText('p',frozen?`冻结版本 ${health.head_at_capture??'未知'} · 采集时生产Node ${health.production_pid_at_capture??'未知'}`:`服务本页Node PID ${d.node?.pid??'未知'} · 心跳 ${d.node?.heartbeat_at??'未知'}，不代替交易链验收`),byText('p',health.model_roles?`研究 ${health.model_roles.research??'未知'}；复盘 ${health.model_roles.review??'未知'}；盘中 ${health.model_roles.monitor??'未知'}；Team ${health.model_roles.team_intraday??'未知'}。${health.model_roles.basis??'仅来源原记录'}`:'实际研究/复盘/盘中模型角色未绑定，不按默认配置填值'),byText('p',health.last_model_result?`最近已捕获模型原答：${health.last_model_result.role} · ${health.last_model_result.captured_at} · ${health.last_model_result.validated?'校验通过':'校验失败'}。未捕获的429/403不能从此推断不存在。`:'未取得最近模型原答/HTTP错误原件'));
+    if(state.positions!==null)table($('positions'),[['code','代码'],['qty','持有股数'],['sellable_qty','可卖股数'],['t1_text','T+1'],['entry','平均成本'],['price','账本估价']],state.positions.map(p=>({...p,qty:number(p.qty,0),sellable_qty:number(p.sellable_qty,0),entry:number(p.avg_cost),price:number(p.price),t1_text:p.t1_locked?`今日买入 ${number(p.t1_locked_qty,0)} 股，不可卖`:'原账本可卖量见左列',source_id:p.source?.id,source_sha256:p.source?.sha256})),{compactEvidence:true});
+    if($('orders')){if(state.orders===null)$('orders').replaceChildren(byText('p','委托原件不可用，不能判断有无委托','empty'));else table($('orders'),[['code','代码'],['side','方向'],['qty','委托股数'],['limit_price','委托价'],['status_text','状态']],state.orders.map(o=>({...o,side:o.side==='SELL'?'卖出':o.side==='BUY'?'买入':'未知',status_text:({OPEN:'待成交',PARTIAL:'部分成交',FILLED:'已成交',CANCELLED:'已撤单',REJECTED:'已拒绝'})[o.status]??reasonText(o.status),source_id:o.source?.id,source_sha256:o.source?.sha256})),{compactEvidence:true});}
+    if($('fills')){if(state.fills===null)$('fills').replaceChildren(byText('p','成交原件不可用，不能判断有无成交','empty'));else table($('fills'),[['symbol','代码'],['side','方向'],['qty','成交股数'],['price','成交价'],['minute_end','成交时刻']],state.fills.map(f=>({...f,side:f.side==='SELL'?'卖出':f.side==='BUY'?'买入':'未知',source_id:f.source?.id,source_sha256:f.source?.sha256})),{compactEvidence:true});}
+    if($('admissions')){if(state.admissions===null)$('admissions').replaceChildren(byText('p','准入原件缺失，不能判断有无信号或下单','empty'));else table($('admissions'),[['code','代码'],['at_text','准入时刻'],['shares','核准股数'],['risk_unit','仓位'],['result_text','结果'],['reason_text','原因']],state.admissions.map(a=>({...a,at_text:chinaClock(a.at),result_text:({APPROVED:'批准',REDUCED:'收紧',REJECTED:'拒绝'})[a.status]??'见原件',reason_text:(a.reason_codes??[]).map(reasonText).join('；'),source_id:a.source?.id,source_sha256:a.source?.sha256})),{compactEvidence:true});}
+    for(const[id,key]of[['plans','plans'],['positions','positions'],['orders','orders'],['fills','fills'],['tasks','calls']]){const host=$(id);if(!host)continue;let clock=host.parentElement.querySelector(`[data-clock="${key}"]`);if(!clock){clock=byText('small','','data-clock');clock.dataset.clock=key;host.before(clock);}text(clock,panelClock(state.dashboard.sections[key]));}
+  }
   text($('event-status'),`已接收 ${state.events} 条事件 · 无写入操作`);
   renderStudio(state);
 }
@@ -109,6 +126,12 @@ export function setRole(id,value,label){applyEvent({type:'role',id,state:value,l
 export function bubble(id,message){
   const article=$('role-fallback').querySelector(`[data-role="${id}"]`);
   if(article)text(article.querySelector('.role-action'),translateReasonMessage(message));
+}
+async function loadPlanDetail(plan){
+  openPlanDetail(plan);if(!livePoller||!plan.id)return;
+  const drawer=$('plan-drawer'),notice=byText('p','正在读取本计划已有的条件与闭合5分钟原件','notice');notice.setAttribute('role','status');drawer.querySelector('.drawer-content').prepend(notice);
+  try{const day=state.day??new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());const r=await fetch(`/api/ui/day/${day}/plans?plan_id=${encodeURIComponent(plan.id)}&limit=1`,{credentials:'same-origin',signal:AbortSignal.timeout(2000)});if(r.status===401){location.assign('/team/login');return;}if(!r.ok)throw Error('DETAIL_UNAVAILABLE');const data=await r.json(),item=data.rows?.[0];if(!item||item.id!==plan.id)throw Error('DETAIL_SOURCE_MISSING');if(drawer.open&&drawer.dataset.planId===plan.id)openPlanDetail({...planAt({...plan,...item},state.dashboard?.observed_at??data.observed_at),source_at:item.updated_at});}
+  catch{if(drawer.open&&drawer.dataset.planId===plan.id)text(notice,'详情暂不可用，保留已读计划；稍后可重新打开。');}
 }
 function stopDemo(){
   clearInterval(demoTimer);demoTimer=null;$('demo-toggle').setAttribute('aria-pressed','false');text($('demo-toggle'),'演示：关闭');
@@ -206,14 +229,17 @@ async function startReadonlyPoll(){
       applyEvent({type:'plans',rows:plans.rows.map(row=>({...row,zone:Array.isArray(row.zone)?row.zone.join('–'):row.zone,source_id:row.source?.id,source_sha256:row.source?.sha256}))});plansLoaded=true;return response;
     };
     livePoller=createPoller({
-      fetchPage:async since=>{if(!plansLoaded){const response=await loadPlans();if(!response.ok)return response;}return fetch(`/api/ui/events?trade_date=${day}&since_id=${since}&limit=100`,{credentials:'same-origin',signal:AbortSignal.timeout(2000)});},
+      initialDelay:0,
+      fetchPage:async since=>{const snapshot=await fetch(`/api/ui/dashboard?trade_date=${day}`,{credentials:'same-origin',signal:AbortSignal.timeout(2000)});if(!snapshot.ok)return snapshot;const dashboard=await snapshot.json();const response=await fetch(`/api/ui/events?trade_date=${day}&since_id=${since}&limit=100`,{credentials:'same-origin',signal:AbortSignal.timeout(2000)});if(!response.ok)return response;const page=await response.json();return {ok:true,status:200,json:async()=>({...page,dashboard})};},
+      onPage:page=>{if(page.dashboard){state=applyDashboard(state,page.dashboard);render();}},
       onRows:rows=>{for(const row of rows)applyEvent(row);},
       onStatus:readonlyStatus,onUnauthorized:()=>location.assign('/team/login')
     });
     try{const initial=await loadPlans();if(initial.status===401){location.assign('/team/login');return;}if(!initial.ok)readonlyStatus('稍后刷新');}catch{readonlyStatus('稍后刷新');}
     livePoller.start();
+    const freshnessTimer=setInterval(()=>{if(!replay&&freshness(lastSuccessfulRead)==='STALE')readonlyStatus('数据延迟');},1000);
     document.addEventListener('visibilitychange',()=>document.hidden?livePoller.stop():livePoller.start());
-    addEventListener('pagehide',()=>livePoller.stop(),{once:true});
+    addEventListener('pagehide',()=>{livePoller.stop();clearInterval(freshnessTimer);},{once:true});
   }catch{readonlyStatus('稍后刷新');}
 }
 render();

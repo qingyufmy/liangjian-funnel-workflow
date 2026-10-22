@@ -1,5 +1,27 @@
 # 10-21 前端本机实现与交付记录
 
+## 10-22 17:49 WP5 功能门（本机待审，不是上线）
+
+按0593功能MVP接入只读综合dashboard：原账本现金/净值/已实现、按正剩余lot投影的持仓及T+1可卖量、当日委托成交、准入、原计划几何和PROBE/DATA_LIMITED、逐项条件/详情、实际模型journal原答与角色、锁和A6日状态、缺源/失败告警。账户三表与估值在同一paper.db RO事务读取，不宣称跨数据库原子；无当日完整信号/确认/供应商HTTP原件时数字仍未知，不把0调用说成模型主动观望。3条原计划按15:00有效期显示到期，不改原行。
+
+运行证明只读固定`state/team_v2/ui_runtime_status.json`：实际当前Node PID+Linux进程start ticks、HEAD、三份配置字节SHA全部匹配才显示已核Settings和配置上限；不读取或返回完整env。配置上限与逐单quantity_audit分开；没有原始BUY计算就显示未记录，不能把10%配置冒每笔实际股数。详见`docs/TEAM_UI_RUNTIME_RECEIPT.md`。开关仍默认关闭，2 worker、450ms截止、2秒缓存未放宽；API不写库、不调用业务/行情/模型/通知。
+
+10秒轮询现依次读综合snapshot和since_id新增journal，30秒无成功响应标延迟，503按20/40/60秒退避并保留旧数据，离线保留后每10秒探读恢复，401停读并登录。重启Node仍使8小时会话失效，须重新登录；没有绕鉴权。真实loopback HTTP覆盖断联、恢复、503与换auth-key后401；这不是实际浏览器墙钟录像门。
+
+已核SHA原件为16:35账本小表/15条监控尾段、16:52 runtime补充、0589四时点12份冻结1m；API84字段对账0差异，不称DOM84字段或全天流水。12份1m经本机纯显示聚合，与核心`aggregate_closed_bars`逐OHLCV完全一致；三股图各46根至14:50，执行cutoff14:54，明确“执行聚合5m/非原生采集”，不补15:00、不当WP4原生48根证明。详情先取最近500 rowid再过滤，并最多读取8个事件绑定snapshot，缺源保留可证部分。原条件数8项照实显示，不硬凑12项。报告`artifacts/frontend-20261022/api-original-reconciliation.json`包含原件SHA和覆盖边界。
+
+本机全量43文件261项通过，typecheck/build/diff通过。补测非空跨日lot综合页时，发现连接所有权变量被持仓分组循环同名覆盖；已只改显示助手变量，反例验证RO事务不会提前关闭、150股中100可卖50被T+1锁、净值/委托/成交仍同页可读，源库字节不变。QA8790使用真实Node鉴权与同API/只读worker，只写临时合成自已核原行的小SQLite，不连接VM。此前两次dashboard503为QA热复制清单漏新增Python助手，已定位并补齐；当前脚本自动复制全部team_ui助手且监听前做隔离综合读smoke，未降低截止。主代理已在真实DOM看到999243.25净值/现金、-756.75已实现、0持仓、两笔SELL成交和3计划到期，40字段DOM核验/三宽截图、浏览器真实离线时效、VM资源与上线验收仍由主代理继续，不借API200冒称通过。未捕获的08:35 429及完整失败journal、全天事件变迁保持未知。Claude最终ACCEPT、候选/回退全量及VM发布不由此前端本机结果替代。
+
+本轮Impeccable最后一次机械扫描退化为regex：缺htmlparser2/css-select/css-tree/domutils，未验证选择器或计算对比度。Inter、13处未知值“—”及旧告警边框被提示；依既定V3视觉保留，不借审美检测重做批准方向，也不称干净扫描。窄屏/可访问/真实错误状态仍须浏览器实测。
+
+## 10-22 09:11 盘前空档：只读计划与 T+1 账户接口（本机未提交，非上线）
+
+按0518继续补F6，未连接VM、未调用模型/行情/通知，未碰交易worktree。保留原先未提交的详情抽屉等改动。本次修正计划列表只按valid_from筛选造成的盘前漏行：尚未激活且expires_at属于请求交易日的原计划也可查看；不激活、不替换、不让旧日或未来批次串入。中文名读company_name/name，Decimal文本仅转换显示数值，NaN/Infinity/bool/缺字段保持null。DATA_LIMITED有无原标记、缺源码与A6显审要求独立投影；未记录标记不等于数据齐全。
+
+新增`GET /api/ui/account/positions`、`/account/lots`、`/account/orders`，仍经同一鉴权/GET-HEAD/两worker/450ms截止/2秒缓存。positions在同一RO事务读取现存lot和OPEN/PARTIAL卖单：按symbol+原plan_id分组、旧lot数量减该owner待卖预留；当日lot可卖0，混合lot不误锁全部旧股，另一计划的预留不串户。next trading day未引入日历投影，因此日期明确null，不编“明天”；价格/浮盈无同刻报价仍null。不创建broker/Workflow/Store；缺库/坏日期/坏数量fail-closed。每源≤500，超预算标缺，不拿页内部分lot算完整仓位。返回的是当前剩余账本，不伪装历史重建，也不是下单权限。
+
+本机全量Node38文件233项通过/0失败，typecheck与diff检查通过；新增10项合成SQLite反例，源库SHA前后不变、无WAL/旁文件。此数字仅本机，不代替VM全量/时延/真实数据逐条核验。视觉源码本轮未改，未重采截图，不用旧截图冒称接口已接实时。仍欠：首页六KPI/完整动态源、页面装载新账户接口、真实当日F7和11:45中期截图；Claude评审与最终发布门均未完成。
+
 ## 14:40 V3定稿 / F3词典 / F4抽屉本机进度
 
 实际全文读取0458 b/c/d追加稿后，以Tony选定HOME_STUDIO_V3替代浅色和V2；今晚仅深色。按原HTML同宽渲染参考，保留zinc背景、顶部两团氛围光、34px当日结论、六指标、8:4工位/动态、全宽计划与底部风控/持仓。2D工位默认，专业角色3D手动展开；无角色原件不高亮值守，不补造工作屏曲线、指数或收益。1440/1024/400实测整页scrollWidth不超过viewport；1024原装饰光越界已修。两表与工位均具名region/tabindex和手机横滑提示。

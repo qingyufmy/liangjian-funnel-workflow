@@ -1,5 +1,21 @@
 /** Display-only explanations. Never changes the original event or trading rule. */
 export const REASONS=Object.freeze({
+  ENGINE_HARD_STOP:'已触发持仓硬止损，进入卖出准入；成交结果须另查账本。',
+  SELL_ALREADY_RESERVED:'同一持仓已有待成交卖单，本轮不重复预留卖出数量。',
+  ATR20_UNPROVEN:'未取得可核验的20期波动幅度依据，不能据此确认突破次数。',
+  V6_UNPROVEN:'未取得有效的前序量能基准，不能据此确认放量。',
+  CONFIRM_CURRENT_MINUTE_NO_TRADES:'当前分钟没有成交，本轮等待；不构成全账户故障。',
+  VOLUME_OVERHEATED:'核对入场量能是否过热，结果以本条条件状态为准。',
+  MONTH_CLOSED:'核对月线闭合数据是否完整。',WEEK_CLOSED:'核对周线闭合数据是否完整。',DAILY_CLOSED:'核对日线闭合数据是否完整。',
+  TRADABLE:'核对标的交易资格，不代表本轮已获下单许可。',DAILY_CLOSE_AVAILABLE:'核对日线参考收盘价是否可用。',
+  HIGHER_TIMEFRAME_RISK_CLASSIFIED:'核对月周线背景风险分类。',PRICE_GEOMETRY_VALID:'核对入场区间、止损和目标的价格结构。',
+  DAILY_SHORT_MACD_NOT_BEARISH:'核对日线短周期MACD动能是否未偏空。',TREND_DAILY_PATH_CONFIRMED:'核对日线主升、突破或强势回踩路径。',
+  DAILY_MA5_AVAILABLE_FOR_A4:'核对盘中择时所需的日线五日均线依据。',OVEREXTENSION_STATE_CLASSIFIED:'已记录超涨分类；实际回踩确认仍由盘中条件判断。',
+  NOT_DISTRIBUTION:'核对是否未出现量化派发风险形态。',A4_WILL_CONFIRM_DAILY_MA5_PULLBACK:'由盘中交易员继续确认五日均线回踩，不代表已确认。',
+  DAILY_NOT_BEARISH:'核对个股日线趋势是否未偏空。',ATR_SOURCE_IDENTITY_CONFLICT:'波动幅度原件的标的或来源身份不一致，相关依据不可用。',
+  A3_REWARD_RISK_BELOW_MINIMUM:'研究参考盈亏比低于下限，实际执行仍需按当前价重新核验。',NO_APPLICABLE_STRATEGY:'当前原件中没有已适用的策略路径。',
+  HIGHER_TIMEFRAME_CONDITIONAL_PROBE:'月周线背景偏弱但不直接淘汰；如获执行许可，仍限试探仓。',
+  A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE:'来自观察池且日线技术研究合格；试探执行仍需正式计划和盘中确认。',
   PRICE_OUTSIDE_PLAN_GEOMETRY:'现价不在计划允许的入场区间，继续等待。',
   OPEN_PRICE_CHASE_BLOCK:'开盘价超过不追价线，晨审未激活这条计划。',
   START_CONFIRMATION:'暂缓入场，等待闭合K线确认。',
@@ -9,6 +25,7 @@ export const REASONS=Object.freeze({
   CLAMPED_TO_PROBE:'已按试探仓的风险上限执行。',
   ENVELOPE_INELIGIBLE:'本轮风险信封不允许执行这条计划。',
   POSITION_CAP:'单只股票的资金占用上限限制了可买数量。',
+  PROBE_NOTIONAL_CAP:'试探仓的单票名义资金上限约束了最终可买股数。',
   POSITION_ALREADY_OPEN:'这条计划已有持仓，不重复新开。',
   POSITION_RISK_CLEAR:'本轮持仓风险检查未触发退出条件。',
   PRE_ENTRY_RISK_LEVEL_TOUCHED:'价格触及入场前风险线，暂停买入并核验结构。',
@@ -70,6 +87,7 @@ export const REASONS=Object.freeze({
   TREND_VWAP_RECLAIMED:'需确认价格收回成交均价线。'
 });
 export const CONDITION_NAMES=Object.freeze({
+  MONTH_CLOSED:'月线闭合数据',WEEK_CLOSED:'周线闭合数据',DAILY_CLOSED:'日线闭合数据',TRADABLE:'标的交易资格',DAILY_CLOSE_AVAILABLE:'日线参考收盘价',HIGHER_TIMEFRAME_RISK_CLASSIFIED:'月周线风险分类',PRICE_GEOMETRY_VALID:'价位几何',DAILY_SHORT_MACD_NOT_BEARISH:'日线短周期MACD动能',TREND_DAILY_PATH_CONFIRMED:'日线趋势路径',DAILY_MA5_AVAILABLE_FOR_A4:'日线五日均线依据',OVEREXTENSION_STATE_CLASSIFIED:'超涨状态分类',NOT_DISTRIBUTION:'无派发风险形态',A4_WILL_CONFIRM_DAILY_MA5_PULLBACK:'盘中五日线回踩确认',DAILY_NOT_BEARISH:'日线趋势未偏空',
   A_SUPPORT:'支撑位',A_PULLBACK:'回调结构',A_CONTRACTION:'回调缩量',A_STABILIZED:'止跌形态',A_HIGHER_LOWS:'低点抬高',A_LOWER_WICK:'下影线止跌',A_15M_SUPPORT:'15分钟支撑',
   B_KEY_LEVEL:'突破参考位',B_KEY_BELOW_NO_CHASE:'参考位不高于不追线',B_ATTEMPT_PREFIX:'开盘起的完整K线前缀',B_EFFECTIVE_BREAKOUT:'有效突破',B_RETEST:'突破后回踩',B_RETEST_VOLUME:'回踩量能',B_ACCEPTED:'回踩承接',B_STOP_ONLY_RAISED:'止损只上移',B_NO_CHASE:'不追价限制',B_CANDLE_ACCEPTANCE:'K线承接',B_VWAP_RECLAIM:'收回成交均价线',
   C_DECLINE:'此前回落',C_VOLUME_PRICE_SYNCHRONIZED:'放量与价格修复同步',ENTRY_RR:'盈亏比',ENTRY_ZONE:'计划区间',

@@ -27,7 +27,11 @@ export function createTeamUiRouter(reader: TeamUiReader, day = (): string =>
       return;
     }
     if (!query) { response.status(404).json({ error: "UI_API_NOT_FOUND" }); return; }
-    void reader.read(query).then(result => response.json(result)).catch(error => {
+    void reader.read(query).then(result => {
+      if (['dashboard','system/health','summary'].includes(query!.kind) && result && typeof result==='object') {
+        response.json({...result,node:{pid:process.pid,uptime_seconds:process.uptime(),heartbeat_at:new Date().toISOString(),source:'SERVING_NODE_PROCESS_NOT_TRADING_ACCEPTANCE'}});
+      } else response.json(result);
+    }).catch(error => {
       response.status(503).json({ error: error instanceof TeamUiBusyError ? "TEAM_UI_BUSY" : "TEAM_UI_SOURCE_UNAVAILABLE" });
     });
   });
