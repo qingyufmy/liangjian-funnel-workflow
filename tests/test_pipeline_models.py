@@ -42,7 +42,9 @@ def _sse_response(request: httpx.Request, events: list[dict | str], *, chunks: b
 
 
 def _settings(tmp_path: Path, key: str | None = "model-secret") -> Settings:
-    return Settings.from_env({"LIANGJIAN_MODEL_API_KEY": key or ""}, root=tmp_path)
+    # Historical gateway fallback contracts; Finpoints has its own 0569 suite.
+    return Settings.from_env({"LIANGJIAN_MODEL_API_KEY": key or ""}, root=tmp_path).model_copy(
+        update={"model_base_url": "https://legacy-gateway.example.test/v1"})
 
 
 @pytest.mark.parametrize("stage,thinking", [("A2", "disabled"), ("A4", "disabled"), ("A3", "enabled"), ("A6", "enabled"), ("A1", "enabled"), ("A5", "enabled")])

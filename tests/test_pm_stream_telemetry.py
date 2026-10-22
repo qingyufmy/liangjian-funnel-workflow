@@ -37,7 +37,8 @@ def event(value):
 
 
 def client(tmp_path, handler, clock=None, **kwargs):
-    settings = Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'SYNTHETIC_NOT_PROVIDER'}, root=tmp_path)
+    settings = Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'SYNTHETIC_NOT_PROVIDER'}, root=tmp_path).model_copy(
+        update={'model_base_url':'https://legacy-gateway.example.test/v1'})
     return OpenAICompatibleModelClient(settings, transport=httpx.MockTransport(handler),
         monotonic=clock or Clock(), sleep=lambda _:None, **kwargs)
 
