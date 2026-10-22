@@ -95,10 +95,10 @@ export function createApp(deps: ApiDependencies): Express {
     });
   });
 
-  const teamAccess = deps.config.teamUiEnabled ? createTeamUiAccess(deps.config.dashboardToken) : null;
+  const teamAccess = deps.config.teamUiEnabled ? createTeamUiAccess(deps.config.teamUiToken ?? deps.config.dashboardToken) : null;
   if (deps.config.teamUiEnabled) {
     app.use("/api/ui", teamAccess!.api, createTeamUiRouter(new TeamUiReadOnly(deps.config.rootDir, deps.config.pythonBin)));
-  }
+  } else app.use('/api/ui',(_request,response)=>{response.status(404).json({error:'UI_API_NOT_FOUND'});});
   app.use("/api", dashboardAuth(deps.config.dashboardToken));
   app.all("/api/shadow/job-runs-readonly", shadowJobRunsReadOnlyRoute(deps.runner, nodeStartedAtEpochMs));
   app.use("/api/settings/lark", express.json({ limit: "4kb", strict: true }));
