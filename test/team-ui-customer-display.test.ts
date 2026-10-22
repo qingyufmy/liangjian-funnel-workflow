@@ -65,6 +65,8 @@ test('customer trading records use structured actual sources, not model-validati
  expect(applyDashboard(emptyState(),{status:'AVAILABLE',sections:{calls:{status:'AVAILABLE',rows:[{role:'A2',validated:true}]}}}).feed).toEqual([]);
  expect(tradeRecordText({kind:'PLAN_CONDITIONS',symbol:'300556.SZ',name:'丝路视觉',unmet_conditions:['TREND_PULLBACK_VOLUME_CONTRACTION']})).toBe('丝路视觉 300556.SZ：等待回调缩量');
  expect(tradeRecordText({kind:'EXECUTION_FILL',symbol:'002270.SZ',name:'华明装备',qty:4160,side:'SELL',price:18.725})).toContain('华明装备 002270.SZ：卖出成交 4,160 股，价格 18.73');
+ const ledger=applyDashboard(emptyState(),{status:'AVAILABLE',sections:{},trade_records:[{role:'SYSTEM',text:'实际成交',source:{id:'fill',sha256:'a'.repeat(64)}}]});
+ expect(ledger.feed[0]).toMatchObject({id:null,who:'系统账本'});
 });
 test('default full trading room and all three mobile plan rows are not collapsed or clipped',()=>{
  const html=readFileSync('web/team/index.html','utf8'),css=readFileSync('web/team/studio.css','utf8');

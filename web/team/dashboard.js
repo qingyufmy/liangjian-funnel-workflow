@@ -14,7 +14,7 @@ export function applyDashboard(state,data){
   s.alerts=(data.alerts??[]).map(x=>({...x,who:'只读数据源'}));
   // Customer activity is only structured trading facts, not generic model
   // validation chatter. An absent source stays an empty record feed.
-  s.feed=(data.trade_records??[]).filter(x=>x.source?.id&&x.source?.sha256&&typeof x.text==='string').slice(-100).map(x=>({id:({A1:'a1',A2:'a2',A3:'pm',PM:'pm',A4:'tr',A6:'rk',A5:'rv'})[x.role]??'tr',at:x.at,text:tradeRecordText(x),provenance:x.source}));
+  s.feed=(data.trade_records??[]).filter(x=>x.source?.id&&x.source?.sha256&&typeof x.text==='string').slice(-100).map(x=>({id:({A1:'a1',A2:'a2',A3:'pm',PM:'pm',A4:'tr',A6:'rk',A5:'rv'})[x.role]??null,who:({A1:'基本面研究',A2:'题材研究',A3:'计划评审',PM:'组合经理',A4:'交易员',A6:'风控官',A5:'复盘官',SYSTEM:'系统账本'})[x.role]??'原件记录',at:x.at,text:tradeRecordText(x),provenance:x.source}));
   const roles={A1:'a1',A2:'a2',PM:'pm',A4:'tr',A6:'rk',A5:'rv'};
   s.roles={...state.roles};
   for(const agent of data.agents??[]){const id=roles[agent.agent];if(id&&agent.last)s.roles[id]={state:agent.last.validated?'rest':'stop',status_label:agent.state,label:`${agent.state} · ${agent.last.captured_at?.slice(11,19)??'时间缺失'}`};}
