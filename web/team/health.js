@@ -1,4 +1,8 @@
 /** Only source metadata is rendered, never provider error/customer bodies. */
+export function orderedHealthEvents(events){
+  const instant=event=>typeof event.at==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(event.at)&&Number.isFinite(Date.parse(event.at))?Date.parse(event.at):Infinity;
+  return events.slice().sort((a,b)=>instant(a)-instant(b));
+}
 export function healthEventText(event){
   const role=event.role??event.job??'系统';
   const status=({READY:'完成',DEGRADED:'降级',BLOCKED:'阻断',FAILED:'失败',CLAIMED:'未完成，终态未收口（不代表当前运行）',CAPTURED:'已捕获答复'})[event.status]??'状态未记录';

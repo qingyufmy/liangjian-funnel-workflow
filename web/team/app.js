@@ -7,11 +7,13 @@ import {applyDashboard,panelClock,chinaClock,planAt} from './dashboard.js';
 import {reasonText,translateReasonMessage} from './copy/reasons.js';
 import {mountStudio,renderStudio} from './studio.js';
 import {planChart,openPlanDetail} from './plan-detail.js';
-import {healthEventText} from './health.js';
+import {healthEventText,orderedHealthEvents} from './health.js';
+import {zoneText,riskUnitLabel,securityNames as buildSecurityNames,securityName,securityText,annotateSecurities,dataStatusText,confirmationText} from './display.js';
 
 const $=id=>document.getElementById(id);
 const number=(v,digits=2)=>typeof v==='number'&&Number.isFinite(v)?v.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits}):'—';
-const text=(node,value)=>{node.textContent=value==null?'—':String(value);};
+let names=new Map();
+const text=(node,value)=>{node.textContent=value==null?'—':annotateSecurities(String(value),names);};
 let lastSuccessfulRead=null,transportState='UNKNOWN',serviceOffline=false;
 const readonlyStatus=(message,meta={})=>{transportState=serviceOffline?'OFFLINE':meta.state??transportState;if(meta.received_at!=null&&!serviceOffline)lastSuccessfulRead=meta.received_at;const label=transportState==='OFFLINE'?'后端离线':transportState==='BUSY'?'后端繁忙':freshness(lastSuccessfulRead)==='STALE'?'数据延迟':state.dashboard?.data_mode==='FROZEN_CAPTURE_NOT_REALTIME'?'冻结原件 · 非实时':message;text($('connection'),label);const warning=['后端离线','后端繁忙','数据延迟'].includes(label);$('refresh-status').hidden=!warning;text($('refresh-status'),warning?`${label} · 保留上次数据，非实时${meta.retry_ms?` · ${meta.retry_ms/1000}秒后重试`:''}`:'');};
 const role=id=>ROLES.find(r=>r.id===id);
@@ -20,7 +22,6 @@ const taskLabel=value=>({A1:'基本面研究',A2:'题材研究',A3:'交易计划
 const byText=(tag,value,className)=>{const el=document.createElement(tag);text(el,value);if(className)el.className=className;return el;};
 let state=emptyState(),scene=null,reviewScene=null,demoTimer=null,sse=null,replay=null,replayIndex=0,expandedPlans=false,previewTimer=null,livePoller=null,planFilter='all';
 mountStudio();
-$('stage-toggle').onclick=()=>{const expanded=$('stage-toggle').getAttribute('aria-expanded')!=='true';$('stage-toggle').setAttribute('aria-expanded',String(expanded));text($('stage-toggle'),expanded?'收起 3D':'展开 3D');$('scene-shell').hidden=!expanded;$('workstation-stage').hidden=expanded;if(expanded&&!scene)mountStage(false);};
 for(const b of $('plan-filters').querySelectorAll('button'))b.onclick=()=>{planFilter=b.dataset.filter;for(const item of $('plan-filters').querySelectorAll('button'))item.setAttribute('aria-pressed',String(item===b));renderPlans();};
 $('plan-sort').onchange=()=>renderPlans();
 function stateIcon(value){
@@ -36,7 +37,7 @@ const updateScrollHint=()=>{$('scene-shell').dataset.hasMore=String($('scene').s
 $('scene').addEventListener('scroll',updateScrollHint,{passive:true});
 new ResizeObserver(updateScrollHint).observe($('scene'));
 new ResizeObserver(updateScrollHint).observe($('role-fallback'));
-const focusScene=id=>{if($('scene-shell').hidden)$('stage-toggle').click();scene?.focus(id);};
+const focusScene=id=>scene?.focus(id);
 $('role-picks').replaceChildren(...ROLES.map(r=>{const b=byText('button',r.short);b.type='button';b.setAttribute('aria-label',`近看${r.name}`);b.onclick=()=>focusScene(r.id);return b;}));
 $('overview').onclick=()=>focusScene('all');
 for(const r of ROLES){const option=byText('option',r.name);option.value=r.id;$('preview-role').append(option);}
@@ -46,7 +47,22 @@ function table(host,columns,rows,{compactEvidence=false}={}){
   const table=document.createElement('table'),head=document.createElement('thead'),tr=document.createElement('tr');
   for(const [,label]of columns)tr.append(byText('th',label));head.append(tr);table.append(head);
   const body=document.createElement('tbody');
-  for(const row of rows){const line=document.createElement('tr');for(const [key,label]of columns){const cell=document.createElement('td');cell.dataset.label=label;if(key==='security'){cell.append(byText('b',row.name??row.code),byText('small',row.code));}else if(key==='status'){const chip=byText('span',planStatusLabel(row.status),'status-chip');chip.dataset.status=row.status;cell.append(chip);}else cell.append(byText('span',key==='strat'?strategyLabel(row[key]):key==='cluster'?clusterLabel(row[key]):row[key]));line.append(cell);}const details=document.createElement('details');details.append(byText('summary','来源'),byText('p',`记录：${row.source_id??'缺少记录ID'} · SHA ${row.source_sha256??'缺失'}`));if(row.strat)details.append(byText('p',`计划策略 ${strategyLabel(row.strat)}；计划状态 ${planStatusLabel(row.status)}；所属分组 ${clusterLabel(row.cluster)}`));if(row.status_source_id)details.append(byText('p',`状态更新：${row.status_source_id} · ${row.status_source_at} · SHA ${row.status_source_sha256}`));if(compactEvidence)line.firstElementChild.append(details);else{const evidence=document.createElement('td');evidence.dataset.label='证据';evidence.append(details);line.append(evidence);}body.append(line);}
+  for(const row of rows){
+    const line=document.createElement('tr');
+    for(const [key,label]of columns){
+      const cell=document.createElement('td');cell.dataset.label=label;
+      if(['security','code','symbol'].includes(key)){const code=byText('small','');code.textContent=row.code??row.symbol??'代码缺源';cell.append(byText('b',securityName(row,names)??'名称缺源'),code);}
+      else if(key==='risk_unit')cell.append(byText('span',riskUnitLabel(row[key])));
+      else if(key==='status'){const chip=byText('span',planStatusLabel(row.status),'status-chip');chip.dataset.status=row.status;cell.append(chip);}
+      else cell.append(byText('span',key==='strat'?strategyLabel(row[key]):key==='cluster'?clusterLabel(row[key]):['price','limit_price','entry','stop'].includes(key)&&typeof row[key]==='number'?number(row[key],2):row[key]));
+      line.append(cell);
+    }
+    const details=document.createElement('details');details.append(byText('summary','来源'),byText('p',`记录：${row.source_id??'缺少记录ID'} · SHA ${row.source_sha256??'缺失'}`));
+    if(row.strat)details.append(byText('p',`计划策略 ${strategyLabel(row.strat)}；计划状态 ${planStatusLabel(row.status)}；所属分组 ${clusterLabel(row.cluster)}`));
+    if(row.status_source_id)details.append(byText('p',`状态更新：${row.status_source_id} · ${row.status_source_at} · SHA ${row.status_source_sha256}`));
+    if(compactEvidence)line.firstElementChild.append(details);else{const evidence=document.createElement('td');evidence.dataset.label='证据';evidence.append(details);line.append(evidence);}
+    body.append(line);
+  }
   if(!compactEvidence)tr.append(byText('th','证据'));
   table.append(body);host.replaceChildren(table);
 }
@@ -58,13 +74,14 @@ function renderPlans(){
   if(planFilter==='filled'){const ids=new Set((state.fills??[]).map(f=>f.plan_id));rows=rows.filter(r=>ids.has(r.id));}
   const sort=$('plan-sort').value;if(sort==='distance')rows=rows.slice().sort((a,b)=>(a.distance_pct??Infinity)-(b.distance_pct??Infinity));if(sort==='rr')rows=rows.slice().sort((a,b)=>(b.rr??b.planned_rr??-Infinity)-(a.rr??a.planned_rr??-Infinity));
   const visible=expandedPlans?rows:rows.slice(0,10);
-  const display=visible.map(r=>({...r,price_text:typeof r.price==='number'?number(r.price,2):'—',zone_text:r.zone,stop_text:number(r.stop),target_text:number(r.target),risk_text:r.risk_unit??'未提供',data_text:r.data_limits?.data_limited===true?'数据受限':r.data_limits?.data_limited===false?'已记录数据完整':'数据状态未记录',distance_text:r.distance_pct==null?'待同刻报价':r.in_zone?'区间内':`${r.distance_side==='BELOW'?'下':'上'} ${number(r.distance_pct,2)}%`,rr_text:r.rr!=null?number(r.rr,2):r.planned_rr!=null?`${number(r.planned_rr,2)}（计划）`:'—',confirmation_text:r.conditions?.length?`${r.conditions.filter(c=>c.status==='MET'&&c.source_valid!==false).length}/${r.conditions.length} 满足`:'待逐项原件'}));
-  table($('plans'),[['security','股票'],['strat','形态'],['zone_text','区间'],['stop_text','止损'],['target_text','目标'],['price_text','最后闭合观测价'],['distance_text','距区间'],['rr_text','盈亏比'],['confirmation_text','确认进度'],['risk_text','仓位上限'],['data_text','数据状态'],['status','状态']],display,{compactEvidence:true});
-  const rendered=$('plans').querySelectorAll('tbody tr');rendered.forEach((line,i)=>{const plan=visible[i];const chart=document.createElement('td');chart.className='plan-chart-cell';chart.dataset.label='今日闭合观测';chart.append(planChart(plan,true));line.insertBefore(chart,line.children[2]);const button=byText('button','查看详情','plan-open');button.type='button';button.setAttribute('aria-label',`查看${plan.code}计划详情`);button.onclick=()=>void loadPlanDetail(plan);line.lastElementChild.append(button);});
+  const display=visible.map(r=>({...r,price_text:typeof r.price==='number'?number(r.price,2):'—',zone_text:zoneText(r),stop_text:number(r.stop),target_text:number(r.target),risk_text:riskUnitLabel(r.risk_unit),data_text:dataStatusText(r),distance_text:r.distance_pct==null?'待同刻报价':r.in_zone?'区间内':`${r.distance_side==='BELOW'?'下':'上'} ${number(r.distance_pct,2)}%`,rr_text:r.rr!=null?number(r.rr,2):r.planned_rr!=null?`${number(r.planned_rr,2)}（计划）`:'—',confirmation_text:confirmationText(r)}));
+  table($('plans'),[['security','股票'],['strat','形态'],['zone_text','区间'],['stop_text','止损'],['target_text','目标'],['price_text','最后闭合观测价'],['distance_text','距区间'],['rr_text','末次观测盈亏比'],['confirmation_text','末次条件满足'],['risk_text','仓位上限'],['data_text','数据状态'],['status','状态']],display,{compactEvidence:true});
+  const rendered=$('plans').querySelectorAll('tbody tr');rendered.forEach((line,i)=>{const plan={...visible[i],name:securityName(visible[i],names)},chartRow=document.createElement('tr'),chart=document.createElement('td');chartRow.className='plan-chart-row';chart.colSpan=line.children.length;chart.className='plan-chart-cell';chart.dataset.label='今日闭合走势';chart.append(byText('strong',`${securityText(plan,names)} · 今日闭合走势`),planChart(plan,true));chartRow.append(chart);line.after(chartRow);const button=byText('button','查看详情','plan-open');button.type='button';button.setAttribute('aria-label',`查看${securityText(plan,names)}计划详情`);button.onclick=()=>void loadPlanDetail(plan);line.lastElementChild.append(button);});
   const firstHead=$('plans').querySelector('thead tr');if(firstHead){const th=byText('th','今日走势');firstHead.insertBefore(th,firstHead.children[2]);}
   if(rows.length>10){const button=byText('button',expandedPlans?'收起至前 10 条':`展开全部 ${rows.length} 条`,'expand-plans');button.type='button';button.setAttribute('aria-expanded',String(expandedPlans));button.onclick=()=>{expandedPlans=!expandedPlans;renderPlans();};$('plans').append(button);}
 }
 function render(){
+  names=buildSecurityNames(state);
   text($('day-clock'),state.day?`交易日 ${state.day} · ${state.hhmm??'—'}`:'等待带来源的时钟事件');
   if(state.account){
     $('account-band').classList.remove('is-empty');$('account-empty').hidden=true;
@@ -83,14 +100,14 @@ function render(){
   const hasAttention=Boolean(state.risk?.latch_record||state.alerts.length);$('room-attention-column').hidden=!hasAttention;$('needs-attention').hidden=!state.alerts.length;
   text($('room-attention'),state.risk?.latch_record?'只记录保护锁已触发':state.alerts.length?'有异常记录待查看':'');
   scene?.setContext?.({market:typeof state.market?.stage_label==='string'?state.market.stage_label:undefined});
-  text($('room-market'),typeof state.market?.stage_label==='string'?`市场 ${translateReasonMessage(state.market.stage_label)}`:'市场阶段待更新');
+  text($('room-market'),typeof state.market?.emotion?.stage_label==='string'&&state.market.emotion.source?`市场 ${translateReasonMessage(state.market.emotion.stage_label)}`:'市场情绪缺源');
   text($('room-limits'),state.risk?.max_open!=null?`新开上限 ${state.risk.max_open} · 其他权限见原件`:'今日权限 · 晨会后更新');
   if(state.tasks.length){text($('task-count'),`${state.tasks.length} 条记录，列表内滚动查看全部`);$('tasks').replaceChildren(...state.tasks.slice().reverse().map(t=>{const li=document.createElement('li'),details=document.createElement('details');li.append(byText('time',t.at??t.time??'—'),byText('b',`${taskLabel(t.label)}：${taskStatus(t.status)}`),byText('small',translateReasonMessage(t.note??'无附加说明')));details.append(byText('summary','核验状态与来源'),byText('small',`${reasonText(t.status)} ${(t.reason_codes??[]).map(reasonText).join(' ')}；${t.provenance?.id??'记录未提供'}；SHA ${t.provenance?.sha256??'未提供'}`));li.append(details);return li;}));}
-  if(state.focus){const f=state.focus;$('focus').replaceChildren(byText('h3',`${f.name??''} ${f.code??'标的未提供'}`),byText('p',`${strategyLabel(f.strat)}，现价 ${number(f.price)}。条件按本条原观测核对。`));text($('focus-clock'),f.at??'未提供观测时刻');}
+  if(state.focus){const f=state.focus;$('focus').replaceChildren(byText('h3',securityText(f,names)),byText('p',`${strategyLabel(f.strat)}，现价 ${number(f.price)}。条件按本条原观测核对。`));text($('focus-clock'),f.at??'未提供观测时刻');}
   if(state.conds)$('conditions').replaceChildren(...state.conds.met.map((value,i)=>{const line=document.createElement('div');line.className='condition';line.append(stateIcon(value===null?'unknown':value?'met':'unmet'),byText('span',state.conds.labels?.[i]?conditionLabel(state.conds.labels[i]):`条件 ${i+1}（名称未提供）`,'condition-name'),byText('b',value===null?'证据不足':value?'满足':'未满足'));return line;}));
   text($('raw-contracts'),JSON.stringify({'策略':state.focus?strategyLabel(state.focus.strat):undefined,'条件':state.conds?.labels?.map(conditionLabel),'风险说明':state.risk?.reason_code?reasonText(state.risk.reason_code):undefined,'模式':state.risk?.latch_record?'只记录保护':undefined},null,2));
   if(state.risk){const r=state.risk;text($('risk'),`新开 ${r.open??'—'} / ${r.max_open??'—'}，风险 ${r.risk_pct??'—'}%，现金 ${r.cash_pct??'—'}%，同簇 ${r.cluster??'—'}。${r.latch_record?'只记录保护锁':r.blocked?'风控拦截':'未报告拦截，不代表执行链已验证'}`);}
-  if(state.feed.length){text($('feed-count'),`${state.feed.length} 条`);$('feed').replaceChildren(...state.feed.slice(-25).sort((a,b)=>(b.at??'').localeCompare(a.at??'')).map(f=>{const li=document.createElement('li');li.append(byText('b',role(f.id).name),byText('time',f.at?.slice(11,16)??'未提供时刻'),byText('p',translateReasonMessage(f.text)));return li;}));}
+  if(state.feed.length){text($('feed-count'),`${state.feed.length} 条`);$('feed').replaceChildren(...state.feed.slice(-25).sort((a,b)=>(b.at??'').localeCompare(a.at??'')).map(f=>{const li=document.createElement('li');li.append(byText('b',role(f.id).name),byText('time',f.at?.slice(11,16)??'未提供时刻'),byText('p',translateReasonMessage(f.text)));return li;}));}else if(state.dashboard){text($('feed-count'),'仅列有原件的交易重点');$('feed').replaceChildren(byText('li',Array.isArray(state.dashboard.trade_records)?'已读原件暂无可展示的交易重点':'交易重点原件尚未接入','empty'));}
   if(state.alerts.length){const title=byText('h2','需要你看');title.id='attention-title';const alerts=state.alerts.slice().sort((a,b)=>({critical:0,error:1,warning:2,info:3}[a.severity]??2)-({critical:0,error:1,warning:2,info:3}[b.severity]??2));const item=a=>{const box=document.createElement('div'),details=document.createElement('details');box.append(byText('p',`${a.at?.slice(11,16)??'时刻未提供'}，${a.who??'来源缺失'}：${translateReasonMessage(a.text??'说明缺失')}`));details.append(byText('summary','查看来源'),byText('p',`原观测 ${a.at??'缺失'}；记录 ${a.provenance?.id??'未提供'}；SHA ${a.provenance?.sha256??'未提供'}`));box.append(details);return box;};$('needs-attention').replaceChildren(title,...alerts.slice(0,3).map(item));if(alerts.length>3){const more=document.createElement('details');more.append(byText('summary',`其余 ${alerts.length-3} 条提示`),...alerts.slice(3).map(item));$('needs-attention').append(more);}}
   renderPlans();
   if(state.positions!==null){text($('position-count'),`账本记录 ${state.positions.length}`);table($('positions'),[['code','代码'],['name','标的'],['qty','数量'],['entry','入场'],['price','现价'],['stop','止损'],['src','来源']],state.positions);}
@@ -102,7 +119,7 @@ function render(){
     const history=d.health_history;
     if(history){
       const list=document.createElement('ol');list.setAttribute('aria-label','已有原件健康时间线');
-      for(const event of history.events??[]){const item=document.createElement('li'),proof=document.createElement('details');item.append(byText('time',chinaClock(event.at)),byText('span',` · ${healthEventText(event)}`));proof.append(byText('summary','查看原件来源'),byText('p',`记录 ${event.source?.id??'未记录'}；SHA ${event.source?.sha256??'缺失'}`));item.append(proof);list.append(item);}
+      for(const event of orderedHealthEvents(history.events??[])){const item=document.createElement('li'),proof=document.createElement('details');item.append(byText('time',chinaClock(event.at)==='未知'?'时刻缺源（排末尾）':chinaClock(event.at)),byText('span',` · ${healthEventText(event)}`));proof.append(byText('summary','查看原件来源'),byText('p',`记录 ${event.source?.id??'未记录'}；SHA ${event.source?.sha256??'缺失'}`));item.append(proof);list.append(item);}
       $('system-health').append(byText('h3','健康时间线（已有原件）'),byText('small',`原事件最新时间 ${chinaClock(history.source_time)}；${history.gaps?.length?'仍有缺源/有界截断，不称全天完整':'各来源覆盖见原件，非历史可用率验收'}`),list.children.length?list:byText('p','没有可核的历史事件，不能据此判断全天无异常','empty'));
       const delivery=history.notifications??{},team=history.team_reviews??{},monitor=history.monitor??{};
       $('system-health').append(byText('p',`通知元数据：送达 ${delivery.sent??'未知'}，失败 ${delivery.failed??'未知'}。${delivery.complete?'当日查询未截断':'缺源或超出有界读取，不判断全部送达'}；不读取客户正文。`),byText('p',`客户A4有效监控信号 ${monitor.signals??'未知'}；形态确认 ${monitor.confirmations??'未知'}。Team有效执行准入 ${d.metrics?.team_effective_admissions??'未知'}（只计批准/收紧且股数大于0，按信号去重）；Team确认观测 ${team.confirmed_observations??'未知'}，模型评审对象 ${team.model_objects??'未知'}；这些不是订单数，也不把多轮观测当独立信号。`));
@@ -137,7 +154,7 @@ export function bubble(id,message){
   if(article)text(article.querySelector('.role-action'),translateReasonMessage(message));
 }
 async function loadPlanDetail(plan){
-  openPlanDetail(plan);if(!livePoller||!plan.id)return;
+  plan={...plan,name:securityName(plan,names)};openPlanDetail(plan);if(!livePoller||!plan.id)return;
   const drawer=$('plan-drawer'),notice=byText('p','正在读取本计划已有的条件与闭合5分钟原件','notice');notice.setAttribute('role','status');drawer.querySelector('.drawer-content').prepend(notice);
   try{const day=state.day??new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());const r=await fetch(`/api/ui/day/${day}/plans?plan_id=${encodeURIComponent(plan.id)}&limit=1`,{credentials:'same-origin',signal:AbortSignal.timeout(2000)});if(r.status===401){location.assign('/team/login');return;}if(!r.ok)throw Error('DETAIL_UNAVAILABLE');const data=await r.json(),item=data.rows?.[0];if(!item||item.id!==plan.id)throw Error('DETAIL_SOURCE_MISSING');if(drawer.open&&drawer.dataset.planId===plan.id)openPlanDetail({...planAt({...plan,...item},state.dashboard?.observed_at??data.observed_at),source_at:item.updated_at});}
   catch{if(drawer.open&&drawer.dataset.planId===plan.id)text(notice,'详情暂不可用，保留已读计划；稍后可重新打开。');}
@@ -150,7 +167,6 @@ function stopDemo(){
 $('demo-toggle').onclick=()=>{
   if(replay)return;
   if(demoTimer){stopDemo();return;}
-  if($('scene-shell').hidden)$('stage-toggle').click();
   text($('mode-notice'),'角色动作演示 / 非生产：仅切换动作，不生成计划、信号、成交、发言或账户数字。');
   text($('demo-toggle'),'演示：角色动作');$('demo-toggle').setAttribute('aria-pressed','true');let index=0;
   demoTimer=setInterval(()=>{for(const r of ROLES)scene?.setRole(r.id,'idle');const from=ROLES[index%ROLES.length].id,to=ROLES[++index%ROLES.length].id;scene?.setRole(to,'work');scene?.relay?.(from,to);},1800);
@@ -167,7 +183,7 @@ $('preview-pause').onclick=()=>{reviewPaused=!reviewPaused;reviewScene?.pause(re
 $('preview-relay').onclick=()=>{clearTimeout(previewTimer);reviewScene?.setAll('idle');for(const item of $('review-fallback').querySelectorAll('.role-state'))text(item,'动作预览：待命');const card=$('review-fallback').querySelector('[data-role="rk"] .role-state');text(card,'动作预览：工作中');reviewScene?.relay?.('pm','rk');reviewScene?.setRole('rk','work');previewTimer=setTimeout(()=>{reviewScene?.setRole('rk','stop');text(card,'动作预览：拦截中');},900);};
 function mountStage(review=false){
   const host=$(review?'review-scene':'scene'),fallback=$(review?'review-fallback':'role-fallback');
-  const value=createStage(host,{preview:review,onUnavailable:()=>{host.classList.add('stage-unavailable');host.setAttribute('role','group');host.querySelector('canvas')?.setAttribute('hidden','');fallback.classList.add('is-primary');}});
+  const value=createStage(host,{preview:review,onUnavailable:()=>{host.classList.add('stage-unavailable');host.setAttribute('role','group');host.querySelector('canvas')?.setAttribute('hidden','');fallback.classList.add('is-primary');if(!review){$('scene-shell').hidden=true;$('workstation-stage').hidden=false;}}});
   if(review){reviewScene=value;updatePreview();}else scene=value;
 }
 function route(){
@@ -175,7 +191,7 @@ function route(){
   $('home-view').hidden=!home;$('preview-view').hidden=!review;$('placeholder-view').hidden=home||review;
   const key=path.split('/')[2]||'home';for(const link of document.querySelectorAll('[data-route]')){if(link.dataset.route===key)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
   if(!home&&!review)text($('placeholder-title'),({roles:'团队与角色',plans:'计划',review:'复盘',settings:'设置'})[key]??'页面尚未开放');
-  if(review&&!reviewScene)mountStage(true);
+  if(review&&!reviewScene)mountStage(true);if(home&&!scene)mountStage(false);
   window.scrollTo(0,0);
 }
 document.addEventListener('click',event=>{const a=event.target.closest('a');if(a&&a.origin===location.origin&&a.pathname.startsWith('/team')){event.preventDefault();history.pushState({},'',a.href);route();}});
@@ -235,7 +251,7 @@ async function startReadonlyPoll(){
       if(!response.ok)return response;
       const plans=await response.json();
       if(plans.status!=='AVAILABLE'||!Array.isArray(plans.rows))throw Error('PLAN_SOURCE_UNAVAILABLE');
-      applyEvent({type:'plans',rows:plans.rows.map(row=>({...row,zone:Array.isArray(row.zone)?row.zone.join('–'):row.zone,source_id:row.source?.id,source_sha256:row.source?.sha256}))});plansLoaded=true;return response;
+      applyEvent({type:'plans',rows:plans.rows.map(row=>planAt(row,plans.observed_at))});plansLoaded=true;return response;
     };
     livePoller=createPoller({
       initialDelay:0,

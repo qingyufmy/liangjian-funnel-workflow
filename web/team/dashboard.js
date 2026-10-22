@@ -1,7 +1,8 @@
 /** Allowlisted API → page state. Never fills missing metrics with zero or mock. */
+import {tradeRecordText} from './display.js';
 export function applyDashboard(state,data){
   if(data?.status!=='AVAILABLE'||!data.sections)throw Error('DASHBOARD_SOURCE_INVALID');
-  const s={...state,dashboard:data,day:data.trade_date,hhmm:data.observed_at?.slice(11,16),account:data.account??null};
+  const s={...state,dashboard:data,day:data.trade_date,hhmm:data.observed_at?.slice(11,16),account:data.account??null,market:data.market??null};
   if(data.risk)s.risk={...data.risk,latch_record:data.health?.record_latch===true};
   const plans=data.sections.plans;
   if(plans?.status==='AVAILABLE'&&Array.isArray(plans.rows))s.plans=plans.rows.map(row=>planAt(row,data.observed_at));
@@ -11,7 +12,9 @@ export function applyDashboard(state,data){
   s.fills=data.sections.fills?.status==='AVAILABLE'?data.sections.fills.rows:state.fills??null;
   s.admissions=data.admissions??null;
   s.alerts=(data.alerts??[]).map(x=>({...x,who:'只读数据源'}));
-  if(data.sections.calls?.status==='AVAILABLE')s.feed=(data.sections.calls.rows??[]).slice(-100).map(x=>({id:({A1:'a1',A2:'a2',A3:'pm',PM:'pm',A4:'tr',A6:'rk',A5:'rv'})[(x.session??'').includes('PM')?'PM':x.role]??'pm',at:x.captured_at,text:`${x.role} ${x.validated?'原答校验通过':'原答校验未通过'}，耗时 ${x.latency_ms??'未知'}ms。校验通过不等于可下单。`,provenance:x.source}));
+  // Customer activity is only structured trading facts, not generic model
+  // validation chatter. An absent source stays an empty record feed.
+  s.feed=(data.trade_records??[]).filter(x=>x.source?.id&&x.source?.sha256&&typeof x.text==='string').slice(-100).map(x=>({id:({A1:'a1',A2:'a2',A3:'pm',PM:'pm',A4:'tr',A6:'rk',A5:'rv'})[x.role]??'tr',at:x.at,text:tradeRecordText(x),provenance:x.source}));
   const roles={A1:'a1',A2:'a2',PM:'pm',A4:'tr',A6:'rk',A5:'rv'};
   s.roles={...state.roles};
   for(const agent of data.agents??[]){const id=roles[agent.agent];if(id&&agent.last)s.roles[id]={state:agent.last.validated?'rest':'stop',status_label:agent.state,label:`${agent.state} · ${agent.last.captured_at?.slice(11,19)??'时间缺失'}`};}

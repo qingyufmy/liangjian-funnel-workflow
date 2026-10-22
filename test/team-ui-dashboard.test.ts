@@ -39,7 +39,7 @@ test('closed position NAV is current cash, preserves both partial fills and sour
  expect(d.account.provenance.sha256).toMatch(/^[a-f0-9]{64}$/);expect(d.health.mode).toBeNull();expect(hash()).toBe(originalHash);expect(readdirSync(join(root,'state/team_v2')).sort()).toEqual(['model.db','paper.db']);
 });
 test('dashboard projection keeps real zero different from missing; T1 and fields map without mutation',()=>{
- const d=read(),before=JSON.stringify(d),state=applyDashboard(emptyState(),d);expect(state.account.nav).toBe(999243.25);expect(state.plans[0]).toMatchObject({code:'002354.SZ',name:'天娱数科',risk_unit:'PROBE',status:'EXPIRED'});expect(state.positions).toEqual([]);expect(state.fills).toHaveLength(2);expect(state.feed).toHaveLength(2);expect(state.roles.tr.state).toBe('stop');expect(JSON.stringify(d)).toBe(before);
+ const d=read(),before=JSON.stringify(d),state=applyDashboard(emptyState(),d);expect(state.account.nav).toBe(999243.25);expect(state.plans[0]).toMatchObject({code:'002354.SZ',name:'天娱数科',risk_unit:'PROBE',status:'EXPIRED'});expect(state.positions).toEqual([]);expect(state.fills).toHaveLength(2);expect(state.feed).toHaveLength(d.trade_records.length);expect(state.feed.every((r:{text:string})=>!r.text.includes('原答校验'))).toBe(true);expect(state.roles.tr.state).toBe('stop');expect(JSON.stringify(d)).toBe(before);
  expect(()=>applyDashboard(emptyState(),{status:'MISSING_SOURCE'})).toThrow();
 });
 test('nonempty mixed-day positions never close the shared paper read transaction before NAV/orders/fills',()=>{
