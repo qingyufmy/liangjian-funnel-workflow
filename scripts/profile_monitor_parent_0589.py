@@ -40,6 +40,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -47,6 +48,7 @@ import sys
 import tempfile
 import time
 import uuid
+from urllib.parse import parse_qs, unquote, urlsplit
 
 PRODUCTION = Path('/media/qy/120aebe1-8c98-412b-a490-3797cae5656b/Agu/liangjian-funnel-workflow')
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +60,24 @@ def digest(path):
     with Path(path).open('rb') as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b''): h.update(chunk)
     return h.hexdigest()
+
+
+def child_failure_diagnostic(stderr):
+    """Keep bounded stack locations and stable harness codes, never raw messages."""
+    frames=[]
+    for line in stderr.splitlines():
+        match=re.fullmatch(r'\s*File "([^"]+)", line (\d+), in ([A-Za-z0-9_<>.]+)',line)
+        if match:
+            path=Path(match[1])
+            try:shown=path.resolve().relative_to(ROOT.resolve()).as_posix()
+            except (ValueError,OSError):shown=path.name
+            frames.append(dict(file=shown[:240],line=int(match[2]),function=match[3][:80]))
+    last=next((line for line in reversed(stderr.splitlines()) if line.strip()),'')
+    exception=re.match(r'^([A-Za-z_][A-Za-z0-9_.]*)(?::|$)',last)
+    code=re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.]*:\s*(PROFILE_[A-Z0-9_]+)',last)
+    return dict(stderr_characters=len(stderr),frames=frames[-16:],
+        exception_type=exception[1][:80] if exception else 'UNKNOWN',
+        harness_reason_code=code[1] if code else None,raw_message_retained=False)
 
 
 def pointer(body, path):
@@ -143,6 +163,19 @@ def install_guards(directory):
         p = Path(os.fsdecode(path)).resolve()
         if not p.is_relative_to(owner): deny('WRITE_OUTSIDE_OWNED_ROOT')
 
+    def sqlite_path(value):
+        if isinstance(value,str) and value.startswith('file:'):
+            parsed=urlsplit(value)
+            try:query=parse_qs(parsed.query,strict_parsing=True)
+            except ValueError:return deny('SQLITE_URI_NOT_READONLY')
+            if (parsed.scheme!='file' or parsed.netloc not in ('','localhost') or parsed.fragment
+                    or query!={'mode':['ro']}):
+                return deny('SQLITE_URI_NOT_READONLY')
+            decoded=unquote(parsed.path)
+            if os.name=='nt' and re.match(r'^/[A-Za-z]:/',decoded):decoded=decoded[1:]
+            return Path(decoded)
+        return value
+
     def audit(event, args):
         if event in ('socket.connect', 'socket.getaddrinfo', 'socket.bind'):
             deny('NETWORK')
@@ -151,7 +184,7 @@ def install_guards(directory):
             if (isinstance(mode, str) and any(c in mode for c in 'wax+')) or (
                     isinstance(flags, int) and flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)):
                 writable(path)
-        elif event == 'sqlite3.connect': writable(args[0])
+        elif event == 'sqlite3.connect': writable(sqlite_path(args[0]))
         elif event in ('os.remove', 'os.rmdir', 'os.mkdir'): writable(args[0])
         elif event in ('os.rename', 'os.link', 'os.symlink'):
             writable(args[0]); writable(args[1])
@@ -338,10 +371,16 @@ def main(argv=None):
             '--packet',str(args.packet.resolve()),'--packet-sha256',args.packet_sha256],
             capture_output=True,text=True,env=env,timeout=90)
         if proc.returncode:
-            # No provider payload or secret stderr is emitted; retain failure type only.
+            # Preserve only bounded, redacted stack locations; source lines and
+            # arbitrary exception messages may contain credentials/provider text.
+            diagnostic=child_failure_diagnostic(proc.stderr)
+            diagnostic_path=directory/'CHILD_STDERR_DIAGNOSTIC.json'
+            with diagnostic_path.open('x',encoding='utf-8') as stream:
+                json.dump(diagnostic,stream,ensure_ascii=False)
             failure = dict(status='FAIL_CHILD',returncode=proc.returncode,
                 stdout_sha256=hashlib.sha256(proc.stdout.encode()).hexdigest(),
-                stderr_sha256=hashlib.sha256(proc.stderr.encode()).hexdigest())
+                stderr_sha256=hashlib.sha256(proc.stderr.encode()).hexdigest(),
+                stderr_diagnostic_path=str(diagnostic_path),stderr_diagnostic_sha256=digest(diagnostic_path))
             (directory/'FAILURE.json').write_text(json.dumps(failure),encoding='utf-8')
             raise RuntimeError('PROFILE_CHILD_FAILED_SEE_OWNED_FAILURE')
         sample = json.loads(proc.stdout)

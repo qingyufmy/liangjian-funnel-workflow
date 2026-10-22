@@ -98,6 +98,17 @@ def prepare(settings, clock, source, baseline_path):
         scope_id=SCOPE, clock=lambda: clock.now, calendar=CAL)
 
 
+def test_native_seed_fixture_is_sealed_before_readonly_byte_capture(tmp_path):
+    import gc
+    settings,_=fixture(tmp_path,trade_date=DAY)
+    before=files(settings.minute_cache_dir)
+    gc.collect()
+    after=files(settings.minute_cache_dir)
+    assert before==after and set(before)=={'minute_bars.sqlite3'}
+    with sqlite3.connect(settings.minute_cache_dir/'minute_bars.sqlite3') as db:
+        assert db.execute('SELECT COUNT(*) FROM minute_bars').fetchone()==(48,)
+
+
 def test_isolated_engine_real_sessions_evidence_keeps_002270_baseline_and_no_publish(tmp_path, monkeypatch):
     settings, clock, source, baseline_settings, baseline_path, baseline = setup(tmp_path, monkeypatch)
     before = files(baseline_settings.root)

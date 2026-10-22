@@ -49,6 +49,14 @@ def fixture(tmp_path, *, trade_date='2026-10-19'):
     MinuteBarStore(settings.minute_cache_dir).write(tuple(MinuteBar(symbol=raw['symbol'],interval='5m',
         bar_end=end,open=10,high=10.1,low=9.9,close=10,volume=100,amount=1000,
         source_id='fixture:native',adjust_mode='none') for end in session_grid(date.fromisoformat(source_day))))
+    # Finish fixture-owned writer lifetimes before any immutable-byte capture.
+    # MinuteBarStore's existing connection context may await cyclic GC; a later
+    # last-writer close would otherwise checkpoint WAL during an unrelated RO test.
+    import gc
+    gc.collect()
+    with closing(sqlite3.connect(settings.minute_cache_dir/'minute_bars.sqlite3')) as db:
+        assert db.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()[0]==0
+        assert db.execute('PRAGMA journal_mode=DELETE').fetchone()==('delete',)
     return settings,clock
 
 

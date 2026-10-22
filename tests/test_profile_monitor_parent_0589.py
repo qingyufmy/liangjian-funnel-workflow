@@ -18,12 +18,15 @@ spec.loader.exec_module(profile)
 
 def packet():
     from liangjian_funnel.data.session_windows import closed_window_ends
+    from liangjian_funnel.runtime.calendar import ExchangeTradingCalendar
+    from liangjian_funnel.runtime.history_freshness import session_grid
     at = datetime.fromisoformat('2026-10-22T14:25:00+08:00')
     ends = closed_window_ends(at.replace(minute=24),'1m')
     symbols = ['000333.SZ','002270.SZ','301487.SZ']
+    prior=ExchangeTradingCalendar().previous_trading_day(at.date())
     return dict(schema_version=profile.SCHEMA,as_of=at.isoformat(),
         plans=[dict(plan_id='profile-'+symbol,symbol=symbol,payload=dict(
-            strategy_profile='TREND_MA5',stock_behavior_type='TREND',trigger_low=109,trigger_high=110,
+            symbol=symbol,strategy_profile='TREND_MA5',stock_behavior_type='TREND',trigger_low=109,trigger_high=110,
             stop_level=89,no_chase_price=112,first_resistance=130,minimum_reward_risk=2,
             source_run_id='CONTROLLED_PROFILE')) for symbol in symbols],
         bars=[dict(symbol=symbol,interval='1m',bar_end=end.isoformat(),open=100,high=100.2,
@@ -32,9 +35,12 @@ def packet():
             for symbol in symbols for end in ends],
         quotes=[dict(symbol=symbol,quote_time=at.isoformat(),price=100,open=100,
             previous_close=100,volume=1000000,amount=100000000,source_id='CONTROLLED_PROFILE') for symbol in symbols],
+        historical_5m=[dict(symbol=symbol,interval='5m',bar_end=end.isoformat(),open=100,high=100.2,
+            low=99.8,close=100,volume=10000,amount=1000000,source_id='CONTROLLED_PROFILE_SEED',adjust_mode='none')
+            for symbol in symbols for end in session_grid(prior)],
         market_state=dict(status='READY',entry_permission='ALLOW',as_of=at.isoformat(),trade_date='2026-10-22'),
         provenance={category:dict(kind='CONTROLLED',reason='Offline test input, not historical evidence')
-            for category in ('plans','bars','quotes','market_state')})
+            for category in ('plans','bars','quotes','market_state','historical_5m')})
 
 
 def save(tmp_path, body):
@@ -79,6 +85,14 @@ def test_percentile_nearest_rank_and_phase_totals():
     result=profile.summarize(rows)
     assert result['p50_ms']==5 and result['p95_ms']==10
     assert result['phases']['database']['max_ms']==20
+
+
+def test_child_failure_diagnostic_keeps_location_not_source_lines_or_secret_message():
+    raw='Traceback (most recent call last):\n  File "'+str(SCRIPT)+'", line 199, in child\n    secret="DO_NOT_RETAIN"\nRuntimeError: SECRET_PROVIDER_DETAIL'
+    value=profile.child_failure_diagnostic(raw)
+    assert value['frames']==[dict(file='scripts/profile_monitor_parent_0589.py',line=199,function='child')]
+    assert value['exception_type']=='RuntimeError' and value['harness_reason_code'] is None
+    assert 'SECRET' not in json.dumps(value) and 'DO_NOT_RETAIN' not in json.dumps(value)
 
 
 @pytest.mark.parametrize('missing_fact',[False,True])
@@ -130,3 +144,33 @@ print(json.dumps(seen))
     assert proc.returncode==0,proc.stderr
     assert json.loads(proc.stdout)==['MODEL','WRITE_OUTSIDE_OWNED_ROOT','NETWORK']
     assert not (tmp_path/'must-not-write').exists()
+
+
+def test_sqlite_guard_handles_owned_explicit_readonly_uri_without_granting_uri_writes(tmp_path):
+    code='''
+import importlib.util,json,pathlib,sqlite3,sys
+s=importlib.util.spec_from_file_location('p',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+root=pathlib.Path(sys.argv[2]).resolve();root.mkdir()
+path=root/'owned.sqlite3'
+db=sqlite3.connect(path);db.execute('CREATE TABLE original(value)');db.commit();db.close()
+seen=m.install_guards(root)
+db=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
+db.execute('PRAGMA query_only=ON')
+assert db.execute('PRAGMA query_only').fetchone()==(1,)
+assert db.execute('SELECT value FROM original').fetchall()==[]
+try:db.execute('INSERT INTO original VALUES(1)')
+except sqlite3.OperationalError:pass
+else:raise AssertionError('READONLY_WRITE_ALLOWED')
+db.close()
+assert seen==[],seen
+for uri in (path.as_uri()+'?mode=rw',path.as_uri()+'?mode=ro&mode=rw',
+            (root.parent/'outside.sqlite3').as_uri()+'?mode=ro'):
+ try:sqlite3.connect(uri,uri=True)
+ except RuntimeError:pass
+ else:raise AssertionError('UNAPPROVED_URI_ALLOWED')
+print(json.dumps(seen))
+'''
+    proc=subprocess.run([sys.executable,'-B','-c',code,str(SCRIPT),str(tmp_path/'owned')],
+        capture_output=True,text=True,timeout=30)
+    assert proc.returncode==0,(proc.stdout,proc.stderr)
+    assert json.loads(proc.stdout)==['SQLITE_URI_NOT_READONLY','SQLITE_URI_NOT_READONLY','WRITE_OUTSIDE_OWNED_ROOT']
