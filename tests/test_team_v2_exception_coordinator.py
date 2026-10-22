@@ -1,4 +1,5 @@
 """Configured thresholds only, post-trader sequencing, no invented near-line."""
+from fixture_model_stream import sse_model_response
 from copy import deepcopy
 from dataclasses import replace
 from decimal import Decimal as D
@@ -77,7 +78,7 @@ def hook_fixture(tmp_path,*,action='NO_ACTION'):
         body['capacity_for_tomorrow'].update(plans_acceptable=0,cluster_quota={},
             supporting_refs=['RISK:ACCOUNT'],opposing_refs=['RISK:TRIGGERS'])
         risk_calls.append(req)
-        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(body)}}]},request=request)
+        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(body)}}]},request=request)
     args['client'].transport=httpx.MockTransport(handler)
     live=state();live['transitions']=[dict(kind='primary',previous='ROTATION_NO_MAINLINE',current='TREND_MAINLINE',tick=stamp().isoformat())]
     def callback(**kwargs):return run_exception_after_trader(session_kwargs=args,live_state=live,
@@ -191,7 +192,7 @@ def test_actual_monitor_callback_sees_real_transition_after_trader_and_no_second
         body['utilization_cap']['cap_pct']=0
         body['capacity_for_tomorrow'].update(plans_acceptable=0,cluster_quota={})
         risk_calls.append(req)
-        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(body)}}]},request=request)
+        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(body)}}]},request=request)
     api.transport=httpx.MockTransport(handler)
     first=run_monitor_control(app,clock=lambda:clock.now,client=api,tradability_loader=proof)
     assert first['result']['risk_exception']['review']['status']=='READY'

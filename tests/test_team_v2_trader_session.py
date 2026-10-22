@@ -1,4 +1,5 @@
 """Actual client + schema + durable journals + real engine/paper, HTTP mocked."""
+from fixture_model_stream import sse_model_response
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -64,7 +65,7 @@ def fixture(tmp_path, *, invalid=False, offline=False, moved=False, mode='contro
         seen.append(json.loads(request.read()))
         if moved:clock_value[0]=stamp(tm='10:01:01')
         if offline:raise httpx.ConnectError('PRIVATE_PROVIDER_DETAILS',request=request)
-        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
+        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
     settings=Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path)
     kwargs=dict(repository=repo,client=OpenAICompatibleModelClient(settings,
         transport=httpx.MockTransport(handler),max_attempts=1),

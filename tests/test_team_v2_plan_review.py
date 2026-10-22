@@ -1,4 +1,5 @@
 """Frozen close-review contracts; no provider, production DB or publication."""
+from fixture_model_stream import sse_model_response
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -121,7 +122,7 @@ def session_fixture(tmp_path, *, invalid=False, offline=False, eligible=True):
         seen.append(json.loads(request.read()))
         if offline:
             raise httpx.ConnectError('PRIVATE_PROVIDER_DETAILS', request=request)
-        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(raw)}}]}, request=request)
+        return sse_model_response(200, json={'choices': [{'message': {'content': json.dumps(raw)}}]}, request=request)
     settings = Settings.from_env({'LIANGJIAN_MODEL_API_KEY': 'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'}, root=tmp_path)
     kwargs = dict(repository=repository, client=OpenAICompatibleModelClient(settings,
         transport=httpx.MockTransport(handler), max_attempts=1),
@@ -176,7 +177,7 @@ def test_frozen_risk_cap_reaches_model_and_binds_actual_request_without_changing
             body['messages'][0]['content'].split('A3_CANDIDATE_POOL=', 1)[1])
         raw = response()
         raw['core_watch_pool'][0]['risk_unit'] = pool[0].get('risk_unit', 'STANDARD')
-        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(raw)}}]},
+        return sse_model_response(200, json={'choices': [{'message': {'content': json.dumps(raw)}}]},
             request=request)
 
     kwargs['client'].transport = httpx.MockTransport(follows_visible_cap)

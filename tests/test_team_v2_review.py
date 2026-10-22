@@ -1,4 +1,5 @@
 """Authored A5 bytes, actual HTTP client mock and owned DB fault injections."""
+from fixture_model_stream import sse_model_response
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -58,7 +59,7 @@ def fixture(tmp_path,*,invalid=False,offline=False):
     def handler(request):
         seen.append(json.loads(request.read()))
         if offline:raise httpx.ConnectError('PRIVATE_WEBHOOK_OR_PROVIDER_TEXT',request=request)
-        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
+        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
     client=OpenAICompatibleModelClient(Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path),
         transport=httpx.MockTransport(handler),max_attempts=1)
     args={k:base[k] for k in ('repository','journal','store','account_id','run_id','model','trade_date','source_trade_date')}

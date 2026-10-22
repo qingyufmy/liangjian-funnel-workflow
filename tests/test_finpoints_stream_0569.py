@@ -87,7 +87,7 @@ def test_full_redacted_error_body_and_all_headers_before_failure(tmp_path,status
     def wire(request):
         return httpx.Response(status,headers={'x-request-id':'synthetic-id','server':'synthetic-server','set-cookie':'SECRET_COOKIE'},
             json={'error':{'type':'synthetic','code':'quota','message':'Rejected '+KEY},'messages':['PRIVATE_REQUEST_ECHO']})
-    with pytest.raises(ModelClientError):
+    with pytest.raises(ModelClientError) as exc:
         OpenAICompatibleModelClient(settings(tmp_path),transport=httpx.MockTransport(wire),max_attempts=1).complete(
             FLASH,[{'role':'user','content':'synthetic'}],stage='A4')
     files=list(tmp_path.rglob('rejection-*.json'));assert len(files)==1
@@ -95,6 +95,7 @@ def test_full_redacted_error_body_and_all_headers_before_failure(tmp_path,status
     assert KEY not in raw and 'SECRET_COOKIE' not in raw and 'PRIVATE_REQUEST_ECHO' not in raw
     assert body['status_code']==status and body['response_headers']['server']==['synthetic-server']
     assert body['response_headers']['x-request-id']==['synthetic-id'] and body['body_sha256']
+    assert exc.value.diagnostics['provider_stream']['rejection_receipts'][0]['receipt_path']==str(files[0])
 
 def test_finpoints_ignoring_stream_is_not_accepted(tmp_path):
     def wire(request):return httpx.Response(200,json={'choices':[{'message':{'content':'{"ok":true}'}}]})

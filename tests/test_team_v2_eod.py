@@ -1,4 +1,5 @@
 """Actual client HTTP mock, owned disk state; no production DB or supplier."""
+from fixture_model_stream import sse_model_response
 from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal
@@ -78,7 +79,7 @@ def fixture(tmp_path,*,failure=None):
         body=json.loads(request.read());runtime=json.loads(body['messages'][1]['content'].removeprefix('RUNTIME_INPUT\n'))
         role=runtime['required_envelope']['stage_id'];seen.append((role,runtime,body['messages'][0]['content']))
         if failure==role+'_offline':raise httpx.ConnectError('SECRET_PROVIDER_TEXT',request=request)
-        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(pm if role=='A3' else risk)}}]},request=request)
+        return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(pm if role=='A3' else risk)}}]},request=request)
     from liangjian_funnel.pipeline.model_client import OpenAICompatibleModelClient
     from liangjian_funnel.settings import Settings
     client=OpenAICompatibleModelClient(Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path),
