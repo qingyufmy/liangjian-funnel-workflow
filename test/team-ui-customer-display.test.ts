@@ -1,7 +1,7 @@
 import {test,expect,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 // @ts-expect-error Framework-free display functions.
-import {priceText,zoneText,riskUnitLabel,securityNames,securityText,annotateSecurities,dataStatusText,marketFacts,confirmationText,tradeRecordText,rrDisplay} from '../web/team/display.js';
+import {priceText,ledgerPriceText,timeText,zoneText,riskUnitLabel,securityNames,securityText,annotateSecurities,dataStatusText,marketFacts,confirmationText,tradeRecordText,rrDisplay} from '../web/team/display.js';
 // @ts-expect-error Framework-free chart geometry.
 import {chartModel,openPlanDetail,conditionDisplayValue} from '../web/team/plan-detail.js';
 // @ts-expect-error Framework-free state projection.
@@ -66,7 +66,7 @@ test('customer trading records use structured actual sources, not model-validati
  expect(tradeRecordText({kind:'PLAN_CONDITIONS',symbol:'300556.SZ',name:'丝路视觉',unmet_conditions:['TREND_PULLBACK_VOLUME_CONTRACTION']})).toBe('丝路视觉 300556.SZ：未满足：回调缩量');
  expect(tradeRecordText({kind:'PLAN_CONDITIONS',symbol:'600201.SH',name:'生物股份',unmet_conditions:['A_CONTRACTION','B_ATTEMPT_PREFIX'],unproven_conditions:['B_ATTEMPT_PREFIX']})).toBe('生物股份 600201.SH：未满足：回调缩量；缺证：开盘起的完整K线前缀');
  expect(tradeRecordText({kind:'PLAN_CONDITIONS',unmet_conditions:[],unproven_conditions:[]})).toBe('条件记录无缺项（不代表已触发信号）');
- expect(tradeRecordText({kind:'EXECUTION_FILL',symbol:'002270.SZ',name:'华明装备',qty:4160,side:'SELL',price:18.725})).toContain('华明装备 002270.SZ：卖出成交 4,160 股，价格 18.73');
+ expect(tradeRecordText({kind:'EXECUTION_FILL',symbol:'002270.SZ',name:'华明装备',qty:4160,side:'SELL',price:18.725})).toContain('华明装备 002270.SZ：卖出成交 4,160 股，价格 18.725');
  expect(tradeRecordText({kind:'EXECUTION_ADMISSION',symbol:'002270.SZ',name:'华明装备',shares:10500,status:'APPROVED',risk_unit:'NONE',reason_labels:['触及硬止损']})).toBe('华明装备 002270.SZ：执行准入批准 10,500 股 · 触及硬止损');
  const ledger=applyDashboard(emptyState(),{status:'AVAILABLE',sections:{},trade_records:[{role:'SYSTEM',text:'实际成交',source:{id:'fill',sha256:'a'.repeat(64)}}]});
  expect(ledger.feed[0]).toMatchObject({id:null,who:'系统账本'});
@@ -114,4 +114,14 @@ test('condition objects and arrays display at most two decimals without overwrit
  expect(shown).toEqual({high:7.58,low:7.55,nested:[47.5,{volume:6340,missing:'未提供'}],available:false});
  expect(conditionDisplayValue(undefined)).toBe('未提供');expect(JSON.stringify(raw)).toBe(before);
  expect(readFileSync('web/team/plan-detail.js','utf8')).toContain('threshold:c.threshold,value:c.value');
+});
+test('0624 ledger precision is original up to three places while plan prices remain two, clocks have seconds',()=>{
+ expect(ledgerPriceText('18.725')).toBe('18.725');expect(ledgerPriceText(18.725)).toBe('18.725');
+ expect(ledgerPriceText('18.7400')).toBe('18.74');expect(ledgerPriceText('18.000')).toBe('18');
+ expect(ledgerPriceText('18.7251')).toContain('精度超过3位');expect(ledgerPriceText(null)).toBe('未提供');
+ expect(priceText('18.725')).toBe('18.73');
+ expect(timeText('2026-10-22T07:48:37.984000Z')).toBe('15:48:37');expect(timeText('2026-10-22T15:48:37.984000+08:00')).toBe('15:48:37');
+ expect(timeText('2026-10-22T15:48:37')).toBe('时刻缺源');
+ const facts=marketFacts({market:{emotion:{stage_label:'冰点期',observed_at:'2026-10-22T15:48:37.984000+08:00',source:{id:'actual',sha256:'a'.repeat(64)}}}});
+ expect(facts.note).toBe('原观测 15:48:37');expect(facts.date).toBe('2026-10-22');
 });

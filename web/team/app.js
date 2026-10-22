@@ -8,7 +8,7 @@ import {reasonText,translateReasonMessage} from './copy/reasons.js';
 import {mountStudio,renderStudio} from './studio.js';
 import {planChart,openPlanDetail} from './plan-detail.js';
 import {healthEventText,orderedHealthEvents} from './health.js';
-import {priceText,zoneText,riskUnitLabel,securityNames as buildSecurityNames,securityName,securityText,annotateSecurities,dataStatusText,confirmationText,rrDisplay} from './display.js';
+import {priceText,ledgerPriceText,timeText,zoneText,riskUnitLabel,securityNames as buildSecurityNames,securityName,securityText,annotateSecurities,dataStatusText,confirmationText,rrDisplay} from './display.js';
 
 const $=id=>document.getElementById(id);
 const number=(v,digits=2)=>typeof v==='number'&&Number.isFinite(v)?v.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits}):'—';
@@ -54,7 +54,7 @@ function table(host,columns,rows,{compactEvidence=false}={}){
       if(['security','code','symbol'].includes(key)){const code=byText('small','');code.textContent=row.code??row.symbol??'代码缺源';cell.append(byText('b',securityName(row,names)??'名称缺源'),code);}
       else if(key==='risk_unit')cell.append(byText('span',riskUnitLabel(row[key])));
       else if(key==='status'){const chip=byText('span',planStatusLabel(row.status),'status-chip');chip.dataset.status=row.status;cell.append(chip);}
-      else cell.append(byText('span',key==='strat'?strategyLabel(row[key]):key==='cluster'?clusterLabel(row[key]):['price','limit_price','entry','stop'].includes(key)?priceText(row[key]):row[key]));
+      else cell.append(byText('span',key==='strat'?strategyLabel(row[key]):key==='cluster'?clusterLabel(row[key]):['price','limit_price','entry','stop'].includes(key)?(['positions','orders','fills'].includes(host.id)&&key!=='stop'?ledgerPriceText(row[key]):priceText(row[key])):key==='minute_end'?timeText(row[key]):row[key]));
       line.append(cell);
     }
     const details=document.createElement('details');details.append(byText('summary','来源'),byText('p',`记录：${row.source_id??'缺少记录ID'} · SHA ${row.source_sha256??'缺失'}`));

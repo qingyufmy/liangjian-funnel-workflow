@@ -2,6 +2,23 @@
 import {conditionLabel} from './labels.js';
 import {reasonText} from './copy/reasons.js';
 export function priceText(value){const number=typeof value==='number'?value:typeof value==='string'&&/^\d+(?:\.\d+)?$/.test(value)?Number(value):NaN;return Number.isFinite(number)?number.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}):'未提供';}
+/** Ledger prices are originals, never a two-decimal rounded quote. */
+export function ledgerPriceText(value){
+  const raw=typeof value==='string'?value:typeof value==='number'&&Number.isFinite(value)?String(value):null;
+  if(raw===null||!/^\d+(?:\.\d+)?$/.test(raw))return '未提供';
+  const [integer,fraction='']=raw.split('.'),trimmed=fraction.replace(/0+$/,'');
+  if(trimmed.length>3)return '原价精度超过3位（见来源）';
+  return integer.replace(/^0+(?=\d)/,'')+(trimmed?`.${trimmed}`:'');
+}
+export function timeText(value){
+  if(typeof value==='string'&&/^(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(value))return value;
+  if(typeof value!=='string'||!/(?:Z|[+-]\d{2}:\d{2})$/.test(value)||!Number.isFinite(Date.parse(value)))return '时刻缺源';
+  return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(new Date(value));
+}
+export function dateText(value){
+  if(typeof value!=='string'||!/(?:Z|[+-]\d{2}:\d{2})$/.test(value)||!Number.isFinite(Date.parse(value)))return '日期缺源';
+  return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
+}
 export function zoneText(plan){
   const values=Array.isArray(plan.zone_values)?plan.zone_values:Array.isArray(plan.zone)?plan.zone:null;
   if(values?.length===2)return values.map(priceText).join('–');
@@ -46,7 +63,7 @@ export function dataStatusText(plan){
 export function marketFacts(data){
   const market=data?.market??{},emotion=market.emotion;
   const known=emotion&&emotion.source?.id&&emotion.source?.sha256&&typeof emotion.stage_label==='string';
-  return {stage:known?emotion.stage_label:'情绪数据缺源',note:known?`原观测 ${emotion.observed_at??'时间缺源'}`:'尚未绑定当日情绪原件，不由账户或交易信号推断',source:known?emotion.source:null,indices:Array.isArray(market.indices)?market.indices:[]};
+  return {stage:known?emotion.stage_label:'情绪数据缺源',note:known?`原观测 ${timeText(emotion.observed_at)}`:'尚未绑定当日情绪原件，不由账户或交易信号推断',date:known?dateText(emotion.observed_at):null,source:known?emotion.source:null,indices:Array.isArray(market.indices)?market.indices:[]};
 }
 export function confirmationText(plan){
   if(!plan.conditions?.length)return '待逐项原件';
@@ -69,6 +86,6 @@ export function tradeRecordText(record){
   const security=record.symbol||record.code?`${securityText(record)}：`:'';
   if(record.kind==='PLAN_CONDITIONS'&&Array.isArray(record.unmet_conditions)){const missing=new Set(record.unproven_conditions??[]),unmet=record.unmet_conditions.filter(code=>!missing.has(code)),parts=[];if(unmet.length)parts.push(`未满足：${unmet.map(conditionLabel).join('、')}`);if(missing.size)parts.push(`缺证：${[...missing].map(conditionLabel).join('、')}`);return `${security}${parts.length?parts.join('；'):Array.isArray(record.unproven_conditions)?'条件记录无缺项（不代表已触发信号）':'缺项列表为空，缺证分类未绑定'}`;}
   if(record.kind==='EXECUTION_ADMISSION'&&typeof record.shares==='number'){const reasons=Array.isArray(record.reason_labels)&&record.reason_labels.length?record.reason_labels:(record.reason_codes??[]).map(reasonText);return `${security}执行准入${({APPROVED:'批准',REDUCED:'收紧',REJECTED:'拒绝'})[record.status]??'状态缺源'} ${record.shares.toLocaleString('zh-CN')} 股${reasons.length?` · ${reasons.slice(0,2).join('；')}`:''}`;}
-  if(record.kind==='EXECUTION_FILL'&&typeof record.qty==='number')return `${security}${record.side==='SELL'?'卖出':record.side==='BUY'?'买入':'方向缺源'}成交 ${record.qty.toLocaleString('zh-CN')} 股，价格 ${priceText(record.price)}`;
+  if(record.kind==='EXECUTION_FILL'&&typeof record.qty==='number')return `${security}${record.side==='SELL'?'卖出':record.side==='BUY'?'买入':'方向缺源'}成交 ${record.qty.toLocaleString('zh-CN')} 股，价格 ${ledgerPriceText(record.raw_price??record.price)}`;
   return `${security}${record.title?`${record.title}：`:''}${record.text??'内容缺源'}`;
 }
