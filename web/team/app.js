@@ -2,7 +2,7 @@ import {ROLES,STATE_LABELS} from './roles.js';
 import {emptyState,reduceEvent,addedPositions,orderedPlans} from './model.js';
 import {createStage} from './stage.js';
 import {conditionLabel,strategyLabel,planStatusLabel,clusterLabel} from './labels.js';
-import {createPoller,freshness} from './poll.js';
+import {createPoller,createHeartbeat,freshness} from './poll.js';
 import {applyDashboard,panelClock,chinaClock,planAt} from './dashboard.js';
 import {reasonText,translateReasonMessage} from './copy/reasons.js';
 import {mountStudio,renderStudio} from './studio.js';
@@ -12,8 +12,8 @@ import {healthEventText} from './health.js';
 const $=id=>document.getElementById(id);
 const number=(v,digits=2)=>typeof v==='number'&&Number.isFinite(v)?v.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits}):'—';
 const text=(node,value)=>{node.textContent=value==null?'—':String(value);};
-let lastSuccessfulRead=null,transportState='UNKNOWN';
-const readonlyStatus=(message,meta={})=>{transportState=meta.state??transportState;if(meta.received_at!=null)lastSuccessfulRead=meta.received_at;const label=transportState==='OFFLINE'?'后端离线':transportState==='BUSY'?'后端繁忙':freshness(lastSuccessfulRead)==='STALE'?'数据延迟':state.dashboard?.data_mode==='FROZEN_CAPTURE_NOT_REALTIME'?'冻结原件 · 非实时':message;text($('connection'),label);const warning=['后端离线','后端繁忙','数据延迟'].includes(label);$('refresh-status').hidden=!warning;text($('refresh-status'),warning?`${label} · 保留上次数据，非实时${meta.retry_ms?` · ${meta.retry_ms/1000}秒后重试`:''}`:'');};
+let lastSuccessfulRead=null,transportState='UNKNOWN',serviceOffline=false;
+const readonlyStatus=(message,meta={})=>{transportState=serviceOffline?'OFFLINE':meta.state??transportState;if(meta.received_at!=null&&!serviceOffline)lastSuccessfulRead=meta.received_at;const label=transportState==='OFFLINE'?'后端离线':transportState==='BUSY'?'后端繁忙':freshness(lastSuccessfulRead)==='STALE'?'数据延迟':state.dashboard?.data_mode==='FROZEN_CAPTURE_NOT_REALTIME'?'冻结原件 · 非实时':message;text($('connection'),label);const warning=['后端离线','后端繁忙','数据延迟'].includes(label);$('refresh-status').hidden=!warning;text($('refresh-status'),warning?`${label} · 保留上次数据，非实时${meta.retry_ms?` · ${meta.retry_ms/1000}秒后重试`:''}`:'');};
 const role=id=>ROLES.find(r=>r.id===id);
 const taskStatus=value=>({VALIDATED:'校验通过',VALIDATION_FAILED:'校验未通过',ENGINE_TRACKING_NO_REVIEW_CANDIDATE:'引擎跟踪，没有需模型评审的候选',queued:'等待运行',running:'运行中',now:'运行中',done:'已结束',PENDING:'等待运行',RUNNING:'运行中'})[value]??reasonText(value);
 const taskLabel=value=>({A1:'基本面研究',A2:'题材研究',A3:'交易计划',A4:'团队交易员','Team A4':'团队交易员',A5:'团队复盘',A6:'团队风控',PM:'组合经理'})[value]??translateReasonMessage(value??'任务');
@@ -242,13 +242,20 @@ async function startReadonlyPoll(){
       fetchPage:async since=>{const snapshot=await fetch(`/api/ui/dashboard?trade_date=${day}`,{credentials:'same-origin',signal:AbortSignal.timeout(2000)});if(!snapshot.ok)return snapshot;const dashboard=await snapshot.json();const response=await fetch(`/api/ui/events?trade_date=${day}&since_id=${since}&limit=100`,{credentials:'same-origin',signal:AbortSignal.timeout(2000)});if(!response.ok)return response;const page=await response.json();return {ok:true,status:200,json:async()=>({...page,dashboard})};},
       onPage:page=>{if(page.dashboard){state=applyDashboard(state,page.dashboard);render();}},
       onRows:rows=>{for(const row of rows)applyEvent(row);},
-      onStatus:readonlyStatus,onUnauthorized:()=>location.assign('/team/login')
+      onStatus:readonlyStatus,onUnauthorized:()=>login()
     });
+    let heartbeat,loginRedirected=false;
+    const login=()=>{if(loginRedirected)return;loginRedirected=true;livePoller.stop();heartbeat?.stop();location.assign('/team/login');};
+    heartbeat=createHeartbeat({fetchPing:()=>fetch('/api/ui/ping',{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(1500)}),
+      onOffline:()=>{serviceOffline=true;readonlyStatus('后端离线',{state:'OFFLINE',retry_ms:2000});},
+      onReachable:()=>{if(serviceOffline){serviceOffline=false;livePoller.refresh();}},onUnauthorized:login});
     try{const initial=await loadPlans();if(initial.status===401){location.assign('/team/login');return;}if(!initial.ok)readonlyStatus('稍后刷新');}catch{readonlyStatus('稍后刷新');}
-    livePoller.start();
+    livePoller.start();heartbeat.start();
     const freshnessTimer=setInterval(()=>{if(!replay&&freshness(lastSuccessfulRead)==='STALE')readonlyStatus('数据延迟');},1000);
-    document.addEventListener('visibilitychange',()=>document.hidden?livePoller.stop():livePoller.start());
-    addEventListener('pagehide',()=>{livePoller.stop();clearInterval(freshnessTimer);},{once:true});
+    const offline=()=>{serviceOffline=true;readonlyStatus('后端离线',{state:'OFFLINE',retry_ms:2000});heartbeat.probe();};
+    const online=()=>heartbeat.probe();addEventListener('offline',offline);addEventListener('online',online);
+    document.addEventListener('visibilitychange',()=>{if(document.hidden){livePoller.stop();heartbeat.stop();}else{livePoller.start();heartbeat.start();}});
+    addEventListener('pagehide',()=>{livePoller.stop();heartbeat.stop();removeEventListener('offline',offline);removeEventListener('online',online);clearInterval(freshnessTimer);},{once:true});
   }catch{readonlyStatus('稍后刷新');}
 }
 render();

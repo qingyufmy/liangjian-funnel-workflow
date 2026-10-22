@@ -1,5 +1,15 @@
 # 10-21 前端本机实现与交付记录
 
+## 10-22 20:56 0615离线硬门窄修（本机待审，旧失败不抹除）
+
+主控浏览器原件曾测得新版QA离线探测7.482s/10.025s，虽然恢复5.179s/5.293s，仍不满足0615§5离线≤5s；此前仅OFFLINE后把重试改5s没有解决“刚读完后端就断开，要等常态10s下一轮才发现”的根因。旧失败原件保留，不把本次单测替代真实浏览器门。
+
+新增同Team flag/鉴权/GET-HEAD门后的`/api/ui/ping`：只返回reachable和固定schema，无SQLite/子进程/模型/通知/业务写入。独立2s轻心跳，请求截止1.5s；真实socket拒绝/超时与浏览器offline事件都能标离线，不仅依赖navigator。ping成功不更新任何数据时间，只有曾离线恢复时触发一次立即的大包snapshot+events刷新，旧数据一直保留非实时标记。大包常态10s、BUSY20→40→60、450ms/2worker、原8h会话规则均不变。401停止两个timer并回登录；隐藏/卸载清理timer，stop/start遇待返回请求不产生重叠或永久停读。
+
+router同时接独立错误证据writer的`recordFailure(query,error,responseBody)`接口，准备503前记录同一脱敏正文；实现由独立OPS代理在core的reader提供，不在此前端分支重复改worker。ping正常请求不触发证据写入。
+
+定向反例覆盖无navigator事件的真实服务探测、1.5s超时逻辑、两次真实数据读取+DOM回调恢复预算、旧值保持、零reader ping、401/关闭404/POST405、无重复timer与停止后迟答丢弃、真实loopback服务关闭/恢复。新接口必须重启本次本机QA才加载，不能只reload静态页面混跑旧router。实际浏览器离线≤5s/恢复≤10s上界、新三宽/原件DOM、最终集成HEAD与VM门仍由主代理验收；不在本分支连接VM或自行部署。
+
 ## 10-22 20:23 0593真实功能缺口修复（本机待集成，不是发布）
 
 正常只读dashboard现消费`team_ui_health.py`：真实risk_meetings/pm_decisions、精确当日两晨会claim元数据、当日Node日志至多3MiB/12000行/60ms解析、monitor rowid尾1201（含前日边界才认当前日覆盖）、notification_deliveries至多501条、Team trader_sessions至多501条。失败/截断/缺表均明确缺源，不改CLAIMED、不造429、不把PM服务端fallback标模型通过、不把历史终态未收口写当前运行。Node日志只按白名单结构化运行事件/有限HTTP状态提取元数据，不输出消息/客户正文/URL。正常worker仍2个、450ms；API无写库/业务调用/模型/通知。
