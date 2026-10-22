@@ -7,6 +7,10 @@ import hashlib
 import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from .calendar import ExchangeTradingCalendar, TradingCalendarError
+from .closed_session_capture import KEY, validate_capture_proof
+
+_CAPTURE_CALENDAR = ExchangeTradingCalendar()
 
 
 def source_gap_detail(snapshot_data, symbol, *, strict=True, expected_source_date=None):
@@ -22,9 +26,16 @@ def source_gap_detail(snapshot_data, symbol, *, strict=True, expected_source_dat
         try:
             at=datetime.fromisoformat(manifest.get('as_of',''))
             local=at.astimezone(ZoneInfo('Asia/Shanghai')) if at.tzinfo is not None else None
-            current=(local is not None and local.date().isoformat()==str(expected_source_date)
-                and (local.hour,local.minute)>=(15,0))
-        except (TypeError,ValueError):current=False
+            if KEY in snapshot_data:
+                # The immutable manifest clock is capture, not market day.
+                # An explicit invalid proof must never fall back to legacy.
+                proof=validate_capture_proof(snapshot_data[KEY],captured_at=at,
+                    calendar=_CAPTURE_CALENDAR,source_trade_date=str(expected_source_date))
+                current=snapshot_data.get('MARKET_DATA_AS_OF')==proof['source_market_close_at']
+            else:
+                current=(local is not None and local.date().isoformat()==str(expected_source_date)
+                    and (local.hour,local.minute)>=(15,0))
+        except (TypeError,ValueError,TradingCalendarError):current=False
         if not current:codes=[*codes,'A1_SOURCE_AS_OF_UNPROVEN']
     if not codes:
         return None
