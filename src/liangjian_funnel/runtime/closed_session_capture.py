@@ -67,3 +67,21 @@ def generation_capture_proof(generation, *, calendar, now, source_trade_date):
             or daily.get('snapshot_hash') != generation.snapshot_hash):
         raise ValueError('CLOSED_SESSION_CAPTURE_SNAPSHOT_MISMATCH')
     return validated
+
+
+def validate_research_capture_proof(proof, *, captured_at, calendar, now, source_trade_date):
+    """Reuse an original valid seed after publication closes, for research only.
+
+    The captured proof is unchanged and still had to satisfy its original
+    capture window. Only its current-day publication eligibility is irrelevant.
+    """
+    from .calendar import latest_closed_research_session
+    validated = validate_capture_proof(proof, captured_at=captured_at,
+        calendar=calendar, source_trade_date=source_trade_date)
+    current = aware(now)
+    session = latest_closed_research_session(current, calendar)
+    if (aware(validated['capture_completed_at']) > current
+            or validated['source_trade_date'] != session.source_trade_date.isoformat()
+            or validated['target_trade_date'] != session.target_trade_date.isoformat()):
+        raise ValueError('RESEARCH_UPDATE_SEED_STALE_OR_FUTURE')
+    return validated

@@ -41,14 +41,15 @@ A1_OUTPUT_PARTITIONS = (
     "monitor_pool",
     "rejected_candidates",
 )
-_SYMBOL_KEYS = frozenset({
+_SYMBOL_KEY_PRIORITY = (
     "symbol",
     "security_symbol",
     "ticker",
     "code",
     "thscode",
     "security_code",
-})
+)
+_SYMBOL_KEYS = frozenset(_SYMBOL_KEY_PRIORITY)
 _A1_STATIC_CANDIDATE_KEYS = frozenset({
     "symbol",
     "security_symbol",
@@ -256,7 +257,9 @@ def _symbols(value: Any) -> tuple[str, ...]:
 
 
 def _symbol_from_item(item: Mapping[str, Any]) -> str:
-    for key in _SYMBOL_KEYS:
+    # Identity precedence must not depend on a process's hash seed. Keep the
+    # unordered set for membership checks, not for selecting a row's identity.
+    for key in _SYMBOL_KEY_PRIORITY:
         value = item.get(key)
         if value is not None and str(value).strip():
             return str(value).strip().upper()

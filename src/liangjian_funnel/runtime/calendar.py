@@ -108,12 +108,8 @@ class ClosedResearchSession:
     wall_clock: datetime
 
 
-def closed_research_session(now: datetime, calendar) -> ClosedResearchSession:
-    """Date authority is the exchange calendar, never a midnight boundary.
-
-    Data time and the actual clock stay distinct. The next session's 06:30
-    publication deadline is checked both before work and before publication.
-    """
+def latest_closed_research_session(now: datetime, calendar) -> ClosedResearchSession:
+    """Derive source identity only; this grants no publication authority."""
     if not isinstance(now, datetime) or now.utcoffset() is None:
         raise ValueError('CLOSE_RESEARCH_CLOCK_INVALID')
     current=now.astimezone(ZoneInfo('Asia/Shanghai'))
@@ -122,10 +118,17 @@ def closed_research_session(now: datetime, calendar) -> ClosedResearchSession:
             else calendar.previous_trading_day(current.date()))
     target=calendar.next_trading_day(source)
     deadline=datetime.combine(target,time(6,30),tzinfo=current.tzinfo)
-    if current>=deadline:
-        raise ValueError('CLOSE_RESEARCH_PUBLICATION_DEADLINE_REACHED')
     return ClosedResearchSession(source,target,
         datetime.combine(source,time(15),tzinfo=current.tzinfo),deadline,current)
 
 
-__all__ = ["ExchangeTradingCalendar", "TradingCalendarError", "ClosedResearchSession", "closed_research_session"]
+def closed_research_session(now: datetime, calendar) -> ClosedResearchSession:
+    """Keep the ordinary close/regeneration 06:30 publication gate."""
+    session = latest_closed_research_session(now, calendar)
+    if session.wall_clock >= session.publication_deadline:
+        raise ValueError('CLOSE_RESEARCH_PUBLICATION_DEADLINE_REACHED')
+    return session
+
+
+__all__ = ["ExchangeTradingCalendar", "TradingCalendarError", "ClosedResearchSession",
+    "closed_research_session", "latest_closed_research_session"]

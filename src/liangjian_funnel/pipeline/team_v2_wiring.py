@@ -19,7 +19,8 @@ from .team_v2_research import TeamResearchAdapter
 
 
 RESEARCH_COMMANDS=frozenset({'run-a1-maintenance','run-research','run-comparison',
-    'run-next-session-prep','run-close','run-auction-refresh','run-due'})
+    'run-next-session-prep','run-close','run-auction-refresh','run-due',
+    'run-a1-research-update','run-research-update'})
 
 
 def configured_research_adapter(settings,*,calendar):

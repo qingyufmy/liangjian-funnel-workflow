@@ -4,6 +4,10 @@ from zoneinfo import ZoneInfo
 
 
 def research_times(snapshot, calendar):
+    from ..runtime.research_update import research_update_times
+    updated = research_update_times(snapshot, calendar)
+    if updated is not None:
+        return updated
     captured = snapshot.as_of
     if not isinstance(captured, datetime) or captured.utcoffset() is None:
         raise ValueError('TEAM_RESEARCH_SOURCE_TIME_REQUIRED')

@@ -414,6 +414,14 @@ def build_parser() -> argparse.ArgumentParser:
             "--retry-budget", type=int, default=5,
             help="exclude tasks that already reached this attempt count",
         )
+    for name, help_text in (
+        ('run-a1-research-update', 'update A1 from an exact closed-session seed without execution publication'),
+        ('run-research-update', 'update A2/A3 originals only; never publish or stage execution plans'),
+    ):
+        update = sub.add_parser(name, help=help_text)
+        for field in ('snapshot-id', 'snapshot-hash', 'snapshot-file-sha256',
+                'source-trade-date', 'expected-a1-generation-id', 'run-id'):
+            update.add_argument('--' + field, required=True)
     research = sub.add_parser("run-research", help="run three isolated A1-A2-A3 model lanes")
     research.add_argument("--slot", choices=("morning", "close"), required=True)
     research.add_argument(
@@ -739,7 +747,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         return _a1_coverage_command(args, active)
     if args.command in {"label-outcomes", "run-outcomes", "run-outcomes-refresh", "layer-attribution"}:
         return _evaluation_command(args, active)
-    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-premarket", "run-morning", "run-auction-base", "run-auction-refresh", "run-close", "run-a5-midday", "run-a5-close", "run-next-session-prep", "run-monitor", "status"}:
+    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-a1-research-update", "run-research-update", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-premarket", "run-morning", "run-auction-base", "run-auction-refresh", "run-close", "run-a5-midday", "run-a5-close", "run-next-session-prep", "run-monitor", "status"}:
         return _workflow_command(args, active)
     reports = []
     if args.command in {"probe-hithink", "probe-all"}:
@@ -1243,6 +1251,12 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             payload = application.prepare_snapshot().as_dict()
         elif args.command == "sync-data":
             payload = application.sync_data_cache()
+        elif args.command in {'run-a1-research-update', 'run-research-update'}:
+            operation = (application.run_a1_research_update if args.command == 'run-a1-research-update'
+                else application.run_research_update)
+            payload = operation(**{name: getattr(args, name) for name in (
+                'snapshot_id', 'snapshot_hash', 'snapshot_file_sha256', 'source_trade_date',
+                'expected_a1_generation_id', 'run_id')})
         elif args.command == "run-research":
             historical_as_of = datetime.fromisoformat(args.as_of) if args.as_of else None
             if args.same_day_recovery and (
@@ -1516,7 +1530,9 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
         print(json.dumps({"status": "FAILED", "reason_code": reason_code}, ensure_ascii=False))
         return 3
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
-    if args.command in {"run-research", "run-next-session-prep"}:
+    if args.command == 'run-a1-research-update':
+        return 0 if isinstance(payload, Mapping) and payload.get('status') == 'PUBLISHED' else 2
+    if args.command in {"run-research", "run-research-update", "run-next-session-prep"}:
         outcome = payload.get("outcome_v2") if isinstance(payload, Mapping) else None
         return cli_exit_code(outcome if isinstance(outcome, Mapping) else payload)
     if args.command in {"run-due", "run-premarket", "run-morning", "run-close", "run-a5-midday", "run-a5-close", "run-monitor"}:

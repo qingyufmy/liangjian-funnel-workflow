@@ -2782,6 +2782,16 @@ class WorkflowApplication:
             raise WorkflowError('A1_DAILY_REFRESH_FAILED_KEEP_OLD_PLANS')
         return result
 
+    def run_a1_research_update(self, **kwargs):
+        """Update the sealed A1 pool from one exact seed, not execution plans."""
+        from .runtime.research_update import execute_update
+        return execute_update(self, purpose='A1', now=datetime.now(SHANGHAI), **kwargs)
+
+    def run_research_update(self, **kwargs):
+        """Refresh A2/A3 originals only; never stage a morning candidate."""
+        from .runtime.research_update import execute_update
+        return execute_update(self, purpose='A2_A3', now=datetime.now(SHANGHAI), **kwargs)
+
     def run_a1_maintenance(
         self,
         *,
@@ -2791,6 +2801,7 @@ class WorkflowApplication:
         snapshot_id: str | None = None,
         daily_refresh: bool = False,
         source_trade_date: str | None = None,
+        _research_update=None,
     ) -> dict[str, Any]:
         """Build and atomically publish the monthly/weekly A1 generation."""
 
@@ -2799,14 +2810,23 @@ class WorkflowApplication:
         if type(daily_refresh) is not bool:
             raise WorkflowError('A1_DAILY_REFRESH_INTENT_INVALID')
         capture_session = None
+        if _research_update is not None:
+            from .runtime.research_update import ResearchUpdateBinding, require_active_generation
+            if (type(_research_update) is not ResearchUpdateBinding or _research_update.purpose != 'A1'
+                    or not daily_refresh or normalized_mode != A1_INCREMENTAL
+                    or snapshot_id != _research_update.snapshot_id or run_id != _research_update.run_id
+                    or source_trade_date != _research_update.source_trade_date):
+                raise WorkflowError('RESEARCH_UPDATE_ARGUMENTS_INVALID')
+            require_active_generation(self, _research_update)
         if source_trade_date is not None:
-            from .runtime.calendar import closed_research_session
+            from .runtime.calendar import closed_research_session, latest_closed_research_session
             if not daily_refresh:
                 raise WorkflowError('A1_SOURCE_DATE_REQUIRES_DAILY_REFRESH')
             wall_now = datetime.now(SHANGHAI)
             if abs((current-wall_now).total_seconds()) > 600:
                 raise WorkflowError('LIVE_FACTS_POINT_IN_TIME_UNSUPPORTED')
-            capture_session = closed_research_session(wall_now,self.trading_calendar)
+            capture_session = (latest_closed_research_session if _research_update is not None
+                else closed_research_session)(wall_now,self.trading_calendar)
             if source_trade_date != capture_session.source_trade_date.isoformat():
                 raise WorkflowError('CLOSED_SESSION_CAPTURE_BINDING_INVALID')
         active = self.a1_registry.get_active_generation()
@@ -2847,7 +2867,8 @@ class WorkflowApplication:
             explicit_run_id=run_id,
         )
         progress = WorkflowProgress(
-            self.settings.workflow_progress_path,
+            (self.settings.workflow_output_dir/'research_updates'/f'{maintenance_run_id}.progress.json'
+                if _research_update is not None else self.settings.workflow_progress_path),
             run_id=maintenance_run_id,
             job="a1",
         )
@@ -2868,11 +2889,15 @@ class WorkflowApplication:
         try:
             if snapshot_id is not None:
                 progress.set_phase("SNAPSHOT_REUSE")
-                prepared = self._load_research_snapshot_by_id(
-                    snapshot_id,
-                    expected_date=None if capture_session else current.date().isoformat(),
-                    **({'closed_session_source_date':source_trade_date} if capture_session else {}),
-                )
+                if _research_update is not None:
+                    from .runtime.research_update import load_bound_seed
+                    prepared = load_bound_seed(self, _research_update, now=datetime.now(SHANGHAI))
+                else:
+                    prepared = self._load_research_snapshot_by_id(
+                        snapshot_id,
+                        expected_date=None if capture_session else current.date().isoformat(),
+                        **({'closed_session_source_date':source_trade_date} if capture_session else {}),
+                    )
                 if prepared.selected_count != prepared.research_universe_count:
                     raise WorkflowError("A1_MAINTENANCE_REQUIRES_FULL_RESEARCH_UNIVERSE")
                 progress.update_data(
@@ -2894,13 +2919,18 @@ class WorkflowApplication:
             if daily_refresh:
                 # Verify the new full-market original, not a previous pool with
                 # a new as_of label. The ordinary loader checks data SHA and ID.
-                verified=self._load_research_snapshot_by_id(prepared.snapshot.snapshot_id,
-                    expected_date=None if capture_session else current.date().isoformat(),
-                    **({'closed_session_source_date':source_trade_date} if capture_session else {}))
+                if _research_update is not None:
+                    from .runtime.research_update import load_bound_seed
+                    verified = load_bound_seed(self, _research_update, now=datetime.now(SHANGHAI), prepared=prepared)
+                else:
+                    verified=self._load_research_snapshot_by_id(prepared.snapshot.snapshot_id,
+                        expected_date=None if capture_session else current.date().isoformat(),
+                        **({'closed_session_source_date':source_trade_date} if capture_session else {}))
                 closed_proof = None
                 if capture_session:
-                    from .runtime.closed_session_capture import KEY, validate_capture_proof
-                    closed_proof = validate_capture_proof(prepared.snapshot.data.get(KEY),
+                    from .runtime.closed_session_capture import KEY, validate_capture_proof, validate_research_capture_proof
+                    validator = validate_research_capture_proof if _research_update is not None else validate_capture_proof
+                    closed_proof = validator(prepared.snapshot.data.get(KEY),
                         captured_at=prepared.snapshot.as_of, calendar=self.trading_calendar,
                         now=datetime.now(SHANGHAI),source_trade_date=source_trade_date)
                 manifest=prepared.snapshot.data.get('snapshot_manifest')
@@ -3031,7 +3061,7 @@ class WorkflowApplication:
                     model_client=self.model_client,
                     output_dir=self.settings.workflow_output_dir / "research",
                     parallel_lanes=False,
-                    runtime_store=self.store,
+                    runtime_store=None if _research_update is not None else self.store,
                     slot="A1_MAINTENANCE",
                     batch_workers=1,
                     checkpoint_store=self.research_checkpoints,
@@ -3173,10 +3203,15 @@ class WorkflowApplication:
                 "lanes": dict(lane_records),
             }
             if capture_session:
-                from .runtime.closed_session_capture import validate_capture_proof
-                validate_capture_proof(daily_proof['closed_session'],captured_at=current,
+                from .runtime.closed_session_capture import validate_capture_proof, validate_research_capture_proof
+                validator = validate_research_capture_proof if _research_update is not None else validate_capture_proof
+                validator(daily_proof['closed_session'],captured_at=current,
                     calendar=self.trading_calendar,now=datetime.now(SHANGHAI),
                     source_trade_date=source_trade_date)
+            if _research_update is not None:
+                from .runtime.research_update import load_bound_seed, require_active_generation
+                load_bound_seed(self, _research_update, now=datetime.now(SHANGHAI), prepared=prepared)
+                require_active_generation(self, _research_update)
             sealed = self.a1_registry.seal_generation(
                 generation.generation_id,
                 manifest=manifest,
@@ -3210,6 +3245,15 @@ class WorkflowApplication:
                 "daily_refresh":daily_refresh,
                 "stage_timing": progress.snapshot()["timing"],
             }
+            if _research_update is not None:
+                summary.update(research_only=True, execution_eligible=False,
+                    publication='RESEARCH_ONLY_NOT_EXECUTION',
+                    source_trade_date=_research_update.source_trade_date,
+                    target_trade_date=_research_update.target_trade_date,
+                    processing_started_at=_research_update.started_at.isoformat(),
+                    processing_completed_at=datetime.now(SHANGHAI).isoformat(),
+                    seed_capture_as_of=_research_update.capture_as_of.isoformat(),
+                    seed_file_sha256=_research_update.snapshot_file_sha256)
             atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{maintenance_run_id}-a1-maintenance.json", summary)
             return summary
         except Exception as exc:
@@ -3259,9 +3303,23 @@ class WorkflowApplication:
         auction_refresh: bool = False,
         frozen_a2_stock_news: BoundObject | None = None,
         regeneration=None,
+        _research_update=None,
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
+        if _research_update is not None:
+            from .runtime.research_update import ResearchUpdateBinding, require_active_generation
+            if (type(_research_update) is not ResearchUpdateBinding or _research_update.purpose != 'A2_A3'
+                    or normalized_slot != 'close' or as_of is not None or historical_replay or comparison_run
+                    or not primary_only or not from_active_a1 or publish_plans or record_runtime
+                    or schedule_comparison or auction_refresh or same_day_recovery or snapshot_id is not None
+                    or regeneration is not None or frozen_a2_stock_news is not None or reuse_resume_snapshot
+                    or reuse_completed_snapshot or target_trade_date is not None or market_data_as_of is not None
+                    or allow_non_trading_source or models is not None or primary_lane_ids is not None
+                    or run_id_override != _research_update.run_id
+                    or active_a1_generation_id != _research_update.generation_id):
+                raise WorkflowError('RESEARCH_UPDATE_ARGUMENTS_INVALID')
+            require_active_generation(self, _research_update)
         # A caller-supplied cutoff remains exclusive to next-session-prep.
         # Natural/regen cutoffs below are derived only after calendar/proof
         # validation; presence of those branches must not unlock this input.
@@ -3271,7 +3329,7 @@ class WorkflowApplication:
         formal_close_session = None
         if (normalized_slot=='close' and as_of is None and regeneration is None and frozen_a2_stock_news is None
                 and not historical_replay and not comparison_run and target_trade_date is None
-                and not allow_non_trading_source):
+                and not allow_non_trading_source and _research_update is None):
             from .runtime.calendar import closed_research_session
             formal_close_session=closed_research_session(current,self.trading_calendar)
             if current.date()!=formal_close_session.source_trade_date:
@@ -3383,7 +3441,7 @@ class WorkflowApplication:
             raise WorkflowError("SNAPSHOT_ID_REQUIRES_HISTORICAL_REPLAY")
         if comparison_run and not snapshot_id:
             raise WorkflowError("COMPARISON_SNAPSHOT_REQUIRED")
-        if normalized_slot == "close" and not next_session_prep and not comparison_run and regeneration is None and formal_close_session is None:
+        if normalized_slot == "close" and not next_session_prep and not comparison_run and regeneration is None and formal_close_session is None and _research_update is None:
             _ensure_formal_close_cutoff(current)
         if not isinstance(from_active_a1, bool):
             raise WorkflowError("ACTIVE_A1_ARGUMENTS_INVALID")
@@ -3392,7 +3450,7 @@ class WorkflowApplication:
             or (comparison_run and not active_a1_generation_id)
         ):
             raise WorkflowError("ACTIVE_A1_ARGUMENTS_INVALID")
-        if not next_session_prep:
+        if not next_session_prep and _research_update is None:
             self._ensure_trading_day(
                 market_data_as_of if (regeneration is not None or formal_close_session is not None) and market_data_as_of is not None else current,
                 synchronize_accounts=not historical_replay and not comparison_run and frozen_a2_stock_news is None
@@ -3412,6 +3470,8 @@ class WorkflowApplication:
             and not comparison_run and not auction_refresh
             and frozen_a2_stock_news is None else None
         )
+        if _research_update is not None and configured_team_research is not True:
+            raise WorkflowError('RESEARCH_UPDATE_TEAM_ROLES_REQUIRED')
         # A comparison is an audit child of the primary run.  It must not
         # overwrite the single control-plane progress projection that the UI
         # uses for the next morning/close job.  Keep a durable child progress
@@ -3423,6 +3483,8 @@ class WorkflowApplication:
             str(run_id_override or f"{current.date()}-{normalized_slot}-comparison"),
         )[:180]
         progress_path = (
+            self.settings.workflow_output_dir / 'research_updates' / f'{comparison_progress_id}.progress.json'
+            if _research_update is not None else
             self.settings.workflow_output_dir / "auction_progress" / f"{comparison_progress_id}.json"
             if auction_refresh
             else
@@ -3467,7 +3529,10 @@ class WorkflowApplication:
                 # snapshot.  A close without a current A1 must fail closed
                 # rather than doing work that could be mistaken for an
                 # implicit A1 refresh.
-                if active_a1_generation_id:
+                if _research_update is not None:
+                    from .runtime.research_update import require_active_generation
+                    active_a1_generation = require_active_generation(self, _research_update)
+                elif active_a1_generation_id:
                     active_a1_generation = self.a1_registry.get_generation(
                         active_a1_generation_id
                     )
@@ -3493,21 +3558,27 @@ class WorkflowApplication:
                 _progress_stdout(progress.snapshot())
                 raise WorkflowError(exc.reason_code) from exc
         try:
-            prepared = (
-                self._load_research_snapshot_by_id(
-                    snapshot_id,
-                    expected_date=snapshot_expected_date or current.date().isoformat(),
+            if _research_update is not None:
+                from .runtime.research_update import load_bound_seed
+                prepared = load_bound_seed(self, _research_update, now=datetime.now(SHANGHAI))
+                market_data_as_of = _aware(datetime.fromisoformat(
+                    prepared.snapshot.data['CLOSED_SESSION_CAPTURE']['source_market_close_at']))
+            else:
+                prepared = (
+                    self._load_research_snapshot_by_id(
+                        snapshot_id,
+                        expected_date=snapshot_expected_date or current.date().isoformat(),
+                    )
+                    if snapshot_id is not None
+                    else self._load_research_snapshot_by_id(regeneration.snapshot_id,
+                        expected_date=regeneration.trade_date if regeneration.closed_session is None else None,
+                        **({'closed_session_source_date':regeneration.trade_date} if regeneration.closed_session else {})) if regeneration is not None
+                    else None if historical_replay or not reuse_resume_snapshot or auction_refresh
+                    else self._load_research_resume_snapshot(
+                        normalized_slot, current, candidate_symbols=active_a1_scope_symbols,
+                        **({"allow_completed": True} if reuse_completed_snapshot else {}),
+                    )
                 )
-                if snapshot_id is not None
-                else self._load_research_snapshot_by_id(regeneration.snapshot_id,
-                    expected_date=regeneration.trade_date if regeneration.closed_session is None else None,
-                    **({'closed_session_source_date':regeneration.trade_date} if regeneration.closed_session else {})) if regeneration is not None
-                else None if historical_replay or not reuse_resume_snapshot or auction_refresh
-                else self._load_research_resume_snapshot(
-                    normalized_slot, current, candidate_symbols=active_a1_scope_symbols,
-                    **({"allow_completed": True} if reuse_completed_snapshot else {}),
-                )
-            )
             if prepared is None:
                 if reuse_completed_snapshot:
                     raise WorkflowError("VERIFIED_SAME_DAY_SNAPSHOT_REQUIRED")
@@ -3628,28 +3699,32 @@ class WorkflowApplication:
                 if primary_only
                 else (self.settings.research_primary_lane_id,)
             )
-            if from_active_a1:
-                result = pipeline.run_from_active_a1(
-                    prepared.snapshot,
-                    active_a1_generation,
-                    run_id=run_id,
-                    generated_at=current,
-                    historical_replay=historical_replay,
-                    models=selected_models,
-                    lane_start_index=selected_lane_start_index,
-                    primary_lane_ids=selected_primary_lane_ids,
-                    generation_id=active_a1_generation.generation_id if active_a1_generation else None,
-                )
-            else:
-                result = pipeline.run(
-                    prepared.snapshot,
-                    run_id=run_id,
-                    generated_at=current,
-                    historical_replay=historical_replay,
-                    models=selected_models,
-                    lane_start_index=selected_lane_start_index,
-                    primary_lane_ids=selected_primary_lane_ids,
-                )
+            from contextlib import nullcontext
+            from .runtime.research_update import research_time_context
+            with (research_time_context(self, _research_update, prepared, clock=lambda: datetime.now(SHANGHAI))
+                    if _research_update is not None else nullcontext()):
+                if from_active_a1:
+                    result = pipeline.run_from_active_a1(
+                        prepared.snapshot,
+                        active_a1_generation,
+                        run_id=run_id,
+                        generated_at=current,
+                        historical_replay=historical_replay,
+                        models=selected_models,
+                        lane_start_index=selected_lane_start_index,
+                        primary_lane_ids=selected_primary_lane_ids,
+                        generation_id=active_a1_generation.generation_id if active_a1_generation else None,
+                    )
+                else:
+                    result = pipeline.run(
+                        prepared.snapshot,
+                        run_id=run_id,
+                        generated_at=current,
+                        historical_replay=historical_replay,
+                        models=selected_models,
+                        lane_start_index=selected_lane_start_index,
+                        primary_lane_ids=selected_primary_lane_ids,
+                    )
         except Exception as exc:
             progress.finish(
                 status="BLOCKED",
@@ -3683,6 +3758,10 @@ class WorkflowApplication:
             final_session=closed_research_session(datetime.now(SHANGHAI),self.trading_calendar)
             if final_session.source_trade_date!=formal_close_session.source_trade_date:
                 raise WorkflowError('CLOSE_RESEARCH_SOURCE_SESSION_CHANGED')
+        if _research_update is not None:
+            from .runtime.research_update import load_bound_seed, require_active_generation
+            load_bound_seed(self, _research_update, now=datetime.now(SHANGHAI), prepared=prepared)
+            require_active_generation(self, _research_update)
         publication = (
             self._publish_plans(
                 result,
@@ -3703,7 +3782,8 @@ class WorkflowApplication:
                 "created": [],
                 "activated": [],
                 "blocked": [],
-                "publication": "AUCTION_RESEARCH_ONLY" if auction_refresh else "COMPARISON_ONLY",
+                "publication": ("RESEARCH_ONLY_NOT_EXECUTION" if _research_update is not None else
+                    "AUCTION_RESEARCH_ONLY" if auction_refresh else "COMPARISON_ONLY"),
             }
         )
         if regeneration is not None and not regeneration_raw_pass:
@@ -3728,6 +3808,7 @@ class WorkflowApplication:
             "source_as_of": current.isoformat(),
             "research_wall_clock": wall_now.isoformat(),
             "target_trade_date": (
+                _research_update.target_trade_date if _research_update is not None else
                 regeneration.target_trade_date if regeneration is not None else
                 formal_close_session.target_trade_date.isoformat() if formal_close_session is not None else
                 target_trade_date.isoformat()
@@ -3778,6 +3859,13 @@ class WorkflowApplication:
             ),
             "plan_publication": publication,
         }
+        if _research_update is not None:
+            summary.update(research_only=True, execution_eligible=False,
+                source_trade_date=_research_update.source_trade_date,
+                processing_started_at=_research_update.started_at.isoformat(),
+                processing_completed_at=datetime.now(SHANGHAI).isoformat(),
+                seed_capture_as_of=_research_update.capture_as_of.isoformat(),
+                seed_file_sha256=_research_update.snapshot_file_sha256)
         if regeneration is not None:
             from .runtime.close_regeneration import regeneration_manifest
             summary['regeneration']=regeneration_manifest(regeneration,prepared.snapshot,raw_pass=regeneration_raw_pass,
@@ -3800,7 +3888,7 @@ class WorkflowApplication:
             )
             summary["comparison_request"] = request
             atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{run_id}.json", summary)
-        if not historical_replay and not comparison_run and not auction_refresh and not reuse_completed_snapshot:
+        if not historical_replay and not comparison_run and not auction_refresh and not reuse_completed_snapshot and _research_update is None:
             self._write_research_resume_marker(
                 normalized_slot,
                 prepared,
