@@ -95,8 +95,9 @@ class ModelNetworkError(ModelClientError):
 
 
 class ModelHTTPError(ModelClientError):
-    def __init__(self, reason_code: str, *, status_code: int, attempts: int | None = None):
-        super().__init__(reason_code, status_code=status_code, attempts=attempts)
+    def __init__(self, reason_code: str, *, status_code: int, attempts: int | None = None,
+                 diagnostics: Mapping[str, Any] | None = None):
+        super().__init__(reason_code, status_code=status_code, attempts=attempts, diagnostics=diagnostics)
 
 
 @dataclass(frozen=True, slots=True)
@@ -358,10 +359,12 @@ class OpenAICompatibleModelClient:
                             if _provider_metrics is not None and (status in (403, 429) or status >= 500):
                                 from .provider_rejection_evidence import persist_provider_rejection, ProviderRejectionEvidenceError
                                 try:
-                                    persist_provider_rejection(response, settings=self.settings, model=model, stage=stage,
+                                    rejection = persist_provider_rejection(response, settings=self.settings, model=model, stage=stage,
                                         session=team_session, input_hash=input_hash, prompt_hash=prompt_hash,
                                         attempt=total_attempts, all_headers=True, deadline=attempt_deadline,
                                         clock=self.monotonic)
+                                    _provider_metrics.rejection_receipts.append({k:rejection[k] for k in
+                                        ('receipt_path','receipt_sha256','body_sha256','status_code')})
                                 except ProviderRejectionEvidenceError as exc:
                                     raise ModelClientError(exc.reason_code, status_code=status, attempts=total_attempts) from exc
                             if status == 429 or status >= 500:

@@ -1,3 +1,4 @@
+from fixture_model_stream import sse_model_response
 from copy import deepcopy
 from dataclasses import replace
 import json
@@ -56,7 +57,7 @@ def batch(tmp_path,*,count=9,fail_first=False,slow_clock=None,wave_clock=None):
                 signal=deepcopy(template['signals'][0]);signal.update(plan_id=row['plan_id'],symbol=row['symbol'],
                     action='BUY_SIGNAL' if row['plan_id'] in {'p00','p08'} else 'NO_ACTION',opposing_refs=['TECH:'+row['plan_id']])
                 raw['signals'].append(signal)
-            return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
+            return sse_model_response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
         finally:
             with lock:inflight[0]-=1
     settings=Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path)

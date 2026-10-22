@@ -16,6 +16,7 @@ class ProviderStreamMetrics(PMStreamMetrics):
         self.dispatched = 0
         self.reasoning_chars = 0
         self.reported_usage = None
+        self.rejection_receipts = []
 
     def reasoning(self, value):
         if isinstance(value, str):
@@ -51,6 +52,7 @@ class ProviderStreamMetrics(PMStreamMetrics):
                 'status': status, 'failure_code': reason_code,
                 'thinking_disabled_requested': True, 'stream_requested': True,
                 'actual_attempts': self.dispatched, 'provider_usage': self.reported_usage,
+                'rejection_receipts': list(self.rejection_receipts),
                 'reasoning_chars_discarded': self.reasoning_chars,
                 'reasoning_text_saved': False, 'business_content_saved': False}
 
