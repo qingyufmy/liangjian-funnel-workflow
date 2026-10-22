@@ -142,11 +142,17 @@ def daily_app(tmp_path, active):
     return app, pointer, calls
 
 
-def test_daily_refresh_calls_real_existing_incremental_and_does_not_relabel_old_object(tmp_path):
+def test_daily_refresh_calls_real_existing_incremental_and_does_not_relabel_old_object(tmp_path,monkeypatch):
+    import liangjian_funnel.workflow as workflow
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return AT.astimezone(tz) if tz else AT.replace(tzinfo=None)
+    monkeypatch.setattr(workflow,'datetime',Clock)
     old = SimpleNamespace(generation_id='old-sealed', as_of=AT - timedelta(days=1))
     app, pointer, calls = daily_app(tmp_path, old)
     WorkflowApplication._ensure_daily_a1(app, AT)
-    assert len(calls) == 1 and calls[0] == dict(now=AT.replace(hour=15), mode='INCREMENTAL', daily_refresh=True)
+    assert len(calls) == 1 and calls[0] == dict(now=AT, mode='INCREMENTAL', daily_refresh=True,
+        source_trade_date='2026-10-22')
     assert pointer[0].generation_id == 'new-sealed' and old.as_of == AT - timedelta(days=1)
 
 

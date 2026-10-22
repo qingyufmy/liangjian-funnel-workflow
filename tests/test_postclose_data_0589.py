@@ -47,7 +47,12 @@ def test_normal_natural_publication_marks_missing_source_manifest_and_probe_not_
 
 def test_daily_a1_refresh_is_real_pipeline_and_failure_never_reuses_old_silently(tmp_path,monkeypatch):
     from liangjian_funnel.workflow import WorkflowApplication,WorkflowError
+    import liangjian_funnel.workflow as workflow
     import liangjian_funnel.runtime.provider_health as health
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return AT.astimezone(tz) if tz else AT.replace(tzinfo=None)
+    monkeypatch.setattr(workflow,'datetime',Clock)
     pointer=[SimpleNamespace(generation_id='old',as_of=AT-timedelta(days=1))];calls=[]
     dummy=SimpleNamespace(a1_registry=SimpleNamespace(get_active_generation=lambda:pointer[0]),
         trading_calendar=CAL,settings=SimpleNamespace(root=tmp_path))
@@ -55,7 +60,7 @@ def test_daily_a1_refresh_is_real_pipeline_and_failure_never_reuses_old_silently
         calls.append(kw);pointer[0]=SimpleNamespace(generation_id='fresh',as_of=kw['now']);return {'status':'READY'}
     dummy.run_a1_maintenance=refresh
     WorkflowApplication._ensure_daily_a1(dummy,AT)
-    assert len(calls)==1 and calls[0]['now'].hour==15
+    assert calls==[dict(now=AT,mode='INCREMENTAL',daily_refresh=True,source_trade_date='2026-10-22')]
     WorkflowApplication._ensure_daily_a1(dummy,AT);assert len(calls)==1
     pointer[0]=SimpleNamespace(generation_id='old',as_of=AT-timedelta(days=1))
     dummy.run_a1_maintenance=lambda **kw:{'status':'FAILED'};alerts=[]

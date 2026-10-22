@@ -3265,7 +3265,8 @@ class WorkflowApplication:
         # A caller-supplied cutoff remains exclusive to next-session-prep.
         # Natural/regen cutoffs below are derived only after calendar/proof
         # validation; presence of those branches must not unlock this input.
-        if market_data_as_of is not None and target_trade_date is None and not allow_non_trading_source:
+        if (market_data_as_of is not None and target_trade_date is None
+                and not allow_non_trading_source and frozen_a2_stock_news is None):
             raise WorkflowError('MARKET_DATA_AS_OF_REQUIRES_NEXT_SESSION_PREP')
         formal_close_session = None
         if (normalized_slot=='close' and as_of is None and regeneration is None and frozen_a2_stock_news is None
