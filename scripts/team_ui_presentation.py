@@ -141,7 +141,7 @@ def apply(root, day, result, connect):
             labels=[CONDITIONS.get(code,'未解释条件') for code in unmet]
             text=f"{basis.get('met_count')} / {basis.get('required_count')} 项满足"
             if labels:text+='；待满足或待证：'+'、'.join(labels)
-            records.append(dict(id='condition-' + basis['source']['id'], at=basis.get('decision_at'), kind='PLAN_CONDITIONS',
+            records.append(dict(id='condition-' + basis['source']['id'], at=basis.get('decision_at'), kind='PLAN_CONDITIONS',role='A4',
                 title=title, text=text,unmet_conditions=unmet,unproven_conditions=unproven,
                 symbol=plan.get('code'), name=plan.get('name'), source=basis['source']))
     risk = result.get('risk') or {}
@@ -167,14 +167,14 @@ def apply(root, day, result, connect):
         if isinstance(item, dict) and valid_source(item.get('source')): records.append(item)
     for admission in result.get('admissions') or []:
         if valid_source(admission.get('source')):
-            records.append(dict(id='admission-' + str(admission.get('id')), at=admission.get('at'), kind='EXECUTION_ADMISSION',
+            records.append(dict(id='admission-' + str(admission.get('id')), at=admission.get('at'), kind='EXECUTION_ADMISSION',role='SYSTEM',
                 title='执行准入'+STATUSES.get(admission.get('status'),'状态待解释'),
                 text='准入数量：'+str(admission.get('shares'))+' 股',status=admission.get('status'),shares=admission.get('shares'),risk_unit=admission.get('risk_unit'),
                 symbol=admission.get('code'), name=admission.get('name'), source=admission['source']))
     for fill in sections.get('fills',{}).get('rows') or []:
         if valid_source(fill.get('source')):
             side={'BUY':'买入','SELL':'卖出'}.get(fill.get('side'),'方向未记录')
-            records.append(dict(id='fill-'+str(fill.get('fill_id')),at=fill.get('minute_end'),kind='EXECUTION_FILL',
+            records.append(dict(id='fill-'+str(fill.get('fill_id')),at=fill.get('minute_end'),kind='EXECUTION_FILL',role='SYSTEM',
                 title='实际'+side+'成交',text=f"{fill.get('qty')} 股，成交价 {fill.get('price')}",
                 symbol=fill.get('symbol'),name=fill.get('name'),qty=fill.get('qty'),price=fill.get('price'),source=fill['source']))
     def timed(row):

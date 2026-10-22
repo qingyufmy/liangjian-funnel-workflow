@@ -104,6 +104,7 @@ def test_reader_leaves_database_bytes_and_directory_entries_unchanged(tmp_path):
     root, _, _ = fixture(tmp_path)
     before={p.relative_to(root).as_posix():digest(p.read_bytes()) for p in root.rglob('*') if p.is_file()}
     plan=dict(id='plan-354',code='002354.SZ',conditions=[dict(source_id='event-354')])
-    apply(root,'2026-10-22',dict(sections={'plans':dict(rows=[plan])},risk={}),connect)
+    result=apply(root,'2026-10-22',dict(sections={'plans':dict(rows=[plan])},risk={}),connect)
+    assert result['trade_records'][0]['role']=='A4'
     after={p.relative_to(root).as_posix():digest(p.read_bytes()) for p in root.rglob('*') if p.is_file()}
     assert before==after
