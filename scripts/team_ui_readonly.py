@@ -62,8 +62,15 @@ def data_limits(payload):
             'source_as_of': scalar(detail.get('source_as_of'), identifier=True)}
 
 
+class SourceDatabaseMissing(FileNotFoundError):
+    """Internal classification only; never render its original path/message."""
+
+
 def connect(root, relative):
-    path = (root / relative).resolve(strict=True)
+    try:
+        path = (root / relative).resolve(strict=True)
+    except FileNotFoundError:
+        raise SourceDatabaseMissing() from None
     if not path.is_relative_to(root):
         raise ValueError("SOURCE_OUTSIDE_PROJECT")
     db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=.05)
@@ -188,14 +195,24 @@ def project(root, query):
     return out
 
 
+def source_failure_code(exc):
+    if isinstance(exc, SourceDatabaseMissing):
+        return 'SOURCE_DB_MISSING'
+    code = getattr(exc, 'sqlite_errorcode', None)
+    if isinstance(exc, sqlite3.Error) and type(code) is int and (code & 255) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+        return 'SQLITE_BUSY_OR_LOCKED'
+    return 'UNKNOWN_SOURCE_FAILURE'
+
+
 def main():
     try:
         root = Path(sys.argv[1]).resolve(strict=True)
         query = json.loads(sys.argv[2])
         # ASCII transport preserves Chinese across Windows CP936 and VM UTF-8.
         print(json.dumps(project(root, query), ensure_ascii=True, allow_nan=False))
-    except (OSError, ValueError, KeyError, sqlite3.Error):
+    except (OSError, ValueError, KeyError, sqlite3.Error) as exc:
         # Stable public code only. Never disclose the database path or raw exception.
+        print('TEAM_UI_SOURCE_REASON:' + source_failure_code(exc), file=sys.stderr)
         print(json.dumps({"error": "TEAM_UI_SOURCE_UNAVAILABLE"}))
         return 1
     return 0

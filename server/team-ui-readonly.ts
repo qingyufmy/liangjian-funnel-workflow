@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
+import { persistTeamUiError } from './team-ui-error-evidence.js';
 
 const runFile = promisify(execFile);
 const roles = new Set(["a1", "a2", "pm", "tr", "rk", "rv"]);
@@ -103,17 +104,39 @@ export class TeamUiReadPool {
 /** Same VM Python executable configured for Node; asynchronous stdlib-only child.
  * 450ms child deadline leaves margin inside the 500ms HTTP budget. */
 export class TeamUiReadOnly extends TeamUiReadPool {
+  private readonly evidenceRoot: string;
   constructor(rootDir: string, pythonBin: string) {
     let startTicks: string|null=null;
     try { const stat=readFileSync('/proc/self/stat','utf8');const fields=stat.slice(stat.lastIndexOf(')')+2).trim().split(/\s+/);if(/^\d+$/.test(fields[19]??''))startTicks=fields[19]!; } catch { /* Non-Linux/local tests must not fabricate process evidence. */ }
     const runtime=Object.freeze({pid:process.pid,process_start_ticks:startTicks});
     super(async query => {
-      const { stdout } = await runFile(pythonBin,
+      const { stdout, stderr } = await runFile(pythonBin,
         ["-B", resolve(rootDir, "scripts/team_ui_readonly.py"), rootDir, JSON.stringify({...query,_runtime:runtime})],
         { cwd: rootDir, timeout: 450, maxBuffer: 512 * 1024, windowsHide: true });
-      const result: unknown = JSON.parse(stdout);
-      if (!result || typeof result !== "object" || "error" in result) throw new Error("TEAM_UI_SOURCE_UNAVAILABLE");
-      return result;
+      try {
+        const result: unknown = JSON.parse(stdout);
+        if (!result || typeof result !== "object" || "error" in result) throw new Error("TEAM_UI_SOURCE_UNAVAILABLE");
+        return result;
+      } catch (error) {
+        // execFile rejection already preserves stderr. Retain it also when a
+        // successful child has malformed JSON/public error, without stdout.
+        if (error instanceof Error) Object.defineProperty(error, 'stderr', { value: stderr });
+        throw error;
+      }
     });
+    this.evidenceRoot = rootDir;
+  }
+
+  async recordFailure(query: TeamUiQuery, error: unknown, responseBody: {error: string}): Promise<unknown> {
+    try {
+      return await persistTeamUiError(this.evidenceRoot, {
+        responseStatus: 503, responseBody, error, query, phase: 'RESPONSE_PREPARED_NOT_DELIVERY_PROOF',
+      });
+    } catch (failure) {
+      // No raw error/path/credential in the fallback. The HTTP response remains
+      // 503; its diagnostic failure must not be silently reported as persisted.
+      console.error('TEAM_UI_ERROR_EVIDENCE_WRITE_FAILED');
+      throw failure;
+    }
   }
 }
