@@ -4,6 +4,7 @@ from hashlib import sha256
 import json
 
 import httpx
+from fixture_model_stream import sse_model_response
 import pytest
 
 from liangjian_funnel.pipeline.model_client import ModelHTTPError,OpenAICompatibleModelClient
@@ -53,7 +54,7 @@ def test_429_then_success_keeps_rejection_without_changing_success_output(tmp_pa
     calls=[]
     def request(req):
         calls.append(req.read())
-        return httpx.Response(429,json={'error':{'message':'rate'}}) if len(calls)==1 else httpx.Response(
+        return httpx.Response(429,json={'error':{'message':'rate'}}) if len(calls)==1 else sse_model_response(
             200,json={'choices':[{'message':{'content':'{"ok":true}'}}]})
     client=OpenAICompatibleModelClient(configured(tmp_path),transport=httpx.MockTransport(request),sleep=lambda _:None)
     result=client.complete('deepseek-v4-pro',[{'role':'user','content':'facts'}],stage='A2')
@@ -83,6 +84,6 @@ def test_evidence_failure_stops_retries_but_keeps_original_provider_failure(tmp_
 def test_success_path_does_not_capture_or_write_rejection(tmp_path,monkeypatch):
     monkeypatch.setattr(evidence,'persist_provider_rejection',lambda *a,**kw:pytest.fail('200 is not a rejection'))
     client=OpenAICompatibleModelClient(configured(tmp_path),transport=httpx.MockTransport(
-        lambda req:httpx.Response(200,json={'choices':[{'message':{'content':'{"ok":true}'}}]})))
+        lambda req:sse_model_response(200,json={'choices':[{'message':{'content':'{"ok":true}'}}]})))
     assert client.complete('deepseek-v4-pro',[{'role':'user','content':'facts'}]).output=={'ok':True}
     assert not receipts(tmp_path)

@@ -119,10 +119,11 @@ def test_error_body_observation_is_also_deadline_bounded(tmp_path):
     clock=[0.]
     def late():clock[0]=31.;return b'{"error":{"code":"synthetic"}}'
     def wire(request):return httpx.Response(429,stream=Stream([late]))
-    with pytest.raises(ModelClientError,match='PROVIDER_REJECTION_CAPTURE_OR_REDACTION_FAILED'):
+    with pytest.raises(ModelClientError,match='RATE_LIMIT_RETRY_EXHAUSTED') as caught:
         OpenAICompatibleModelClient(settings(tmp_path),transport=httpx.MockTransport(wire),monotonic=lambda:clock[0]).complete(
             FLASH,[{'role':'user','content':'x'}],stage='A4',timeout_seconds=30)
     assert not list(tmp_path.rglob('rejection-*.json'))
+    assert caught.value.diagnostics['provider_evidence_failure']=='PROVIDER_REJECTION_CAPTURE_OR_REDACTION_FAILED'
 
 def test_prefetched_sse_cannot_invent_wire_packet_or_ttft(tmp_path):
     def wire(request):return httpx.Response(200,headers={'content-type':'text/event-stream'},content=b''.join(good_parts()))

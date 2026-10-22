@@ -7,6 +7,7 @@ import json
 import sqlite3
 
 import httpx
+from fixture_model_stream import sse_model_response
 import pytest
 
 from liangjian_funnel.runtime.reviewed_batch_morning import prepare_candidate_morning_engine, run_candidate_morning_reviews
@@ -88,7 +89,7 @@ def model(settings, *, invalid_a6=False, quota_bad=False):
             raw['deployment_target'].update(target_pct=60, baseline_range=[40, 65])
         body = json.dumps(raw).replace('"C1"', '"MORNING:ACCOUNT"').replace('"M1"', '"MORNING:MARKET"')
         body = body.replace('"A"', '"MORNING:ACCOUNT"').replace('"M"', '"MORNING:MARKET"')
-        return httpx.Response(200, json={'choices': [{'message': {'content': body}}]}, request=request)
+        return sse_model_response(200, json={'choices': [{'message': {'content': body}}]}, request=request)
     return OpenAICompatibleModelClient(settings, transport=httpx.MockTransport(handler), max_attempts=1), calls
 
 
