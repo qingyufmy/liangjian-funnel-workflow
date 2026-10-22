@@ -10,12 +10,28 @@ import re
 import sqlite3
 from datetime import datetime
 
-NUMERIC_KEYS={'low','high','close','prior_close','price','volume','prior_low','midpoint','vwap','minimum','maximum','stop','target','original_stop','price_above','volume_ratio','max_attempts','ratio','breakout_volume','key','key_floor','v6','atr_period','volume_lookback','plan_upper','platform','previous_high'}
+NUMERIC_KEYS={'low','high','close','prior_close','price','volume','prior_low','midpoint','vwap','minimum','maximum','stop','target','original_stop','price_above','volume_ratio','max_attempts','ratio','breakout_volume','key','key_floor','v6','atr_period','volume_lookback','plan_upper','platform','previous_high','level','rise_high','pullback_mean','rise_mean','body','wick'}
 def compact(value):
     if value is None or isinstance(value,bool):return value
     if isinstance(value,(int,float)):return value if math.isfinite(value) else None
+    if isinstance(value,list):return [compact(v) for v in value[:120]]
     if isinstance(value,dict):return {k:compact(v) for k,v in value.items() if k in NUMERIC_KEYS}
     return None
+
+def condition_source(value,event_at):
+    """Keep legitimate source shapes distinct; never replace missing time with now."""
+    if value=='FROZEN_PLAN':return dict(at=None,source_kind='FROZEN_PLAN',source_times=[],source_valid=True)
+    if value is None:return dict(at=None,source_kind='UNRECORDED',source_times=[],source_valid=None)
+    values=value if isinstance(value,list) else [value];times=[];valid=len(values)<=120
+    try:
+        limit=datetime.fromisoformat(event_at)
+        if limit.utcoffset() is None:raise ValueError('EVENT_TIME_NAIVE')
+        for item in values[:120]:
+            if not isinstance(item,str) or not re.fullmatch(r'[0-9T:+.Z-]{10,40}',item):valid=False;continue
+            at=datetime.fromisoformat(item);times.append(item)
+            if at.utcoffset() is None or at>limit:valid=False
+    except (ValueError,TypeError):valid=False
+    return dict(at=times[0] if not isinstance(value,list) and times else None,source_kind='TIMESTAMP_LIST' if isinstance(value,list) else 'TIMESTAMP',source_times=times,source_valid=valid)
 
 def project_detail(db,day,plan_id,*,root=None,connect=None):
     result={'bars':[],'conditions':[],'timeline':[],'detail_coverage':'MISSING_EXISTING_MONITOR_FACTS','rr':None,'condition_as_of':None,'price':None,'in_zone':None}
@@ -45,12 +61,8 @@ def project_detail(db,day,plan_id,*,root=None,connect=None):
                 for key in (entry.get('required_conditions') or [])[:24]:
                     if not isinstance(key,str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,95}',key):continue
                     c=entry['conditions'].get(key) or {};status=c.get('status')
-                    at=c.get('source_as_of') or strategy.get('as_of') or row['minute_end']
-                    try:
-                        if not isinstance(at,str) or datetime.fromisoformat(at)>datetime.fromisoformat(row['minute_end']):continue
-                    except (ValueError,TypeError):continue
-                    result['conditions'].append({'code':key,'status':status if status in ('MET','UNMET','UNPROVEN') else 'UNPROVEN','threshold':compact(c.get('threshold')),'value':compact(c.get('value')),'at':c.get('source_as_of') if isinstance(c.get('source_as_of'),str) and re.fullmatch(r'[0-9T:+.Z-]{10,40}',c['source_as_of']) else row['minute_end'],'source_id':event_id,'sha256':digest})
-                rr=next((c['value'] for c in result['conditions'] if c['code']=='ENTRY_RR'),None)
+                    result['conditions'].append({'code':key,'status':status if status in ('MET','UNMET','UNPROVEN') else 'UNPROVEN','threshold':compact(c.get('threshold')),'value':compact(c.get('value')),**condition_source(c.get('source_as_of'),row['minute_end']),'source_id':event_id,'sha256':digest})
+                rr=next((c['value'] for c in result['conditions'] if c['code']=='ENTRY_RR' and c['source_valid'] is not False),None)
                 result['rr']=compact(rr) if isinstance(rr,(int,float)) and not isinstance(rr,bool) else None
             if end in bars:continue
             if end[14:16] not in ('00','05','10','15','20','25','30','35','40','45','50','55'):continue
