@@ -603,7 +603,7 @@ def _decode_model_response(
         response.stream = _PMObservedStream(response.stream, pm_metrics)
     content_type = response.headers.get("content-type", "").lower()
     if "text/event-stream" in content_type:
-        if pm_metrics is not None:pm_metrics.streaming()
+        if pm_metrics is not None:pm_metrics.streaming(observable=not response.is_stream_consumed)
         return _decode_sse_response(response, deadline=deadline, clock=clock,
             **({'pm_metrics': pm_metrics} if pm_metrics is not None else {}))
 

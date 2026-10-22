@@ -21,6 +21,12 @@ class ProviderStreamMetrics(PMStreamMetrics):
         if isinstance(value, str):
             self.reasoning_chars += len(value)
 
+    def packet(self):
+        # An upstream wrapper may already have consumed the complete body.
+        # Parsing its cached lines cannot prove when a network packet arrived.
+        if self.mode != 'BUFFERED_SSE_TTFT_UNOBSERVABLE':
+            super().packet()
+
     def usage(self, payload):
         super().usage(payload)
         value = payload.get('usage') if isinstance(payload, dict) else None
