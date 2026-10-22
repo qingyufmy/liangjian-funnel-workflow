@@ -20,9 +20,21 @@ ACCOUNT='local-paper'
 def sha(value): return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
-def stage_natural_candidate(store, batch, *, run_id, observed_at):
+def stage_natural_candidate(store, batch, *, run_id, observed_at, regeneration=None):
     """Persist original intended rows and old-target CAS, never publish them."""
-    if not batch:return dict(status='EMPTY_CANDIDATE_NOT_STAGED',plan_ids=[])
+    source_scope=getattr(regeneration,'source_scope',None)
+    if source_scope is not None:
+        from .close_regeneration import require_regeneration_source_unchanged
+        require_regeneration_source_unchanged(regeneration)
+        if run_id!=regeneration.run_id:raise ValueError('REGEN_TARGET_RUN_CHANGED')
+    if not batch:
+        if source_scope is not None:
+            def preserve(db):
+                from .close_regeneration import require_regeneration_candidate_scope
+                require_regeneration_candidate_scope(db,source_scope)
+                return dict(status='EMPTY_CANDIDATE_NOT_STAGED',plan_ids=[],execution_plans_written=0)
+            return store._write(preserve)
+        return dict(status='EMPTY_CANDIDATE_NOT_STAGED',plan_ids=[])
     if not isinstance(run_id,str) or not run_id or len(run_id)>64:raise ValueError('NATURAL_CANDIDATE_RUN_INVALID')
     rows=[];days=set();lanes=set();ids=set()
     for item in batch:
@@ -38,8 +50,13 @@ def stage_natural_candidate(store, batch, *, run_id, observed_at):
             created_at=observed_at.isoformat(),updated_at=observed_at.isoformat()))
     if len(days)!=1 or len(lanes)!=1:raise ValueError('NATURAL_CANDIDATE_MIXED_SCOPE')
     day,lane=next(iter(days)),next(iter(lanes));rows.sort(key=lambda r:(r['symbol'],r['plan_id']))
+    if source_scope is not None and (day!=source_scope['target_trade_date'] or lane!=source_scope['lane_id']):
+        raise ValueError('REGEN_TARGET_CANDIDATE_SCOPE_CHANGED')
     scope='bd_'+sha([run_id,day,lane])[:28]
     def operation(db):
+        if source_scope is not None:
+            from .close_regeneration import require_regeneration_candidate_scope
+            require_regeneration_candidate_scope(db,source_scope)
         old=[dict(r) for r in db.execute("SELECT * FROM execution_plans WHERE lane_id=? AND substr(expires_at,1,10)=? AND status IN ('PENDING_MORNING_REVIEW','ACTIVE_TODAY') ORDER BY plan_id",(lane,day))]
         pointer=db.execute('SELECT revision FROM active_reviewed_batch_scope WHERE account_id=? AND trade_date=?',(ACCOUNT,day)).fetchone()
         body=dict(schema_version='natural-review-candidate/1',source_namespace='NATURAL_MORNING_CANDIDATE',

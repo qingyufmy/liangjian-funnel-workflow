@@ -3700,7 +3700,7 @@ class WorkflowApplication:
         if regeneration is not None:
             from .runtime.close_regeneration import regeneration_manifest
             summary['regeneration']=regeneration_manifest(regeneration,prepared.snapshot,raw_pass=regeneration_raw_pass,
-                created=publication.get('created',()))
+                created=publication.get('created',()),publication=publication)
             if not regeneration_raw_pass:summary['status']='BLOCKED'
         atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{run_id}.json", summary)
         research_ready = result.status in {"READY", "READY_DEGRADED"} and regeneration_raw_pass
@@ -7423,7 +7423,7 @@ class WorkflowApplication:
                 str(item.get("plan_id") or ""),
             )
         )
-        if regeneration is not None and not batch:
+        if regeneration is not None and not batch and getattr(regeneration,'source_scope',None) is None:
             raise WorkflowError('REGEN_NO_GEOMETRY_VALID_PLANS_KEEP_OLD')
         pattern_preparation={'status':'NOT_APPLICABLE','plans':[]}
         if slot=='close' and hasattr(self,'minute_store') and hasattr(self,'market_data'):
@@ -7451,11 +7451,16 @@ class WorkflowApplication:
         # actual engine/A6/PM edges pass. Legacy lightweight publisher fixtures
         # and non-Team paths retain their existing storage adapter contract.
         from .runtime.state import RuntimeStore
-        natural_candidate = slot=='close' and bool(team_geometry_lanes) and isinstance(self.store,RuntimeStore)
+        natural_candidate = slot=='close' and (bool(team_geometry_lanes)
+            or getattr(regeneration,'source_scope',None) is not None) and isinstance(self.store,RuntimeStore)
         candidate_receipt = None
         if natural_candidate:
+            if regeneration is not None:
+                from .runtime.close_regeneration import require_regeneration_publication_window
+                require_regeneration_publication_window(regeneration,self.trading_calendar,now=datetime.now(SHANGHAI))
             from .runtime.reviewed_batch_natural import stage_natural_candidate
-            candidate_receipt=stage_natural_candidate(self.store,batch,run_id=result.run_id,observed_at=now)
+            candidate_receipt=stage_natural_candidate(self.store,batch,run_id=result.run_id,observed_at=now,
+                regeneration=regeneration)
             # These are intended captured payloads, not execution-plan inserts.
             # The manifest's explicit candidate mode preserves that distinction.
             published=batch
@@ -7521,7 +7526,8 @@ class WorkflowApplication:
             )
         return {
             "atomic": True,
-            "publication_state":"CANDIDATE_PENDING_REVIEW" if natural_candidate else "PUBLISHED",
+            "publication_state":("EMPTY_NOT_PUBLISHED" if natural_candidate and candidate_receipt.get('status')=='EMPTY_CANDIDATE_NOT_STAGED'
+                else "CANDIDATE_PENDING_REVIEW" if natural_candidate else "PUBLISHED"),
             "natural_candidate":candidate_receipt,
             "projection_manifests": projection_manifests,
             "indicator_preparation": indicator_preparation,
