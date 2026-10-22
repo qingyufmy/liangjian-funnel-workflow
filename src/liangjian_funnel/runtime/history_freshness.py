@@ -52,11 +52,19 @@ def validate_session_seed(symbol,bars,*,target_trade_date,calendar,as_of,actual_
 
 def read_previous_session_seed(path,symbol,*,target_trade_date,calendar,as_of):
     """Two bounded indexed RO queries, no cache constructor/schema/write side effects."""
-    latest=None;bars=()
+    latest=None;bars=();prior=None;phase='CALENDAR'
+    def failed(reason,status):
+        return (),dict(schema_version='previous-session-5m-seed/1',symbol=map_symbol(symbol).canonical,
+            target_trade_date=target_trade_date.isoformat(),status='DATA_BLOCKED',required_5m_count=48,
+            available_5m_count=None,available_5m_count_known=False,actual_latest_date=None,
+            actual_latest_date_known=False,source_trade_date=prior.isoformat() if prior else None,
+            reason_code=reason,source_read_status=status,source_read_reason=reason,source_requests=0)
     try:
         prior=calendar.previous_trading_day(target_trade_date);grid=session_grid(prior)
+        phase='READ'
         path=Path(path)
-        if not path.is_file() or path.is_symlink():raise ValueError('HISTORICAL_5M_CACHE_UNAVAILABLE')
+        if not path.is_file() or path.is_symlink():
+            return failed('HISTORICAL_5M_CACHE_UNAVAILABLE','UNAVAILABLE')
         symbol=map_symbol(symbol).canonical
         with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=.15)) as db:
             db.execute('PRAGMA query_only=ON');db.execute('PRAGMA busy_timeout=150')
@@ -70,10 +78,19 @@ def read_previous_session_seed(path,symbol,*,target_trade_date,calendar,as_of):
                 (symbol,'5m',datetime.combine(target_trade_date,time(),tzinfo=TZ).isoformat())).fetchone()
             latest=datetime.fromisoformat(last[0]).astimezone(TZ).date().isoformat() if last else None
             bars=tuple(_from_row(row) for row in values)
+    except sqlite3.Error as exc:
+        code=getattr(exc,'sqlite_errorcode',None)
+        interrupted=isinstance(code,int) and code & 255==sqlite3.SQLITE_INTERRUPT
+        return failed('HISTORICAL_5M_TIME_BUDGET' if interrupted else 'HISTORICAL_5M_READ_FAILED',
+            'TIME_BUDGET' if interrupted else 'READ_FAILED')
     except Exception:
-        pass
-    return validate_session_seed(symbol,bars,target_trade_date=target_trade_date,calendar=calendar,
+        return failed('HISTORICAL_5M_PREVIOUS_SESSION_UNPROVEN' if phase=='CALENDAR' else
+            'HISTORICAL_5M_READ_FAILED','NOT_ATTEMPTED' if phase=='CALENDAR' else 'READ_FAILED')
+    selected,proof=validate_session_seed(symbol,bars,target_trade_date=target_trade_date,calendar=calendar,
         as_of=as_of,actual_latest_date=latest)
+    proof.update(source_read_status='READ_COMPLETED',source_read_reason='OK',
+        available_5m_count_known=True,actual_latest_date_known=True)
+    return selected,proof
 
 
 def inspect_plan_seeds(plans,*,path,target_trade_date,calendar,as_of):

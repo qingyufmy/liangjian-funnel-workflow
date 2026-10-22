@@ -71,6 +71,38 @@ def test_calendar_failure_is_blocked_not_weekday_fallback(tmp_path):
     selected,proof=read_previous_session_seed(tmp_path/'absent','002354.SZ',
         target_trade_date=NOW.date(),calendar=SimpleNamespace(previous_trading_day=fail),as_of=NOW)
     assert selected==() and proof['status']=='DATA_BLOCKED' and proof['source_trade_date'] is None
+    assert proof['reason_code']=='HISTORICAL_5M_PREVIOUS_SESSION_UNPROVEN'
+    assert proof['source_read_status']=='NOT_ATTEMPTED' and proof['available_5m_count'] is None
+    assert proof['actual_latest_date_known'] is False
+
+
+def test_absent_cache_is_unavailable_not_observed_zero_rows(tmp_path):
+    selected,proof=read_previous_session_seed(tmp_path/'absent','002354.SZ',
+        target_trade_date=NOW.date(),calendar=CAL,as_of=NOW)
+    assert selected==() and proof['status']=='DATA_BLOCKED'
+    assert proof['reason_code']=='HISTORICAL_5M_CACHE_UNAVAILABLE' and proof['source_read_status']=='UNAVAILABLE'
+    assert proof['available_5m_count'] is None and proof['actual_latest_date_known'] is False
+    assert proof['source_requests']==0
+
+
+@pytest.mark.parametrize('sqlite_code,reason,status',[
+    (5,'HISTORICAL_5M_READ_FAILED','READ_FAILED'),
+    (9,'HISTORICAL_5M_TIME_BUDGET','TIME_BUDGET')])
+def test_sql_lock_and_interrupt_are_read_failures_not_missing_market_bars(tmp_path,monkeypatch,sqlite_code,reason,status):
+    from liangjian_funnel.runtime import history_freshness
+    import sqlite3
+    path=tmp_path/'present';path.write_bytes(b'owned mock file')
+    def fail(*a,**kw):
+        exc=sqlite3.OperationalError('SECRET_TEST_DETAIL_MUST_NOT_APPEAR')
+        exc.sqlite_errorcode=sqlite_code
+        raise exc
+    monkeypatch.setattr(history_freshness.sqlite3,'connect',fail)
+    selected,proof=read_previous_session_seed(path,'002354.SZ',target_trade_date=NOW.date(),calendar=CAL,as_of=NOW)
+    assert selected==() and proof['status']=='DATA_BLOCKED' and proof['source_requests']==0
+    assert proof['reason_code']==reason and proof['source_read_status']==status
+    assert proof['available_5m_count'] is None and proof['available_5m_count_known'] is False
+    assert proof['actual_latest_date'] is None and proof['actual_latest_date_known'] is False
+    assert 'SECRET_TEST_DETAIL' not in json.dumps(proof)
 
 
 def test_all_plan_preflight_includes_non_trend_and_missing_cache(tmp_path):
