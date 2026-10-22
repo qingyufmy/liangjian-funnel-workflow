@@ -6,6 +6,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import shlex
 
 import pytest
 
@@ -462,3 +463,36 @@ def test_protected_sql_is_ro(tmp_path):
     with m.closing(m.VM.ro(path)) as db:
         with pytest.raises(sqlite3.OperationalError):
             db.execute('INSERT INTO x VALUES(1)')
+
+
+@pytest.mark.parametrize('selected', ['candidate', 'rollback'])
+def test_local_fetch_upload_pack_has_only_selected_root_and_dotgit(selected):
+    candidate = '/var/tmp/declared-release/candidate'
+    rollback = '/var/tmp/declared-release/rollback'
+    source = candidate if selected == 'candidate' else rollback
+    argv = shlex.split(m.exact_local_upload_pack(source, candidate_source=candidate, rollback_source=rollback))
+    assert argv == ['/usr/bin/env', '-u', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT=2',
+        'GIT_CONFIG_KEY_0=safe.directory', 'GIT_CONFIG_VALUE_0=' + source,
+        'GIT_CONFIG_KEY_1=safe.directory', 'GIT_CONFIG_VALUE_1=' + source + '/.git', '/usr/bin/git-upload-pack']
+    assert not any(x in argv for x in ('--global', '--system', '*'))
+    assert (rollback if selected == 'candidate' else candidate) not in '\n'.join(argv)
+
+
+@pytest.mark.parametrize('source,bound', [
+    ('/var/tmp/declared-release/candidate-other', '/var/tmp/declared-release/candidate'),
+    ('relative/candidate', 'relative/candidate'),
+    ('/var/tmp/declared-release/../other', '/var/tmp/declared-release/../other'),
+    ('/var/tmp/declared-release/*', '/var/tmp/declared-release/*'),
+    ('/var/tmp/declared-release/candidate;touch-bad', '/var/tmp/declared-release/candidate;touch-bad'),
+    (str(m.ROOT), str(m.ROOT)),
+])
+def test_local_upload_pack_six_scope_and_injection_counterexamples(source, bound):
+    with pytest.raises(m.ReleaseError, match='RELEASE_UPLOAD_PACK_'):
+        m.exact_local_upload_pack(source, candidate_source=bound, rollback_source='/var/tmp/declared-release/rollback')
+
+
+def test_fetch_source_target_cross_binding_is_rejected_before_git(tmp_path, monkeypatch):
+    vm = m.VM(binding(tmp_path))
+    monkeypatch.setattr(vm, 'git', lambda *a, **k: pytest.fail('cross-bound source must not run Git'))
+    with pytest.raises(m.ReleaseError, match='SOURCE_TARGET_MISMATCH'):
+        vm.publish_ff(vm.b['candidate_head'], vm.b['rollback_source'])

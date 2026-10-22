@@ -12,7 +12,7 @@ outer process, never inside the transient deploy unit.
 """
 from contextlib import closing
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.request import urlopen
 from zoneinfo import ZoneInfo
 import argparse
@@ -21,6 +21,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -183,6 +184,28 @@ def freeze_target_deploy(original, destination, *, target, phase, source_path, e
         prefix_sha256=hashlib.sha256(prefix).hexdigest(), suffix_sha256=hashlib.sha256(suffix).hexdigest())
 
 
+def exact_local_upload_pack(source, *, candidate_source, rollback_source):
+    """Pass ownership trust only to this local fetch's upload-pack process.
+
+    Git sanitizes GIT_CONFIG_* in the local transport child, so setting the
+    supervisor's environment does not reach upload-pack. Do not edit any
+    user's Git config or trust all repositories: give the fixed executable
+    only the bound source root and its .git directory for this invocation.
+    The caller separately verifies the target HEAD/full receipt/source bytes.
+    """
+    value = str(source)
+    need(value in {str(candidate_source), str(rollback_source)}, 'RELEASE_UPLOAD_PACK_UNBOUND_SOURCE')
+    path = PurePosixPath(value)
+    need(path.is_absolute() and str(path) == value and '..' not in path.parts
+         and value.startswith('/var/tmp/') and re.fullmatch(r'/[A-Za-z0-9_./-]+', value) is not None,
+         'RELEASE_UPLOAD_PACK_EXACT_ISOLATED_PATH_REQUIRED')
+    argv = ['/usr/bin/env', '-u', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT=2',
+            'GIT_CONFIG_KEY_0=safe.directory', 'GIT_CONFIG_VALUE_0=' + value,
+            'GIT_CONFIG_KEY_1=safe.directory', 'GIT_CONFIG_VALUE_1=' + value + '/.git',
+            '/usr/bin/git-upload-pack']
+    return ' '.join(shlex.quote(part) for part in argv)
+
+
 class VM:
     """Only actual execute methods mutate git/systemd; all probes are bounded RO."""
     def __init__(self, binding):
@@ -314,9 +337,19 @@ class VM:
         return dict(head=target, modules=len(manifest), installed_manifest_sha256=digest(manifest), runtime_verified=True)
 
     def publish_ff(self, target, source):
+        need((target, str(source)) in {
+            (self.b['candidate_head'], self.b['candidate_source']),
+            (self.b['rollback_head'], self.b['rollback_source'])}, 'RELEASE_LOCAL_TRANSFER_SOURCE_TARGET_MISMATCH')
+        source_path = Path(source)
+        need(source_path.resolve() == source_path and not source_path.is_symlink()
+             and (source_path / '.git').is_dir() and not (source_path / '.git').is_symlink(),
+             'RELEASE_LOCAL_TRANSFER_NONLINK_SOURCE_REQUIRED')
+        need(self.git('rev-parse', 'HEAD', source=source_path) == target, 'RELEASE_LOCAL_TRANSFER_SOURCE_HEAD_CHANGED')
+        upload_pack = exact_local_upload_pack(source, candidate_source=self.b['candidate_source'],
+                                              rollback_source=self.b['rollback_source'])
         current = self.git('rev-parse', 'HEAD')
         need(current in {self.b['baseline_head'], self.b['candidate_head']}, 'RELEASE_UNEXPECTED_PRODUCTION_HEAD')
-        self.git('fetch', str(source), target)
+        self.git('fetch', '--upload-pack=' + upload_pack, str(source), target)
         need(self.git('rev-parse', 'FETCH_HEAD') == target, 'RELEASE_LOCAL_TRANSFER_TARGET_CHANGED')
         self.command(['/usr/sbin/runuser', '-u', 'www', '--', 'git', '-C', str(ROOT), 'merge-base', '--is-ancestor', current, target])
         remote = self.git('ls-remote', 'origin', 'refs/heads/main').split()[0]
