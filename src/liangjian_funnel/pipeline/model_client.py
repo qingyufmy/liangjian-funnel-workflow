@@ -6,7 +6,8 @@ import json
 import re
 import time
 from datetime import datetime, timezone
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from urllib.parse import urlsplit
 from email.utils import parsedate_to_datetime
 from typing import Any, Callable, Mapping, Sequence
 
@@ -113,6 +114,7 @@ class ModelCallResult:
     output_hash: str = ""
     pm_stream_telemetry: Mapping[str, Any] | None = None
     a5_stream_telemetry: Mapping[str, Any] | None = None
+    provider_stream_telemetry: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.output_hash:
@@ -160,7 +162,33 @@ class OpenAICompatibleModelClient:
         self.thinking_enabled = bool(thinking_enabled)
         self.thinking_variants = PRODUCTION_THINKING_VARIANTS if self.thinking_enabled else NO_THINKING_VARIANTS
 
-    def complete(
+    def complete(self, model: str, messages: Sequence[Mapping[str, Any]], **metadata) -> ModelCallResult:
+        finpoints = urlsplit(self.settings.model_base_url).hostname == 'ai-api.finpoints.tech'
+        metrics = None
+        if finpoints:
+            from .provider_stream_metrics import ProviderStreamMetrics
+            metrics = ProviderStreamMetrics(clock=self.monotonic, started=self.monotonic())
+        def observed(status, reason=None):
+            if metrics is None or not metrics.dispatched:
+                return None
+            try:
+                return metrics.persist(self.settings, model=model, stage=metadata.get('stage'),
+                    session=metadata.get('team_session'), input_hash=metadata.get('input_hash'),
+                    prompt_hash=metadata.get('prompt_hash'), status=status, reason_code=reason)
+            except Exception as exc:
+                raise ModelClientError('MODEL_STREAM_TELEMETRY_PERSIST_FAILED') from exc
+        try:
+            result = self._complete(model, messages, _provider_metrics=metrics, **metadata)
+        except ModelClientError as exc:
+            value = observed('FAILED', exc.reason_code)
+            if value is not None:
+                exc.diagnostics['provider_stream'] = value
+            raise
+        else:
+            value = observed('COMPLETE')
+            return replace(result, provider_stream_telemetry=value) if value is not None else result
+
+    def _complete(
         self,
         model: str,
         messages: Sequence[Mapping[str, Any]],
@@ -172,6 +200,7 @@ class OpenAICompatibleModelClient:
         timeout_seconds: float | None = None,
         max_output_tokens: int | None = None,
         team_session: str | None = None,
+        _provider_metrics: Any = None,
     ) -> ModelCallResult:
         del snapshot_id  # metadata is retained by the pipeline audit, not sent as secrets
         if model not in ALL_MODELS:
@@ -206,6 +235,10 @@ class OpenAICompatibleModelClient:
             from .pm_stream_metrics import PMStreamMetrics
             # Measurement only: do not enable PM's attempt/deadline policy.
             a5_metrics=PMStreamMetrics(clock=self.monotonic,started=overall_deadline-call_timeout)
+        if _provider_metrics is not None:
+            if pm_premarket: pm_metrics = _provider_metrics
+            if a5_metrics is not None: a5_metrics = _provider_metrics
+        wire_metrics = _provider_metrics or pm_metrics or a5_metrics
         attempt_limit = 1 if pm_premarket else self.max_attempts
         total_attempts = 0
         # A2 receives server-computed ranks, roles, routes and fact coverage.
@@ -220,7 +253,10 @@ class OpenAICompatibleModelClient:
             )
             else self.thinking_variants
         )
-        if self.settings.model_base_url.startswith("https://ark.cn-beijing.volces.com/"):
+        if _provider_metrics is not None:
+            # Verified 0568 probe on this exact Finpoints endpoint/model.
+            call_variants = (("finpoints_thinking_disabled", {"thinking": {"type": "disabled"}}),)
+        elif self.settings.model_base_url.startswith("https://ark.cn-beijing.volces.com/"):
             # Ark's control is a structured thinking field, not the former
             # gateway's enable_thinking boolean. Never try incompatible
             # variants or silently enable thinking in the minute budget.
@@ -303,13 +339,15 @@ class OpenAICompatibleModelClient:
                         "stream": True,
                         **thinking_payload,
                     }
-                    if pm_premarket or a5_metrics is not None:
+                    if wire_metrics is not None:
                         body['stream_options'] = {'include_usage': True}
                     try:
                         # Bound every transport phase by the remaining stage
                         # budget.  A fresh retry must never receive the full
                         # original timeout after earlier attempts/backoff have
                         # already consumed part of the wall-clock deadline.
+                        if _provider_metrics is not None:
+                            _provider_metrics.dispatched += 1
                         with client.stream(
                             "POST",
                             "/chat/completions",
@@ -317,6 +355,15 @@ class OpenAICompatibleModelClient:
                             timeout=remaining_timeout,
                         ) as response:
                             status = response.status_code
+                            if _provider_metrics is not None and (status in (403, 429) or status >= 500):
+                                from .provider_rejection_evidence import persist_provider_rejection, ProviderRejectionEvidenceError
+                                try:
+                                    persist_provider_rejection(response, settings=self.settings, model=model, stage=stage,
+                                        session=team_session, input_hash=input_hash, prompt_hash=prompt_hash,
+                                        attempt=total_attempts, all_headers=True, deadline=attempt_deadline,
+                                        clock=self.monotonic)
+                                except ProviderRejectionEvidenceError as exc:
+                                    raise ModelClientError(exc.reason_code, status_code=status, attempts=total_attempts) from exc
                             if status == 429 or status >= 500:
                                 if variant_attempts < attempt_limit:
                                     self._backoff(
@@ -377,11 +424,15 @@ class OpenAICompatibleModelClient:
                                 response,
                                 deadline=attempt_deadline,
                                 clock=self.monotonic,
-                                **({'pm_metrics': pm_metrics or a5_metrics} if pm_metrics or a5_metrics else {}),
+                                **({'pm_metrics': wire_metrics} if wire_metrics is not None else {}),
                             )
+                            if _provider_metrics is not None and _provider_metrics.mode not in {'SSE', 'BUFFERED_SSE_TTFT_UNOBSERVABLE'}:
+                                raise StrictJSONError('FINPOINTS_STREAM_REQUIRED', attempts=total_attempts)
                             output = _strip_reasoning(strict_json_object(content))
                     except StrictJSONError as exc:
                         last_strict_error = exc
+                        if _provider_metrics is not None and (exc.reason_code.startswith('STREAM_') or exc.reason_code == 'FINPOINTS_STREAM_REQUIRED'):
+                            raise StrictJSONError(exc.reason_code, attempts=total_attempts, diagnostics=exc.diagnostics) from exc
                         if variant_attempts < attempt_limit and self.monotonic() < overall_deadline:
                             # Repeating the identical request often repeats the
                             # identical malformed wrapper/truncation. Ask the
@@ -417,6 +468,8 @@ class OpenAICompatibleModelClient:
                                 {'a5_stream':a5_metrics.snapshot()} if a5_metrics else None),
                         ) from exc
                     except (httpx.NetworkError, httpx.RemoteProtocolError, httpx.HTTPError) as exc:
+                        if _provider_metrics is not None and _provider_metrics.first_packet is not None:
+                            raise ModelNetworkError(attempts=total_attempts) from exc
                         if variant_attempts < attempt_limit:
                             self._backoff(variant_attempts, deadline=overall_deadline)
                             continue
@@ -607,6 +660,8 @@ def _decode_model_response(
         if choices[0].get("finish_reason") == "length":
             raise ModelClientError("MODEL_OUTPUT_TRUNCATED", diagnostics={"finish_reason": "length"})
     message = _message_from_response(payload)
+    if pm_metrics is not None and hasattr(pm_metrics, 'reasoning'):
+        pm_metrics.reasoning(message.get('reasoning_content'))
     return message.get("content"), _reasoning_tokens(payload)
 
 
@@ -738,6 +793,8 @@ def _decode_sse_lines(
         delta = choice.get("delta")
         if not isinstance(delta, Mapping):
             raise StrictJSONError("STREAM_DELTA_INVALID")
+        if pm_metrics is not None and hasattr(pm_metrics, 'reasoning'):
+            pm_metrics.reasoning(delta.get('reasoning_content'))
         if "content" not in delta:
             return
         content = delta.get("content")

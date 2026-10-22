@@ -41,7 +41,8 @@ def setup(tmp_path, *, bad_output=False, failure=False, bad_regime=False):
         seen.append(json.loads(http_request.read()))
         if failure: raise httpx.ConnectError("TEST_ONLY_SENSITIVE_ERROR_DO_NOT_STORE", request=http_request)
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(output)}}]}, request=http_request)
-    settings = Settings.from_env({"LIANGJIAN_MODEL_API_KEY": "UNIT_TEST_ONLY_NOT_A_CREDENTIAL"}, root=tmp_path)
+    settings = Settings.from_env({"LIANGJIAN_MODEL_API_KEY": "UNIT_TEST_ONLY_NOT_A_CREDENTIAL"}, root=tmp_path).model_copy(
+        update={"model_base_url": "https://legacy-gateway.example.test/v1"})
     client = OpenAICompatibleModelClient(settings, transport=httpx.MockTransport(handler), max_attempts=1)
     journal = ModelJudgmentJournal(tmp_path / "research.sqlite3")
     def validator(result):
