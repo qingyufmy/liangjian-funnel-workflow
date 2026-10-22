@@ -56,7 +56,7 @@ test('confirmation count uses the supplied final sample time, never the best all
 test('enlarged charts retain raw price geometry and gaps, with vector price and time axes',()=>{
  const input={code:'002270.SZ',name:'华明装备',stop:9.9234,zone_values:[10.2222,10.3456],bars:[{at:'2026-10-22T10:00:00+08:00',close:10.3123,closed:true},{at:'2026-10-22T10:10:00+08:00',close:10.3345,closed:true}]};
  const raw=JSON.stringify(input),model=chartModel(input);expect(model.coverage.gapped).toBe(true);expect(model.bars[0].close).toBe(10.3123);expect(JSON.stringify(input)).toBe(raw);
- const code=readFileSync('web/team/plan-detail.js','utf8');expect(code).toContain("viewBox:'0 0 380 180'");expect(code).toContain('model.coverage.first.slice');expect(code).toContain('model.min+(model.max-model.min)*f');
+ const code=readFileSync('web/team/plan-detail.js','utf8');expect(code).toContain("viewBox:'0 0 380 180'");expect(code).toContain('timeText(model.coverage.first)');expect(code).toContain('model.min+(model.max-model.min)*f');
 });
 test('customer trading records use structured actual sources, not model-validation filler',()=>{
  const d={status:'AVAILABLE',sections:{},trade_records:[{role:'A4',at:'2026-10-22T14:55:00+08:00',text:'丝路视觉等待缩量条件',source:{id:'original',sha256:'a'.repeat(64)}},{text:'无源猜测'}]};
