@@ -1,7 +1,7 @@
 import {test,expect,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 // @ts-expect-error Framework-free display functions.
-import {priceText,zoneText,riskUnitLabel,securityNames,securityText,annotateSecurities,dataStatusText,marketFacts,confirmationText,tradeRecordText} from '../web/team/display.js';
+import {priceText,zoneText,riskUnitLabel,securityNames,securityText,annotateSecurities,dataStatusText,marketFacts,confirmationText,tradeRecordText,rrDisplay} from '../web/team/display.js';
 // @ts-expect-error Framework-free chart geometry.
 import {chartModel,openPlanDetail} from '../web/team/plan-detail.js';
 // @ts-expect-error Framework-free state projection.
@@ -63,7 +63,9 @@ test('customer trading records use structured actual sources, not model-validati
  expect(applyDashboard(emptyState(),d).feed).toHaveLength(1);
  expect(applyDashboard(emptyState(),d).feed[0].text).toBe('丝路视觉等待缩量条件');
  expect(applyDashboard(emptyState(),{status:'AVAILABLE',sections:{calls:{status:'AVAILABLE',rows:[{role:'A2',validated:true}]}}}).feed).toEqual([]);
- expect(tradeRecordText({kind:'PLAN_CONDITIONS',symbol:'300556.SZ',name:'丝路视觉',unmet_conditions:['TREND_PULLBACK_VOLUME_CONTRACTION']})).toBe('丝路视觉 300556.SZ：等待回调缩量');
+ expect(tradeRecordText({kind:'PLAN_CONDITIONS',symbol:'300556.SZ',name:'丝路视觉',unmet_conditions:['TREND_PULLBACK_VOLUME_CONTRACTION']})).toBe('丝路视觉 300556.SZ：未满足：回调缩量');
+ expect(tradeRecordText({kind:'PLAN_CONDITIONS',symbol:'600201.SH',name:'生物股份',unmet_conditions:['A_CONTRACTION','B_ATTEMPT_PREFIX'],unproven_conditions:['B_ATTEMPT_PREFIX']})).toBe('生物股份 600201.SH：未满足：回调缩量；缺证：开盘起的完整K线前缀');
+ expect(tradeRecordText({kind:'PLAN_CONDITIONS',unmet_conditions:[],unproven_conditions:[]})).toBe('条件记录无缺项（不代表已触发信号）');
  expect(tradeRecordText({kind:'EXECUTION_FILL',symbol:'002270.SZ',name:'华明装备',qty:4160,side:'SELL',price:18.725})).toContain('华明装备 002270.SZ：卖出成交 4,160 股，价格 18.73');
  expect(tradeRecordText({kind:'EXECUTION_ADMISSION',symbol:'002270.SZ',name:'华明装备',shares:10500,status:'APPROVED',risk_unit:'NONE',reason_labels:['触及硬止损']})).toBe('华明装备 002270.SZ：执行准入批准 10,500 股 · 触及硬止损');
  const ledger=applyDashboard(emptyState(),{status:'AVAILABLE',sections:{},trade_records:[{role:'SYSTEM',text:'实际成交',source:{id:'fill',sha256:'a'.repeat(64)}}]});
@@ -94,7 +96,15 @@ test('actual drawer render includes sourced RR and confirmation times, translate
    const nodes=walk(body),text=nodes.map(n=>n.textContent).join(' ');
    expect(text).toContain('天娱数科 002354.SZ');expect(text).toContain('7.55–7.58');expect(text).toContain('试探仓');
    expect(text).toContain('14:57:00');expect(text).toContain('实际满足 1/7');expect(text).not.toContain('7.577142857');
+   expect(text).toContain('47.50（失真）');expect(text).toContain('按14:55价格计算');
    expect(nodes.find(n=>n.tag==='svg').attributes['aria-label']).toContain('天娱数科');
    expect(body.children[0].open).toBe(true);
  }finally{vi.unstubAllGlobals();}
+});
+test('RR distortion is a display flag from actual same-sample price/stop, never changes raw or thresholds',()=>{
+ const p={rr:47.5,rr_basis:{price:7.32,stop:7.30,closed_bar_end:'2026-10-22T14:55:00+08:00'}};
+ const raw=JSON.stringify(p),shown=rrDisplay(p);expect(shown.distorted).toBe(true);expect(shown.value).toContain('失真');expect(shown.clock).toBe('14:55');expect(JSON.stringify(p)).toBe(raw);
+ expect(rrDisplay({rr:10,rr_basis:{price:100,stop:99.5}}).distorted).toBe(false);
+ expect(rrDisplay({rr:10,rr_basis:{price:100,stop:100}}).distorted).toBe(false);
+ expect(rrDisplay({rr:10}).distorted).toBe(false);expect(rrDisplay({rr:10}).explanation).toContain('缺源');
 });

@@ -1,6 +1,6 @@
 import {conditionLabel,planStatusLabel,strategyLabel} from './labels.js';
 import {reasonText} from './copy/reasons.js';
-import {priceText,zoneText,riskUnitLabel,securityText,annotateSecurities} from './display.js';
+import {priceText,zoneText,riskUnitLabel,securityText,annotateSecurities,rrDisplay} from './display.js';
 const num=priceText;
 let detailNames=new Map();
 const el=(tag,content,cls)=>{const n=document.createElement(tag);if(content!=null)n.textContent=tag==='pre'?content:annotateSecurities(String(content),detailNames);if(cls)n.className=cls;return n;};
@@ -35,9 +35,9 @@ export function openPlanDetail(plan){
   let dialog=document.getElementById('plan-drawer');if(!dialog){dialog=el('dialog',null,'plan-drawer');dialog.id='plan-drawer';dialog.setAttribute('aria-labelledby','plan-drawer-title');document.body.append(dialog);}
   const title=el('h2',securityText(plan));title.id='plan-drawer-title';
   const close=el('button','关闭');close.type='button';close.onclick=()=>dialog.close();const head=el('div',null,'drawer-head');head.append(title,close);
-  const stats=el('dl',null,'drawer-stats');for(const[label,value]of [['计划区间',zoneText(plan)],['止损',num(plan.stop)],['目标',num(plan.target)],['盈亏比',num(plan.rr)]]){const group=el('div');group.append(el('dt',label),el('dd',value));stats.append(group);}
+  const stats=el('dl',null,'drawer-stats');for(const[label,value]of [['计划区间',zoneText(plan)],['止损',num(plan.stop)],['目标',num(plan.target)],['盈亏比',rrDisplay(plan).value]]){const group=el('div');group.append(el('dt',label),el('dd',value));stats.append(group);}
   const content=el('div',null,'drawer-content');content.append(el('p',`${strategyLabel(plan.strat)} · ${planStatusLabel(plan.status)} · ${riskUnitLabel(plan.risk_unit)}`),el('p',`数据时间 ${(plan.condition_as_of??plan.updated_at??plan.source_at)?.slice(11,19)??'未知'}；计划状态为当前持久状态，不是完整历史。`),stats,el('h3','闭合5分钟走势'),planChart(plan),el('p',plan.bar_source?.basis==='EXECUTION_AGGREGATED_5M_NOT_NATIVE'?`执行聚合5m / 非原生采集；冻结1m SHA ${plan.bar_source.snapshot_sha256}；截止 ${plan.bar_source.cutoff}。不是全天或原生48根证明。`:'监控原件中的闭合5m价格观测；不是原生48根或全天覆盖。','chart-legend'),el('p','价格线：浅灰白 · 计划区间：浅金 · 止损：红色虚线 · 目标：浅金点线 · 成交量：灰柱。仅绘已采到的闭合原件；时间缺口不连线，不代表全天完整覆盖。','chart-legend'),el('h3',`形态条件（原件 ${plan.conditions?.length??0} 项，不补造为12项）`));
-  if(plan.rr_basis){const basis=plan.rr_basis;content.insertBefore(el('p',`盈亏比口径：${basis.label??'按原末次闭合观测记录'}；${basis.formula??'计算公式缺源'}。观测价 ${num(basis.price)}，止损 ${num(basis.stop)}，目标 ${num(basis.target)}；闭合观测 ${basis.observed_at??basis.closed_bar_end??'时刻缺源'}，评审记录 ${basis.decision_at??'时刻缺源'}。不是全天最高，也不与其他时点机械对比。`,'chart-legend'),stats);}
+  if(plan.rr_basis){const basis=plan.rr_basis;content.insertBefore(el('p',`盈亏比口径：${rrDisplay(plan).explanation}。${basis.label??'按原末次闭合观测记录'}；${basis.formula??'计算公式缺源'}。观测价 ${num(basis.price)}，止损 ${num(basis.stop)}，目标 ${num(basis.target)}；闭合观测 ${basis.observed_at??basis.closed_bar_end??'时刻缺源'}，评审记录 ${basis.decision_at??'时刻缺源'}。仅作显示标注，不改变交易阈值。`,'chart-legend'),stats);}
   if(plan.confirmation_basis){const b=plan.confirmation_basis;content.append(el('p',`确认进度取末次原评审，不取全天最高：闭合5分钟 ${b.closed_5m_end??b.observed_at??'时刻缺源'}；评审记录 ${b.decision_at??'时刻缺源'}；实际满足 ${b.met_count??'缺源'}/${b.required_count??'缺源'}。`,'chart-legend'));}
   const conditions=el('ul',null,'drawer-conditions');
   for(const c of plan.conditions??[]){const item=el('li');item.append(el('strong',conditionLabel(c.code)),el('span',`${({MET:'满足',UNMET:'未满足',UNPROVEN:'证据不足'})[c.status]??'证据不足'}${c.source_valid===false?'（来源时间无效，不计满足）':''}`));const source=c.source_kind==='FROZEN_PLAN'?'计划冻结来源，非当前行情':c.source_times?.length?`原始来源时刻 ${c.source_times.join('、')}`:'原始来源时刻未记录，不补当前时间';const fact=el('p',`阈值 ${JSON.stringify(c.threshold??'未提供')}；观测 ${JSON.stringify(c.value??'未提供')}；${source}`);item.append(fact);conditions.append(item);}

@@ -8,7 +8,7 @@ import {reasonText,translateReasonMessage} from './copy/reasons.js';
 import {mountStudio,renderStudio} from './studio.js';
 import {planChart,openPlanDetail} from './plan-detail.js';
 import {healthEventText,orderedHealthEvents} from './health.js';
-import {priceText,zoneText,riskUnitLabel,securityNames as buildSecurityNames,securityName,securityText,annotateSecurities,dataStatusText,confirmationText} from './display.js';
+import {priceText,zoneText,riskUnitLabel,securityNames as buildSecurityNames,securityName,securityText,annotateSecurities,dataStatusText,confirmationText,rrDisplay} from './display.js';
 
 const $=id=>document.getElementById(id);
 const number=(v,digits=2)=>typeof v==='number'&&Number.isFinite(v)?v.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits}):'—';
@@ -74,7 +74,7 @@ function renderPlans(){
   if(planFilter==='filled'){const ids=new Set((state.fills??[]).map(f=>f.plan_id));rows=rows.filter(r=>ids.has(r.id));}
   const sort=$('plan-sort').value;if(sort==='distance')rows=rows.slice().sort((a,b)=>(a.distance_pct??Infinity)-(b.distance_pct??Infinity));if(sort==='rr')rows=rows.slice().sort((a,b)=>(b.rr??b.planned_rr??-Infinity)-(a.rr??a.planned_rr??-Infinity));
   const visible=expandedPlans?rows:rows.slice(0,10);
-  const display=visible.map(r=>({...r,price_text:typeof r.price==='number'?number(r.price,2):'—',zone_text:zoneText(r),stop_text:number(r.stop),target_text:number(r.target),risk_text:riskUnitLabel(r.risk_unit),data_text:dataStatusText(r),distance_text:r.distance_pct==null?'待同刻报价':r.in_zone?'区间内':`${r.distance_side==='BELOW'?'下':'上'} ${number(r.distance_pct,2)}%`,rr_text:r.rr!=null?number(r.rr,2):r.planned_rr!=null?`${number(r.planned_rr,2)}（计划）`:'—',confirmation_text:confirmationText(r)}));
+  const display=visible.map(r=>({...r,price_text:typeof r.price==='number'?number(r.price,2):'—',zone_text:zoneText(r),stop_text:number(r.stop),target_text:number(r.target),risk_text:riskUnitLabel(r.risk_unit),data_text:dataStatusText(r),distance_text:r.distance_pct==null?'待同刻报价':r.in_zone?'区间内':`${r.distance_side==='BELOW'?'下':'上'} ${number(r.distance_pct,2)}%`,rr_text:rrDisplay(r).value,confirmation_text:confirmationText(r)}));
   table($('plans'),[['security','股票'],['strat','形态'],['zone_text','区间'],['stop_text','止损'],['target_text','目标'],['price_text','最后闭合观测价'],['distance_text','距区间'],['rr_text','末次观测盈亏比'],['confirmation_text','末次条件满足'],['risk_text','仓位上限'],['data_text','数据状态'],['status','状态']],display,{compactEvidence:true});
   const rendered=$('plans').querySelectorAll('tbody tr');rendered.forEach((line,i)=>{const plan={...visible[i],name:securityName(visible[i],names)},chartRow=document.createElement('tr'),chart=document.createElement('td');chartRow.className='plan-chart-row';chart.colSpan=line.children.length;chart.className='plan-chart-cell';chart.dataset.label='今日闭合走势';chart.append(byText('strong',`${securityText(plan,names)} · 今日闭合走势`),planChart(plan,true));chartRow.append(chart);line.after(chartRow);const button=byText('button','查看详情','plan-open');button.type='button';button.setAttribute('aria-label',`查看${securityText(plan,names)}计划详情`);button.onclick=()=>void loadPlanDetail(plan);line.lastElementChild.append(button);});
   const firstHead=$('plans').querySelector('thead tr');if(firstHead){const th=byText('th','今日走势');firstHead.insertBefore(th,firstHead.children[2]);}

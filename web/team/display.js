@@ -55,9 +55,19 @@ export function confirmationText(plan){
   const at=typeof raw==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(raw)&&Number.isFinite(Date.parse(raw))?new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(raw)):'时刻缺源';
   return `${met}/${plan.conditions.length} · ${at}`;
 }
+export function rrDisplay(plan){
+  const basis=plan.rr_basis??{},price=Number(basis.price),stop=Number(basis.stop);
+  const validDistance=basis.price!=null&&basis.stop!=null&&Number.isFinite(price)&&Number.isFinite(stop)&&price>stop&&stop>0;
+  const distancePct=validDistance?(price-stop)/price*100:null;
+  const distorted=distancePct!==null&&distancePct<.5;
+  const raw=typeof basis.observed_at==='string'?basis.observed_at:basis.closed_bar_end;
+  const clock=typeof raw==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(raw)&&Number.isFinite(Date.parse(raw))?new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(raw)):null;
+  const value=plan.rr!=null?`${priceText(plan.rr)}${distorted?'（失真）':''}`:plan.planned_rr!=null?`${priceText(plan.planned_rr)}（计划）`:'未提供';
+  return {value,distorted,distance_pct:distancePct,clock,explanation:`${clock?`按${clock}价格计算`:'价格观测时刻缺源'}${distorted?`；止损距离${priceText(distancePct)}%，小于0.5%，盈亏比被放大`:'；不是全天最高盈亏比'}`};
+}
 export function tradeRecordText(record){
   const security=record.symbol||record.code?`${securityText(record)}：`:'';
-  if(record.kind==='PLAN_CONDITIONS'&&Array.isArray(record.unmet_conditions))return `${security}${record.unmet_conditions.length?`等待${record.unmet_conditions.map(conditionLabel).join('、')}`:'所需条件已满足'}`;
+  if(record.kind==='PLAN_CONDITIONS'&&Array.isArray(record.unmet_conditions)){const missing=new Set(record.unproven_conditions??[]),unmet=record.unmet_conditions.filter(code=>!missing.has(code)),parts=[];if(unmet.length)parts.push(`未满足：${unmet.map(conditionLabel).join('、')}`);if(missing.size)parts.push(`缺证：${[...missing].map(conditionLabel).join('、')}`);return `${security}${parts.length?parts.join('；'):Array.isArray(record.unproven_conditions)?'条件记录无缺项（不代表已触发信号）':'缺项列表为空，缺证分类未绑定'}`;}
   if(record.kind==='EXECUTION_ADMISSION'&&typeof record.shares==='number'){const reasons=Array.isArray(record.reason_labels)&&record.reason_labels.length?record.reason_labels:(record.reason_codes??[]).map(reasonText);return `${security}执行准入${({APPROVED:'批准',REDUCED:'收紧',REJECTED:'拒绝'})[record.status]??'状态缺源'} ${record.shares.toLocaleString('zh-CN')} 股${reasons.length?` · ${reasons.slice(0,2).join('；')}`:''}`;}
   if(record.kind==='EXECUTION_FILL'&&typeof record.qty==='number')return `${security}${record.side==='SELL'?'卖出':record.side==='BUY'?'买入':'方向缺源'}成交 ${record.qty.toLocaleString('zh-CN')} 股，价格 ${priceText(record.price)}`;
   return `${security}${record.title?`${record.title}：`:''}${record.text??'内容缺源'}`;
