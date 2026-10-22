@@ -24,7 +24,7 @@ MODEL_CLIENT_COMPATIBILITY_MODELS = (
 )
 # Provider-advertised DeepSeek Pro route, explicitly selectable for isolated
 # A5 recovery. This does not silently change research/A4 default models.
-DEEPSEEK_PROVIDER_ALIASES = ("deepseek/deepseek-v4-pro", "deepseek-v4-pro")
+DEEPSEEK_PROVIDER_ALIASES = ("deepseek/deepseek-v4-pro", "deepseek-v4-pro", "deepseek-v4.1-flash")
 ALL_MODELS = (*RESEARCH_MODELS, *MODEL_CLIENT_COMPATIBILITY_MODELS, MONITOR_MODEL, *DEEPSEEK_PROVIDER_ALIASES)
 ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 DEFAULT_MOOTDX_SERVERS = (
@@ -197,13 +197,16 @@ class Settings(BaseModel):
     comparison_enabled: bool = False
     publish_comparison_lanes: bool = False
     monitor_model: str = MONITOR_MODEL
+    # Keep Team independent from research/review/legacy overrides. The new
+    # Flash route is opt-in, never an implicit change to deployed defaults.
+    team_intraday_model: str = MONITOR_MODEL
 
-    @property
-    def team_intraday_model(self) -> str:
-        # Tony 0342-b: Team timing-sensitive sessions have their own Flash
-        # route. Never repurpose shared review_model (morning/EOD/A5 Pro) or
-        # let an old legacy-monitor override silently move Team back to Pro.
-        return MONITOR_MODEL
+    @field_validator("team_intraday_model")
+    @classmethod
+    def allowed_team_intraday_model(cls, value: str) -> str:
+        if value not in (MONITOR_MODEL, "deepseek-v4.1-flash"):
+            raise ValueError("TEAM_INTRADAY_MODEL_NOT_ALLOWED")
+        return value
 
     @field_validator("research_models")
     @classmethod
@@ -319,6 +322,7 @@ class Settings(BaseModel):
             review_model=env.get("LIANGJIAN_REVIEW_MODEL", "deepseek/deepseek-v4-pro"),
             research_models=(env["LIANGJIAN_RESEARCH_MODEL"],) if env.get("LIANGJIAN_RESEARCH_MODEL") else RESEARCH_MODELS,
             monitor_model=env.get("LIANGJIAN_MONITOR_MODEL", MONITOR_MODEL),
+            team_intraday_model=env.get("LIANGJIAN_TEAM_INTRADAY_MODEL", MONITOR_MODEL),
             lark_webhook_path=base / "state" / "lark_webhook.json",
             lark_timeout_seconds=float(env.get("LIANGJIAN_LARK_TIMEOUT_SECONDS", "8")),
             timezone=env.get("LIANGJIAN_TIMEZONE", "Asia/Shanghai"),
