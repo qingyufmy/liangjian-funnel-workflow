@@ -213,4 +213,5 @@ def project_dashboard(root,query,out,*,project,connect,source,number,scalar):
         if matching:
             latest=max(matching,key=lambda a:a.get('at') or '')
             plan['sizing']={**latest['quantity_audit'],'at':latest['at'],'source':latest['source']}
-    return result
+    from team_ui_presentation import apply
+    return apply(root,day,result,connect)

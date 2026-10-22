@@ -75,6 +75,10 @@ def project_account(root, query, out, *, connect, source, scalar, number, connec
                         price=None,unrealized_pnl=None,valuation_missing_reason='NO_APPROVED_SAME_TIME_MARK',
                         source=source('paper_lots',key[1],proof)))
             rows=rows[offset:offset+limit+1]
+        from team_ui_presentation import decorate_names,receipt
+        try: identities=(receipt(root,day) or {}).get('security_names',{})
+        except (OSError,ValueError,KeyError,TypeError):identities={}
+        decorate_names(root, rows[:limit], connect,identities)
         return dict(out,status='AVAILABLE',rows=rows[:limit],page_count=len(rows[:limit]),
             next_offset=offset+limit if len(rows)>limit else None,missing_reason=None,
             ledger_scope='CURRENT_REMAINING_LEDGER_NOT_HISTORICAL_RECONSTRUCTION',
