@@ -388,6 +388,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="reuse one verified same-day frozen snapshot after a model-only A1 failure",
     )
+    a1_maintenance.add_argument('--daily-refresh',action='store_true',
+        help='verify a new full G0 snapshot and seal a dated generation even when low-frequency facts are unchanged')
     for command, help_text in (
         ("a1-coverage-report", "report field-level A1 coverage without fetching upstream data"),
         ("a1-gap-report", "report retained A1 field gaps and their reason codes"),
@@ -1208,6 +1210,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 now=maintenance_at,
                 mode=args.mode,
                 snapshot_id=args.snapshot_id,
+                daily_refresh=args.daily_refresh,
             )
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
             return 0 if payload.get("status") in {"PUBLISHED", "NOOP", "NOT_DUE"} else 2

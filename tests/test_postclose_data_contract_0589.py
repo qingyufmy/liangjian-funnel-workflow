@@ -146,7 +146,7 @@ def test_daily_refresh_calls_real_existing_incremental_and_does_not_relabel_old_
     old = SimpleNamespace(generation_id='old-sealed', as_of=AT - timedelta(days=1))
     app, pointer, calls = daily_app(tmp_path, old)
     WorkflowApplication._ensure_daily_a1(app, AT)
-    assert len(calls) == 1 and calls[0] == dict(now=AT.replace(hour=15), mode='INCREMENTAL')
+    assert len(calls) == 1 and calls[0] == dict(now=AT.replace(hour=15), mode='INCREMENTAL', daily_refresh=True)
     assert pointer[0].generation_id == 'new-sealed' and old.as_of == AT - timedelta(days=1)
 
 

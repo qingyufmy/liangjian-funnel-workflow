@@ -53,7 +53,9 @@ def _envelopes(rows):
 def _freeze_engine(settings,store,source,now,calendar,directory,clock):
     previous=store.load_morning_engine(ACCOUNT,source['trade_date'])
     if previous is not None:
-        if previous['source']['plan_rowset_sha256']!=source['plan_rowset_sha256']:
+        if (previous['source']['plan_rowset_sha256']!=source['plan_rowset_sha256']
+                or any(previous['source'].get(key)!=source.get(key)
+                    for key in ('candidate_scope_id','candidate_sha256','candidate_revision'))):
             raise ValueError('MORNING_PLAN_ROWS_CHANGED')
         return previous
     # Market evidence is independent of whether A3 happened to publish plans.
@@ -117,7 +119,10 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     start,end=WINDOWS[stage]
     if not start<=now.time().replace(tzinfo=None)<end:return dict(status='NOOP',reason_code='MORNING_STAGE_WINDOW_MISSED')
     # Source access is always RO, including the dependent stages' binding check.
-    source=read_planning_scope(settings,now=now,calendar=calendar)
+    from .reviewed_batch_natural import read_natural_candidate,candidate_planning_source
+    candidate=read_natural_candidate(settings,day=day)
+    source=(candidate_planning_source(settings,candidate,now=now,calendar=calendar) if candidate is not None
+        else read_planning_scope(settings,now=now,calendar=calendar))
     directory=_directory(settings)
     if stage!='engine' and not (directory/'team.db').is_file():
         return dict(status='BLOCKED',reason_code='MORNING_ENGINE_MISSING')
@@ -127,6 +132,9 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     if frozen is None:return dict(status='BLOCKED',reason_code='MORNING_ENGINE_MISSING')
     if source['plan_rowset_sha256']!=frozen['source']['plan_rowset_sha256']:
         return dict(status='BLOCKED',reason_code='MORNING_PLAN_ROWS_CHANGED')
+    if candidate is not None and any(source.get(key)!=frozen['source'].get(key)
+            for key in ('candidate_scope_id','candidate_sha256','candidate_revision')):
+        return dict(status='BLOCKED',reason_code='MORNING_CANDIDATE_CHANGED')
     if frozen['risk_limits_sha256']!=hashlib.sha256((settings.root/'config/risk_limits.yaml').read_bytes()).hexdigest():
         return dict(status='BLOCKED',reason_code='MORNING_RISK_POLICY_CHANGED')
     envelopes=_envelopes(frozen['envelopes'])
@@ -139,7 +147,11 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     repository=TeamPromptRepository(settings.root/'prompts/team_v2')
     journal=ModelJudgmentJournal(directory/'model.db')
     client=client or OpenAICompatibleModelClient(settings,max_attempts=1)
-    role='A6' if stage=='risk' else 'A3';run_id='team-morning:'+day
+    role='A6' if stage=='risk' else 'A3';run_id=(candidate['scope_id']+':review:'+day if candidate else 'team-morning:'+day)
+    risk_meeting=candidate['scope_id']+':risk' if candidate else 'morning-risk:'+day
+    risk_call=candidate['scope_id']+':A6' if candidate else 'A6:morning:'+day
+    pm_meeting=candidate['scope_id']+':pm' if candidate else 'morning-pm:'+day
+    pm_call=candidate['scope_id']+':PM' if candidate else 'A3:morning:'+day
     required=dict(schema_version='team-envelope/1',run_id=run_id,stage_id=role,
         source_trade_date=frozen['source']['source_trade_date'],execution_trade_date=day,as_of=frozen['observed_at'],
         knowledge_cutoff=frozen['observed_at'],input_snapshot_ids=[source['plan_rowset_sha256']],
@@ -167,12 +179,23 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
         risk_policy=load_risk_policy(settings.root)
         common.update(timeout_seconds=risk_policy['timeout_seconds'],max_output_tokens=risk_output_budget(
             risk_policy,len(meeting_plans),len(frozen['cluster_caps']),settings.model_max_output_tokens))
-        result=run_risk_premarket(**common,meeting_id='morning-risk:'+day,call_id='A6:morning:'+day,
+        result=run_risk_premarket(**common,meeting_id=risk_meeting,call_id=risk_call,
             engine_utilization_cap=D(frozen['engine_utilization_cap']),capacity_slots=frozen['capacity_slots'],
             cluster_caps=frozen['cluster_caps'],unready_plan_ids={e.plan_id for e in envelopes if not e.eligible},
             limits=RiskLimits.from_yaml(settings.root/'config/risk_limits.yaml'),quota_context=quota_context)
         return json.loads(canonical(dict(status=result.status,session='PREMARKET',result=asdict(result))))
-    result=store.load_morning_risk(ACCOUNT,day,source_call_id='A6:morning:'+day)
+    result=store.load_morning_risk(ACCOUNT,day,source_call_id=risk_call)
+    if candidate is not None:
+        if result is None or result.status!='READY':
+            return dict(status='BLOCKED',reason_code='NATURAL_CANDIDATE_A6_NOT_ORIGINAL_READY',old_batch_preserved=True)
+        from contextlib import closing
+        import sqlite3
+        with closing(sqlite3.connect((directory/'model.db').as_uri()+'?mode=ro',uri=True)) as raw_db:
+            raw_db.execute('PRAGMA query_only=ON')
+            original=raw_db.execute('SELECT validated,issues_json FROM model_calls WHERE call_id=?',(risk_call,)).fetchone()
+        if (result is None or result.status!='READY' or original is None or original[0]!=1
+                or json.loads(original[1])!=[]):
+            return dict(status='BLOCKED',reason_code='NATURAL_CANDIDATE_A6_NOT_ORIGINAL_READY',old_batch_preserved=True)
     if result is None:
         # No fabricated A6 response or success label. PM may allocate only the
         # deterministic conservative envelopes, recording the missing meeting.
@@ -192,11 +215,19 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     common.update(timeout_seconds=pm_policy['timeout_seconds'],
         max_output_tokens=pm_output_budget(pm_policy,len(meeting_plans),settings.model_max_output_tokens,
             max_positions=limits.max_positions))
-    return run_pm_premarket(**common,meeting_id='morning-pm:'+day,call_id='A3:morning:'+day,
+    pm=run_pm_premarket(**common,meeting_id=pm_meeting,call_id=pm_call,
         plan_clusters={p['plan_id']:p['cluster'] for p in frozen['source']['plans']},
         free_slots=frozen['capacity_slots'],baseline_range=bounds,
         utilization_cap=result.utilization_cap,high_conviction_ids=set(),
-        fallback_enabled=pm_policy['fallback_enabled'],fallback_priority_order=tuple(priority_order(meeting_plans)),
+        fallback_enabled=False if candidate is not None else pm_policy['fallback_enabled'],fallback_priority_order=tuple(priority_order(meeting_plans)),
         max_new_entries=limits.max_new_entries,max_positions=limits.max_positions,
         geometry_plan_ids=geometry_ids,geometry_audit=geometry_audit,a6_validated=result.status=='READY',
         a6_degraded_conservative=result.status=='DEGRADED' and result.consecutive_failures==1)
+    if candidate is not None:
+        if (pm.get('status')!='READY' or pm.get('model_validated') is not True
+                or pm.get('decision_authority')!='VALIDATED_MODEL'):
+            return dict(status='BLOCKED',reason_code='NATURAL_CANDIDATE_PM_NOT_READY',old_batch_preserved=True,pm=pm)
+        from .reviewed_batch_natural import finish_natural_candidate
+        switched=finish_natural_candidate(settings,candidate,calendar=calendar)
+        return dict(pm,natural_batch_switch=switched)
+    return pm

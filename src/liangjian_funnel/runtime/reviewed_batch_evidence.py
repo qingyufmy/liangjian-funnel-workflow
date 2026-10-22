@@ -190,16 +190,22 @@ def _pm(team, models, *, meeting_id, scope_id, account_id, day, engine, risk, re
         model_input_sha256=captured['input_hash'], result_sha256=_sha(result))
 
 
-def build_reviewed_batch_evidence(*, isolated_root, scope_id, account_id, trade_date, lane_id, run_id,
+def build_reviewed_batch_evidence(*, isolated_root=None, review_root=None, source_namespace='ISOLATED',
+        workflow_db_path=None, scope_id, account_id, trade_date, lane_id, run_id,
         a6_meeting_id, pm_meeting_id, candidate_rows):
     """Return a bundle only after actual read-only originals prove both reviews.
 
     This builds inert evidence. It never stages, publishes, activates, replaces
     plans or grants a switch outside the separate PRE_AUCTION commit gate.
     """
-    root = Path(isolated_root)
+    if source_namespace not in {'ISOLATED','NATURAL_MORNING'}:raise ValueError('REVIEWED_EVIDENCE_NAMESPACE_INVALID')
+    if (source_namespace=='ISOLATED' and (isolated_root is None or review_root is not None)
+            or source_namespace=='NATURAL_MORNING' and (review_root is None or isolated_root is not None)):
+        raise ValueError('REVIEWED_EVIDENCE_NAMESPACE_ROOT_INVALID')
+    root = Path(isolated_root if source_namespace=='ISOLATED' else review_root)
     _require(root.is_absolute() and root.resolve() == root and root.is_dir() and not root.is_symlink()
-        and root != _PRODUCTION and not root.is_relative_to(_PRODUCTION) and len(root.parts) >= 3, 'ISOLATED_ROOT_INVALID')
+        and (source_namespace!='ISOLATED' or root != _PRODUCTION and not root.is_relative_to(_PRODUCTION))
+        and len(root.parts) >= 3, 'ISOLATED_ROOT_INVALID')
     _require(isinstance(scope_id, str) and re.fullmatch('[A-Za-z0-9_-]{1,40}', scope_id) is not None, 'SCOPE_ID_INVALID')
     _require(all(isinstance(value, str) and value.startswith(scope_id + ':') for value in (a6_meeting_id, pm_meeting_id))
         and a6_meeting_id != pm_meeting_id, 'INDEPENDENT_MEETING_IDS_REQUIRED')
@@ -214,6 +220,20 @@ def build_reviewed_batch_evidence(*, isolated_root, scope_id, account_id, trade_
                 and engine.get('trade_date') == trade_date and source.get('status') == 'COMPLETE'
                 and source.get('trade_date') == trade_date and source.get('lane_id') == lane_id
                 and _sha(source.get('plan_rows')) == source.get('plan_rowset_sha256'), 'ENGINE_SCOPE_OR_ROWSET_CONFLICT')
+            natural=None
+            if source_namespace=='NATURAL_MORNING':
+                from types import SimpleNamespace
+                from .reviewed_batch_natural import read_natural_candidate
+                path=Path(workflow_db_path)
+                _require(path.resolve().is_relative_to(root), 'NATURAL_WORKFLOW_OUTSIDE_ROOT')
+                natural=read_natural_candidate(SimpleNamespace(state_db_path=path,research_primary_lane_id=lane_id),day=trade_date)
+                _require(natural is not None and natural['scope_id']==scope_id
+                    and source.get('source_namespace')=='NATURAL_MORNING_CANDIDATE'
+                    and source.get('candidate_scope_id')==scope_id
+                    and source.get('candidate_sha256')==natural['body_sha256']
+                    and source.get('candidate_revision')==natural['revision']
+                    and source['plan_rows']==natural['body']['plan_rows']
+                    and natural['body']['run_id']==run_id, 'NATURAL_CANDIDATE_SOURCE_CONFLICT')
             from .calendar import ExchangeTradingCalendar
             calendar = ExchangeTradingCalendar()
             target = date.fromisoformat(trade_date)
@@ -231,6 +251,9 @@ def build_reviewed_batch_evidence(*, isolated_root, scope_id, account_id, trade_
                 account_id=account_id, trade_date=trade_date, lane_id=lane_id, run_id=run_id,
                 status='READY', engine=engine, risk=risk, pm=pm, candidate_rows=candidate_rows,
                 evidence=dict(a6=a6_evidence, pm=pm_evidence))
+            if natural is not None:
+                body.update(review_source_namespace='NATURAL_MORNING',natural_candidate=dict(scope_id=scope_id,
+                    body_sha256=natural['body_sha256'],revision=natural['revision']))
             from .reviewed_batch_switch import validate_bundle
             return validate_bundle(body)
     except sqlite3.Error as exc:

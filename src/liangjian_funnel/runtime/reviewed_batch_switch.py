@@ -199,7 +199,7 @@ def commit_reviewed_batch_switch(store, scope_id, *, expected_old_rows_sha256,
     actual target-day clock before 09:26, not an injected business timestamp.
     """
     expected_ids = tuple(expected_old_plan_ids)
-    if (not isinstance(scope_id, str) or _SCOPE.fullmatch(scope_id) is None or not expected_ids
+    if (not isinstance(scope_id, str) or _SCOPE.fullmatch(scope_id) is None
             or len(set(expected_ids)) != len(expected_ids)
             or not isinstance(expected_old_rows_sha256, str) or _SHA.fullmatch(expected_old_rows_sha256) is None
             or (expected_pointer_revision is not None and (type(expected_pointer_revision) is not int or expected_pointer_revision < 1))):
@@ -223,21 +223,30 @@ def commit_reviewed_batch_switch(store, scope_id, *, expected_old_rows_sha256,
                 if current is None or tuple(current) != (row['lane_id'], row['symbol'], row['expires_at'], canonical(row['payload'])):
                     _fail('REVIEWED_BATCH_IDEMPOTENT_PLAN_CONFLICT')
             return dict(scope_id=scope_id, bundle_sha256=stored['bundle_sha256'], pointer_revision=pointer['revision'], idempotent=True)
+        natural=body.get('review_source_namespace')=='NATURAL_MORNING'
+        if natural:
+            proof=body.get('natural_candidate') or {}
+            selected=db.execute('SELECT h.scope_id,h.body_sha256,h.revision,c.state FROM natural_review_candidate_head h JOIN natural_review_candidates c ON c.scope_id=h.scope_id WHERE h.account_id=? AND h.trade_date=? AND h.lane_id=?',
+                (body['account_id'],body['trade_date'],body['lane_id'])).fetchone()
+            if (selected is None or selected['state']!='PENDING' or dict(selected) !=
+                    dict(scope_id=scope_id,body_sha256=proof.get('body_sha256'),revision=proof.get('revision'),state='PENDING')):
+                _fail('REVIEWED_BATCH_CANDIDATE_CAS_FAILED')
+        elif not expected_ids:_fail('REVIEWED_BATCH_CAS_INVALID')
         if (pointer['revision'] if pointer else None) != expected_pointer_revision:
             _fail('REVIEWED_BATCH_POINTER_CAS_FAILED')
         placeholders = ','.join('?' for _ in expected_ids)
         old = [dict(row) for row in db.execute('SELECT * FROM execution_plans WHERE plan_id IN (' + placeholders + ') ORDER BY plan_id', expected_ids)]
         old_runs = {json.loads(row['payload_json']).get('source_run_id') for row in old}
-        if ({row['plan_id'] for row in old} != set(expected_ids) or len(old_runs) != 1 or not next(iter(old_runs), None)
+        if ({row['plan_id'] for row in old} != set(expected_ids) or (expected_ids and (len(old_runs) != 1 or not next(iter(old_runs), None)))
                 or any(row['lane_id'] != body['lane_id'] or row['expires_at'][:10] != body['trade_date']
                     or row['status'] not in {'PENDING_MORNING_REVIEW', 'ACTIVE_TODAY'} for row in old)
                 or rowset_sha256(old) != expected_old_rows_sha256):
             _fail('REVIEWED_BATCH_OLD_SCOPE_CAS_FAILED')
-        old_run = next(iter(old_runs))
+        old_run = next(iter(old_runs),None)
         complete_old = {row['plan_id'] for row in db.execute(
             "SELECT plan_id FROM execution_plans WHERE lane_id=? AND substr(expires_at,1,10)=? "
-            "AND status IN ('PENDING_MORNING_REVIEW','ACTIVE_TODAY') AND json_extract(payload_json,'$.source_run_id')=?",
-            (body['lane_id'], body['trade_date'], old_run))}
+            "AND status IN ('PENDING_MORNING_REVIEW','ACTIVE_TODAY') AND (? IS NULL OR json_extract(payload_json,'$.source_run_id')=?)",
+            (body['lane_id'], body['trade_date'], old_run,old_run))}
         unexpected_pending = [row for row in db.execute("SELECT plan_id FROM execution_plans WHERE lane_id=? AND substr(expires_at,1,10)=? AND status='PENDING_MORNING_REVIEW'",
             (body['lane_id'], body['trade_date'])) if row['plan_id'] not in expected_ids]
         if complete_old != set(expected_ids) or unexpected_pending:
@@ -262,6 +271,11 @@ def commit_reviewed_batch_switch(store, scope_id, *, expected_old_rows_sha256,
             (scope_id, body['account_id'], body['trade_date'], pointer['scope_id'] if pointer else None,
              pointer['revision'] if pointer else None, revision, expected_old_rows_sha256,
              canonical(list(expected_ids)), canonical([row['plan_id'] for row in rows]), stored['bundle_sha256'], now))
+        if natural:
+            if db.execute("UPDATE natural_review_candidates SET state='SWITCHED' WHERE scope_id=? AND state='PENDING'",(scope_id,)).rowcount!=1:
+                _fail('REVIEWED_BATCH_CANDIDATE_CAS_FAILED')
+            db.execute("UPDATE workflow_runs SET status='PUBLISHED',updated_at=? WHERE run_id=? AND lane_id=? AND status='READY_TO_PUBLISH'",
+                (now,body['run_id'],body['lane_id']))
         return dict(scope_id=scope_id, bundle_sha256=stored['bundle_sha256'], pointer_revision=revision, idempotent=False)
     return store._write(operation)
 

@@ -72,6 +72,16 @@ def read_planning_scope(settings, *, now, calendar):
                 "ORDER BY symbol,plan_id", (settings.research_primary_lane_id, day))]
         finally:
             db.execute('ROLLBACK')
+    return project_planning_rows(settings, rows, now=now, calendar=calendar)
+
+
+def project_planning_rows(settings, rows, *, now, calendar):
+    """Same strict planning contract for DB rows and immutable candidate rows.
+
+    The caller must supply and bind the real source namespace separately;
+    projection never grants publication, tradability or auction activation.
+    """
+    now=stamp(now);day=now.date().isoformat()
     previous = calendar.previous_trading_day(now.date()).isoformat()
     plans = []; problems = []; regimes = set()
     for row in rows:

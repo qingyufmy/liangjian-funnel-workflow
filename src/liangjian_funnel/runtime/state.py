@@ -760,6 +760,16 @@ class RuntimeStore:
                         lane_id TEXT NOT NULL,bundle_sha256 TEXT NOT NULL,body_json TEXT NOT NULL,
                         created_at TEXT NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS natural_review_candidates (
+                        scope_id TEXT PRIMARY KEY,account_id TEXT NOT NULL,trade_date TEXT NOT NULL,
+                        lane_id TEXT NOT NULL,run_id TEXT NOT NULL,body_sha256 TEXT NOT NULL,
+                        body_json TEXT NOT NULL,created_at TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'PENDING'
+                    );
+                    CREATE TABLE IF NOT EXISTS natural_review_candidate_head (
+                        account_id TEXT NOT NULL,trade_date TEXT NOT NULL,lane_id TEXT NOT NULL,
+                        scope_id TEXT NOT NULL,body_sha256 TEXT NOT NULL,revision INTEGER NOT NULL,
+                        PRIMARY KEY(account_id,trade_date,lane_id)
+                    );
                     CREATE TABLE IF NOT EXISTS active_reviewed_batch_scope (
                         account_id TEXT NOT NULL,trade_date TEXT NOT NULL,scope_id TEXT NOT NULL,
                         bundle_sha256 TEXT NOT NULL,revision INTEGER NOT NULL,updated_at TEXT NOT NULL,

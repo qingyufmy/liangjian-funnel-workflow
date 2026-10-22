@@ -2742,7 +2742,7 @@ class WorkflowApplication:
         if current_generation(active):
             return dict(status='CURRENT',generation_id=active.generation_id)
         try:
-            result=self.run_a1_maintenance(now=cutoff,mode=A1_INCREMENTAL if active is not None else A1_FULL)
+            result=self.run_a1_maintenance(now=cutoff,mode=A1_INCREMENTAL if active is not None else A1_FULL,daily_refresh=True)
         except Exception:
             result={'status':'FAILED','reason_code':'A1_DAILY_REFRESH_EXCEPTION'}
         refreshed=self.a1_registry.get_active_generation()
@@ -2761,11 +2761,14 @@ class WorkflowApplication:
         mode: str | None = None,
         run_id: str | None = None,
         snapshot_id: str | None = None,
+        daily_refresh: bool = False,
     ) -> dict[str, Any]:
         """Build and atomically publish the monthly/weekly A1 generation."""
 
         current = _aware(now or datetime.now(SHANGHAI))
-        normalized_mode = str(mode or "").strip().upper()
+        normalized_mode = str(mode or (A1_INCREMENTAL if daily_refresh else "")).strip().upper()
+        if type(daily_refresh) is not bool:
+            raise WorkflowError('A1_DAILY_REFRESH_INTENT_INVALID')
         active = self.a1_registry.get_active_generation()
         plan: A1MaintenancePlan | None = None
         if not normalized_mode:
@@ -2845,6 +2848,43 @@ class WorkflowApplication:
                     market_data_as_of=current,
                     progress=progress,
                 )
+            daily_proof=None
+            if daily_refresh:
+                # Verify the new full-market original, not a previous pool with
+                # a new as_of label. The ordinary loader checks data SHA and ID.
+                verified=self._load_research_snapshot_by_id(prepared.snapshot.snapshot_id,
+                    expected_date=current.date().isoformat())
+                manifest=prepared.snapshot.data.get('snapshot_manifest')
+                g0=prepared.snapshot.data.get('g0_symbols')
+                manifest_at=datetime.fromisoformat(str(manifest.get('as_of') or '')) if isinstance(manifest,Mapping) else None
+                if manifest_at is not None and manifest_at.utcoffset() is None:
+                    raise WorkflowError('A1_DAILY_REFRESH_FULL_SNAPSHOT_UNPROVEN')
+                manifest_at=manifest_at.astimezone(SHANGHAI) if manifest_at is not None else None
+                from .pipeline.a1_registry import _candidate_map
+                candidate_map=_candidate_map(prepared.snapshot.data)
+                if (not isinstance(g0,list) or not g0 or len(g0)!=len(set(g0))
+                        or set(candidate_map)!=set(g0)
+                        or manifest.get('research_universe_count')!=len(g0)
+                        or prepared.selected_count!=prepared.research_universe_count
+                        or prepared.selected_count!=len(g0)
+                        or verified.snapshot.snapshot_hash!=prepared.snapshot.snapshot_hash
+                        or _hash_json(dict(prepared.snapshot.data))!=prepared.snapshot.snapshot_hash
+                        or verified.selected_count!=len(g0) or verified.research_universe_count!=len(g0)
+                        or manifest_at is None or manifest_at.date()!=current.date()
+                        or manifest_at>current or manifest_at.hour<15
+                        or prepared.snapshot.as_of!=verified.snapshot.as_of
+                        or prepared.snapshot.as_of>current or prepared.snapshot.as_of.astimezone(SHANGHAI).hour<15):
+                    raise WorkflowError('A1_DAILY_REFRESH_FULL_SNAPSHOT_UNPROVEN')
+                file_digest=hashlib.sha256()
+                with verified.path.open('rb') as frozen_file:
+                    for chunk in iter(lambda:frozen_file.read(1024*1024),b''):file_digest.update(chunk)
+                daily_proof=dict(source='VERIFIED_FULL_G0_SNAPSHOT',snapshot_id=prepared.snapshot.snapshot_id,
+                    snapshot_hash=prepared.snapshot.snapshot_hash,snapshot_file_sha256=file_digest.hexdigest(),
+                    manifest_sha256=_hash_json(manifest),g0_count=len(g0),verified_at=datetime.now(SHANGHAI).isoformat(),
+                    base_generation_id=active.generation_id if active else None,
+                    base_manifest_hash=active.manifest_hash if active else None,
+                    base_payload_hash=active.payload_hash if active else None)
+                del verified
         except Exception as exc:
             reason = _safe_reason_code(exc)
             progress.finish(status="BLOCKED", phase="FAILED", reason_code=reason)
@@ -2875,7 +2915,7 @@ class WorkflowApplication:
                 changed_theme_ids=prepared.snapshot.data.get("A1_CHANGED_THEME_IDS"),
                 new_theme_ids=prepared.snapshot.data.get("A1_NEW_THEME_IDS"),
             )
-            if not scope.symbols and not scope.global_input_changed:
+            if not scope.symbols and not scope.global_input_changed and not scope.removed_symbols and not daily_refresh:
                 return {
                     "status": "NOOP",
                     "mode": normalized_mode,
@@ -2928,51 +2968,54 @@ class WorkflowApplication:
                 progress.research_event(event)
                 _progress_stdout(progress.snapshot())
 
-            pipeline = self._new_research_pipeline(
-                prompt_repository=self.prompts,
-                model_client=self.model_client,
-                output_dir=self.settings.workflow_output_dir / "research",
-                parallel_lanes=False,
-                runtime_store=self.store,
-                slot="A1_MAINTENANCE",
-                batch_workers=1,
-                checkpoint_store=self.research_checkpoints,
-                stage_snapshot_enricher=self._stage_snapshot_enricher,
-                progress_callback=research_progress,
-            )
-            heartbeat_stop = Event()
-
-            def progress_heartbeat() -> None:
-                while not heartbeat_stop.wait(55.0):
-                    try:
-                        progress.update_resources(measure_resources(self.settings.root).as_dict())
-                        _progress_stdout(progress.snapshot())
-                    except Exception:
-                        continue
-
-            heartbeat_thread = Thread(
-                target=progress_heartbeat,
-                name="liangjian-a1-progress-heartbeat",
-                daemon=True,
-            )
-            heartbeat_thread.start()
-            try:
-                result = pipeline.run_a1_only(
-                    prepared.snapshot,
-                    run_id=maintenance_run_id,
-                    generated_at=current,
-                    models=(primary_model,),
-                    lane_start_index=primary_lane_index,
-                    primary_lane_ids=(primary_lane_id,),
-                    scope_symbols=maintenance_scope_symbols,
+            result=None
+            deterministic_refresh=scope is not None and not maintenance_scope_symbols
+            if not deterministic_refresh:
+                pipeline = self._new_research_pipeline(
+                    prompt_repository=self.prompts,
+                    model_client=self.model_client,
+                    output_dir=self.settings.workflow_output_dir / "research",
+                    parallel_lanes=False,
+                    runtime_store=self.store,
+                    slot="A1_MAINTENANCE",
+                    batch_workers=1,
+                    checkpoint_store=self.research_checkpoints,
+                    stage_snapshot_enricher=self._stage_snapshot_enricher,
+                    progress_callback=research_progress,
                 )
-            finally:
-                heartbeat_stop.set()
-                heartbeat_thread.join(timeout=2.0)
-            if result.status not in {"READY", "READY_DEGRADED"}:
-                raise WorkflowError("A1_MAINTENANCE_RESULT_BLOCKED")
+                heartbeat_stop = Event()
+
+                def progress_heartbeat() -> None:
+                    while not heartbeat_stop.wait(55.0):
+                        try:
+                            progress.update_resources(measure_resources(self.settings.root).as_dict())
+                            _progress_stdout(progress.snapshot())
+                        except Exception:
+                            continue
+
+                heartbeat_thread = Thread(
+                    target=progress_heartbeat,
+                    name="liangjian-a1-progress-heartbeat",
+                    daemon=True,
+                )
+                heartbeat_thread.start()
+                try:
+                    result = pipeline.run_a1_only(
+                        prepared.snapshot,
+                        run_id=maintenance_run_id,
+                        generated_at=current,
+                        models=(primary_model,),
+                        lane_start_index=primary_lane_index,
+                        primary_lane_ids=(primary_lane_id,),
+                        scope_symbols=maintenance_scope_symbols,
+                    )
+                finally:
+                    heartbeat_stop.set()
+                    heartbeat_thread.join(timeout=2.0)
+                if result.status not in {"READY", "READY_DEGRADED"}:
+                    raise WorkflowError("A1_MAINTENANCE_RESULT_BLOCKED")
             progress.set_phase("PERSIST")
-            delta_outputs = _a1_outputs_by_result(result)
+            delta_outputs = _a1_outputs_by_result(result) if result is not None else {}
             merged_outputs: dict[str, dict[str, Any]] = {}
             updated_symbols = maintenance_scope_symbols if scope is not None else tuple(prepared.snapshot.data.get("g0_symbols", ()))
             removed_symbols = scope.removed_symbols if scope is not None else ()
@@ -2996,7 +3039,8 @@ class WorkflowApplication:
                 # they are never used by the close primary lane.
                 for lane_id, base_output in base_outputs.items():
                     if lane_id not in merged_outputs:
-                        merged_outputs[lane_id] = dict(base_output)
+                        merged_outputs[lane_id] = (merge_a1_partitions(base_output,{},updated_symbols=(),
+                            removed_symbols=removed_symbols) if removed_symbols else dict(base_output))
             if not merged_outputs:
                 raise WorkflowError("A1_MAINTENANCE_OUTPUT_EMPTY")
             a1_publish_config = prepared.snapshot.data.get("A1_POOL_TARGETS")
@@ -3020,6 +3064,11 @@ class WorkflowApplication:
                         "macro_revalidation_count": len(macro_revalidation_symbols),
                     }
                 )
+            if deterministic_refresh:
+                delta_payload['revalidation_status']=('DAILY_REVALIDATED_UNCHANGED' if daily_refresh and not removed_symbols
+                    else 'REMOVALS_REVALIDATED_WITHOUT_MODEL')
+                delta_payload['model_calls']=0
+            if daily_refresh:delta_payload['daily_refresh_proof']=daily_proof
             manifest = build_a1_manifest(
                 prepared.snapshot.data,
                 merged_outputs,
@@ -3047,8 +3096,15 @@ class WorkflowApplication:
                 if isinstance(raw_lane, Mapping):
                     preserved_lane = dict(raw_lane)
                     preserved_lane["output"] = dict(output)
+                    if removed_symbols:
+                        preserved_lane['retained_judgment_proof']=dict(source_generation_id=active.generation_id,
+                            original_output_hash=raw_lane.get('output_hash'),original_input_hash=raw_lane.get('input_hash'),
+                            original_prompt_hash=raw_lane.get('prompt_hash'),judgment_reexecuted=False)
+                        preserved_lane['output_hash']=_hash_json(output)
                     lane_records[lane_id] = preserved_lane
                 else:
+                    if result is None:
+                        raise WorkflowError('A1_REVALIDATION_ORIGINAL_LANE_MISSING')
                     lane_records[lane_id] = _a1_lane_record(result, lane_id, output)
             payload = {
                 "schema_version": "liangjian-a1-registry/1.0.0",
@@ -3074,10 +3130,10 @@ class WorkflowApplication:
             )
             progress.update_resources(measure_resources(self.settings.root).as_dict())
             progress.finish(
-                status=result.status,
+                status=result.status if result is not None else 'READY',
                 phase="COMPLETED",
-                reason_code=("RESEARCH_READY_DEGRADED" if result.status == "READY_DEGRADED" else None),
-                outcome=result.outcome().as_dict(),
+                reason_code=("RESEARCH_READY_DEGRADED" if result is not None and result.status == "READY_DEGRADED" else None),
+                outcome=result.outcome().as_dict() if result is not None else dict(status='DETERMINISTIC_REVALIDATION',model_executed=False),
             )
             _progress_stdout(progress.snapshot())
             summary = {
@@ -3090,7 +3146,8 @@ class WorkflowApplication:
                 "snapshot_hash": prepared.snapshot.snapshot_hash,
                 "delta": delta_payload,
                 "plan": plan.as_dict() if plan is not None else None,
-                "research_run_id": result.run_id,
+                "research_run_id": result.run_id if result is not None else None,
+                "daily_refresh":daily_refresh,
                 "stage_timing": progress.snapshot()["timing"],
             }
             atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{maintenance_run_id}-a1-maintenance.json", summary)
@@ -7390,7 +7447,20 @@ class WorkflowApplication:
                 queue_internal(self.settings,kind='PLAN_HISTORY_INCOMPLETE',source_id=result.run_id,
                     text='新计划历史5分钟数据未齐：'+','.join(sorted({r['symbol'] for r in missing.values()}))+'；已标数据受限，需A6显式审核。',
                     now=datetime.now(SHANGHAI))
-        published = self.store.publish_plan_batch(
+        # Real Team publication is an inert candidate until the NEXT session's
+        # actual engine/A6/PM edges pass. Legacy lightweight publisher fixtures
+        # and non-Team paths retain their existing storage adapter contract.
+        from .runtime.state import RuntimeStore
+        natural_candidate = slot=='close' and bool(team_geometry_lanes) and isinstance(self.store,RuntimeStore)
+        candidate_receipt = None
+        if natural_candidate:
+            from .runtime.reviewed_batch_natural import stage_natural_candidate
+            candidate_receipt=stage_natural_candidate(self.store,batch,run_id=result.run_id,observed_at=now)
+            # These are intended captured payloads, not execution-plan inserts.
+            # The manifest's explicit candidate mode preserves that distinction.
+            published=batch
+        else:
+            published = self.store.publish_plan_batch(
             batch,
             expire_active_lanes=ready_lanes if formal_close and regeneration is None else (),
             invalidate_pending_lanes=(
@@ -7398,7 +7468,7 @@ class WorkflowApplication:
             ),
             **({'supersede_pending_plan_ids':regeneration.old_plan_ids,
                 'supersession_run_id':regeneration.run_id} if regeneration is not None else {}),
-        )
+            )
         projection_manifests = []
         for lane in result.lanes:
             if lane.lane not in ready_lanes:
@@ -7415,7 +7485,7 @@ class WorkflowApplication:
                     base_snapshot_id=result.snapshot_id, base_snapshot_hash=result.snapshot_hash,
                     audit_path=lane.audit_path, originals=original_plans, published=published,
                     published_at=datetime.now(SHANGHAI), research_as_of=now,
-                    publication_mode="CLOSE" if slot == "close" else slot.upper(),
+                    publication_mode="CANDIDATE_PENDING_REVIEW" if natural_candidate else "CLOSE" if slot == "close" else slot.upper(),
                     publication_contract='team-publication/rr-geometry-1' if lane.lane in team_geometry_lanes else 'legacy-publication/1',
                     minimum_trade_date=minimum_trade_date)})
             except Exception as exc:
@@ -7423,8 +7493,10 @@ class WorkflowApplication:
                 # or send a duplicate business notification after publication.
                 projection_manifests.append({"lane_id": lane.lane, "status": "DATA_LIMITED",
                     "reason_code": "PUBLICATION_PROJECTION_CAPTURE_FAILED", "error_type": type(exc).__name__})
-        self.store.mark_workflow_runs_published(result.run_id, ready_lanes)
-        created = [str(item["plan_id"]) for item in published]
+        if not natural_candidate:self.store.mark_workflow_runs_published(result.run_id, ready_lanes)
+        if natural_candidate:
+            projection_manifests=[dict(item,publication_state='UNREVIEWED_CANDIDATE_NOT_EXECUTION_PLANS') for item in projection_manifests]
+        created = [] if natural_candidate else [str(item["plan_id"]) for item in published]
         activated = [
             str(item["plan_id"])
             for item in published
@@ -7449,6 +7521,8 @@ class WorkflowApplication:
             )
         return {
             "atomic": True,
+            "publication_state":"CANDIDATE_PENDING_REVIEW" if natural_candidate else "PUBLISHED",
+            "natural_candidate":candidate_receipt,
             "projection_manifests": projection_manifests,
             "indicator_preparation": indicator_preparation,
             "pattern_preparation": pattern_preparation,
