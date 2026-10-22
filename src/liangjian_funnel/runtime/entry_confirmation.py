@@ -168,7 +168,8 @@ def _waiting(conditions, names, *, prerequisites):
 def _finish(pattern,conditions,required,*,close,metrics=None,stop=None,force_probe=False):
     states=[conditions[k]['status'] for k in required]
     confirmed=all(s=='MET' for s in states)
-    return dict(mode='pattern_v1',status='CONFIRMED' if confirmed else 'DATA_LIMITED' if 'UNPROVEN' in states else 'NOT_CONFIRMED',
+    return dict(mode='pattern_v1',status='CONFIRMED' if confirmed else 'DATA_LIMITED' if 'UNPROVEN' in states
+        else 'WAITING_CONDITION' if 'WAITING_CONDITION' in states else 'NOT_CONFIRMED',
         confirmed=confirmed,pattern=pattern,reason_codes=[] if confirmed else [k for k in required if conditions[k]['status']!='MET'],
         conditions=conditions,required_conditions=list(required),current_entry_close=close,tightened_stop=stop,
         force_probe=force_probe,metrics=metrics or {})
@@ -233,7 +234,8 @@ def _geometry(conditions,plan,price,at,*,stop=None,inside_zone=True):
     old,target,rr,chase=_levels(plan);stop=old if stop is None else stop
     low,high=_zone(plan)
     actual=(target-price)/(price-stop) if None not in (target,stop) and target>price>stop else None
-    _condition(conditions,'ENTRY_RR',None if rr is None or rr<=0 or actual is None else actual>=rr,actual,dict(minimum=rr,stop=stop,target=target),at)
+    _condition(conditions,'ENTRY_RR',None if rr is None or rr<=0 or target is None or stop is None
+        else actual is not None and actual>=rr,actual,dict(minimum=rr,stop=stop,target=target),at)
     if inside_zone:_condition(conditions,'ENTRY_ZONE',None if low is None or high is None else low<=price<=high,price,dict(low=low,high=high),at)
     return actual
 
@@ -282,6 +284,8 @@ def _a(plan,rows,fifteen,cfg,daily,vwap,tol,atr):
         _waiting(conditions,('A_PULLBACK','A_CONTRACTION'),prerequisites=('A_UP_THEN_DOWN_SEGMENT',))
     if s is None and available_support:
         _waiting(conditions,('A_PULLBACK','A_HIGHER_LOWS','A_LOWER_WICK','A_STABILIZED','A_15M_SUPPORT'),prerequisites=('A_SUPPORT',))
+    if not env and latest['end'].time().replace(tzinfo=None)<wall_time(9,45):
+        _waiting(conditions,('A_15M_SUPPORT',),prerequisites=('FIRST_CLOSED_15M',))
     return _finish('A_TREND_PULLBACK',conditions,('A_SUPPORT','A_PULLBACK','A_CONTRACTION','A_STABILIZED','A_15M_SUPPORT','ENTRY_ZONE','ENTRY_RR'),close=close,
         metrics=dict(atr5=atr,tol=tol,support=s,support_source=support[0] if support else None,v6=v6))
 

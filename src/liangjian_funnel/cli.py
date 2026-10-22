@@ -665,8 +665,10 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         result=run_daily_availability(active)
         print(json.dumps(result));return 0 if result['status']=='READY' else 2
     if args.command=='verify-runtime-integrity':
-        from .runtime.integrity import verify_integrity
-        result=verify_integrity(active.state_db_path)
+        from .runtime.integrity import marker_path
+        store=RuntimeStore(active.state_db_path,integrity_maintenance=True)
+        if store.persistence_failed:raise RuntimeError('RUNTIME_INTEGRITY_MIGRATION_FAILED')
+        result=json.loads(marker_path(active.state_db_path).read_bytes())
         print(json.dumps(result));return 0
     if args.command.startswith('run-team-morning-'):
         from .runtime.team_v2_morning import run_morning_stage

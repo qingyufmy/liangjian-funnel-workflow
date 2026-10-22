@@ -46,7 +46,7 @@ def test_cli_imports_actual_isolated_reviews_then_switches_with_cas(tmp_path, mo
     client, calls = model(settings)
     reviewed = run_candidate_morning_reviews(settings=settings, scope_id=SCOPE, clock=lambda: clock.now, calendar=CAL, client=client)
     assert reviewed['status'] == 'READY' and calls == ['A6', 'A3']
-    store = RuntimeStore(destination.state_db_path)
+    store = RuntimeStore(destination.state_db_path,integrity_maintenance=True)
     old = list(store.list_execution_plans(status='PENDING_MORNING_REVIEW'))
     paper = files(destination.root / 'state/team_v2')
     with patch('liangjian_funnel.runtime.reviewed_batch_cli.datetime') as wall:

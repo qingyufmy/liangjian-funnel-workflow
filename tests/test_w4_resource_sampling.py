@@ -256,6 +256,9 @@ def test_actual_run_research_keeps_pipeline_inputs_publication_and_persisted_sum
     from liangjian_funnel.pipeline.research import LaneResult, ResearchRunResult
     entered, _=fixture_sampler(tmp_path,monkeypatch)
     actual=_app(tmp_path)
+    # This test isolates the legacy resource-observation wrapper, not the
+    # separately tested Team daily A1 maintenance composition.
+    actual._natural_close_team_research=lambda:False
     actual.trading_calendar=_PrepCalendar()
     prepared=_prepared(tmp_path)
     actual._load_research_resume_snapshot=lambda *args,**kwargs:prepared

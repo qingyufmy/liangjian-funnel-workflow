@@ -1,10 +1,13 @@
 """Full SQLite verification is maintenance, not a per-minute startup scan."""
 from datetime import datetime, timezone
 import json
+import hashlib
 from pathlib import Path
 import sqlite3
 import time
 from .shared_json import atomic_json
+
+STATE_CONTRACT=hashlib.sha256(Path(__file__).with_name('state.py').read_bytes()).hexdigest()
 
 
 def marker_path(path):return Path(str(path)+'.integrity.json')
@@ -12,7 +15,7 @@ def marker_path(path):return Path(str(path)+'.integrity.json')
 
 def identity(path, connection):
     stat=Path(path).stat()
-    return dict(device=stat.st_dev,inode=stat.st_ino,
+    return dict(device=stat.st_dev,inode=stat.st_ino,state_contract=STATE_CONTRACT,
                 schema_version=connection.execute('PRAGMA schema_version').fetchone()[0])
 
 
@@ -33,6 +36,6 @@ def verified_identity(path, connection, *, max_age=36*3600):
     try:
         receipt=json.loads(marker_path(path).read_bytes())
         age=(datetime.now(timezone.utc)-datetime.fromisoformat(receipt['checked_at'])).total_seconds()
-        return (receipt['status']=='PASS' and 0<=age<=max_age
+        return (receipt.get('schema_version')=='runtime-integrity/1' and receipt['status']=='PASS' and 0<=age<=max_age
                 and receipt['identity']==identity(path,connection))
     except (OSError,ValueError,KeyError,TypeError):return False

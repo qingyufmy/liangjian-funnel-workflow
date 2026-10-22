@@ -53,7 +53,9 @@ def run_daily_availability(settings, *, client=None, now=None):
             with (root/(pin+'.attempt')).open('x') as stream:
                 stream.write(now.isoformat());stream.flush();os.fsync(stream.fileno())
         except FileExistsError:
-            results.append(dict(model=model,status='ALREADY_ATTEMPTED'));continue
+            receipt=root/(pin+'.json')
+            row=json.loads(receipt.read_bytes()) if receipt.exists() else dict(model=model,status='UNKNOWN_INTERRUPTED')
+            results.append(dict(row,reused=True));continue
         try:
             result=api.complete(model,[{'role':'user','content':'Return only JSON: {"ok":true}'}],
                 stage='AVAILABILITY',timeout_seconds=20,max_output_tokens=128)
@@ -62,5 +64,5 @@ def run_daily_availability(settings, *, client=None, now=None):
         except ModelClientError as exc:
             row=dict(model=model,status='FAILED',reason_code=exc.reason_code,status_code=exc.status_code)
         atomic_json(root/(pin+'.json'),row);results.append(row)
-    return dict(status='READY' if all(r['status'] in {'PASS','ALREADY_ATTEMPTED'} for r in results) else 'DEGRADED',
+    return dict(status='READY' if all(r['status']=='PASS' for r in results) else 'DEGRADED',
         integrity=integrity,models=results)

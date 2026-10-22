@@ -2736,12 +2736,18 @@ class WorkflowApplication:
         cutoff=current.replace(year=source_day.year,month=source_day.month,day=source_day.day,
             hour=15,minute=0,second=0,microsecond=0)
         active=self.a1_registry.get_active_generation()
-        if active is not None and active.as_of.astimezone(SHANGHAI)>=cutoff:
+        def current_generation(value):
+            return (value is not None and value.as_of.astimezone(SHANGHAI).date()==source_day
+                and cutoff<=value.as_of.astimezone(SHANGHAI)<=min(current,datetime.now(SHANGHAI)))
+        if current_generation(active):
             return dict(status='CURRENT',generation_id=active.generation_id)
-        result=self.run_a1_maintenance(now=cutoff,mode=A1_INCREMENTAL if active is not None else A1_FULL)
+        try:
+            result=self.run_a1_maintenance(now=cutoff,mode=A1_INCREMENTAL if active is not None else A1_FULL)
+        except Exception:
+            result={'status':'FAILED','reason_code':'A1_DAILY_REFRESH_EXCEPTION'}
         refreshed=self.a1_registry.get_active_generation()
         if (result.get('status') not in {'READY','READY_DEGRADED','COMPLETED','PUBLISHED'}
-                or refreshed is None or refreshed.as_of.astimezone(SHANGHAI)<cutoff):
+                or not current_generation(refreshed)):
             from .runtime.provider_health import queue_internal
             queue_internal(self.settings,kind='A1_DAILY_REFRESH_FAILED',source_id=source_day.isoformat(),
                 text='A1当日股票池刷新失败，已停止下游研究，未静默沿用旧池。',now=datetime.now(SHANGHAI))
@@ -3316,9 +3322,15 @@ class WorkflowApplication:
             _progress_stdout(progress.snapshot())
             raise WorkflowError(resource_decision.reason_codes[0])
         _progress_stdout(progress.snapshot())
-        if (configured_team_research is not None and normalized_slot=='close' and publish_plans
+        if (configured_team_research is True and normalized_slot=='close' and publish_plans
                 and record_runtime and not historical_replay and not comparison_run and not auction_refresh):
             self._ensure_daily_a1(current)
+            # The natural close must actually consume the just-verified daily
+            # pointer. An explicit older sealed ID is not a freshness bypass.
+            daily_active=self.a1_registry.get_active_generation()
+            if active_a1_generation_id and active_a1_generation_id!=daily_active.generation_id:
+                raise WorkflowError('A1_EXPLICIT_GENERATION_NOT_CURRENT_DAILY')
+            from_active_a1=True
         active_a1_generation: A1Generation | None = None
         active_a1_scope_symbols: tuple[str, ...] | None = None
         a1_reuse_degraded = False
@@ -7301,7 +7313,8 @@ class WorkflowApplication:
             if regeneration is not None or candidate['lane_id'] in team_geometry_lanes:
                 from .runtime.regeneration_data_limits import source_gap_detail, project_data_limited
                 payload = project_data_limited(payload, source_gap_detail(snapshot_data, candidate['symbol'],
-                    strict=regeneration is not None))
+                    strict=regeneration is not None,expected_source_date=(
+                        _latest_closed_market_trade_date(now,self.trading_calendar) if hasattr(self,'trading_calendar') else now.date())))
             candidate["payload"] = payload
             geometry_ready.append(candidate)
             original = original_plans[candidate["plan_id"]]
@@ -7366,7 +7379,7 @@ class WorkflowApplication:
                 if candidate['plan_id'] not in missing:continue
                 row=missing[candidate['plan_id']];payload=candidate['payload']
                 old=payload.get('source_data_limits') or {}
-                detail=dict(status='DATA_LIMITED',authority='0589_PLAN_HISTORY_GAPS',
+                detail=dict(old,status='DATA_LIMITED',authority='0589_PLAN_HISTORY_GAPS',
                     reason_codes=list(dict.fromkeys([*old.get('reason_codes',()),row['reason_code']])),
                     a6_explicit_review_required=True,maximum_risk_unit='PROBE',history_readiness=row)
                 candidate['payload']=project_data_limited(payload,detail)

@@ -27,7 +27,7 @@ def shell(tmp_path,monkeypatch,*,policy=POLICY):
         previous_trading_day=lambda _:date(2026,10,19))
     app._ensure_trading_day=lambda *a,**k:None
     generation=SimpleNamespace(as_of=NOW,generation_id='FROZEN_TEST_A1',payload={},payload_hash='a'*64)
-    app.a1_registry=SimpleNamespace(require_active=lambda **k:generation)
+    app.a1_registry=SimpleNamespace(require_active=lambda **k:generation,get_active_generation=lambda:generation)
     snapshot=FrozenInputSnapshot(snapshot_id='FROZEN_TEST',snapshot_hash='b'*64,as_of=NOW,data={'g0_symbols':['000333.SZ']})
     prepared=workflow.PreparedSnapshot(snapshot=snapshot,path=tmp_path/'frozen.json',full_universe_count=1,
         research_universe_count=1,trade_universe_count=1,selected_count=1,factor_ready_count=1)
@@ -118,3 +118,18 @@ def test_workflow_construction_does_not_resolve_or_open_team_roles(tmp_path,monk
     app=object.__new__(workflow.WorkflowApplication);app.settings=Settings.from_env({},root=tmp_path)
     pipeline=app._new_research_pipeline(enable_feature_store=False)
     assert pipeline.team_research_adapter is None and not (tmp_path/'state/team_v2').exists()
+
+
+def test_natural_daily_a1_cannot_be_bypassed_by_explicit_old_sealed_id(tmp_path,monkeypatch):
+    app,dispatched,sync,publication=shell(tmp_path,monkeypatch)
+    with pytest.raises(workflow.WorkflowError,match='A1_EXPLICIT_GENERATION_NOT_CURRENT_DAILY'):
+        app.run_research('close',as_of=NOW,active_a1_generation_id='OLD_SEALED',
+            primary_only=True,schedule_comparison=False,reuse_resume_snapshot=False)
+    assert not dispatched and not sync and not publication
+
+
+def test_natural_daily_a1_is_consumed_even_without_caller_reuse_flag(tmp_path,monkeypatch):
+    app,dispatched,sync,publication=shell(tmp_path,monkeypatch)
+    result=app.run_research('close',as_of=NOW,from_active_a1=False,primary_only=True,
+        schedule_comparison=False,reuse_resume_snapshot=False)
+    assert result['a1_reused'] and len(dispatched)==len(sync)==len(publication)==1

@@ -1,5 +1,6 @@
 """Prepare closed pre-session history without changing A3 eligibility."""
 import json
+import hashlib
 from datetime import datetime, timedelta
 from collections.abc import Mapping
 
@@ -22,30 +23,40 @@ def prepare_pattern_history(plans, *, now, calendar, minute_store, provider):
                 expected.update(start+timedelta(minutes=5*n) for n in range(1,25))
             row=dict(symbol=symbol,status='DATA_LIMITED',required_5m_count=48,
                 source_trade_date=prior.isoformat(),history_cutoff=cutoff.isoformat(),requests=0)
+            present=set();selected=[]
+            def native(bar):
+                return (bar.symbol==symbol and bar.interval=='5m' and bar.bar_end in expected
+                    and getattr(bar,'evidence_kind',None)=='MARKET_BAR'
+                    and not any(x in str(bar.source_id).lower() for x in ('synthetic','aggregate','derived',':risk_only')))
             try:
                 if cutoff>now:raise ValueError('PATTERN_HISTORY_CUTOFF_NOT_CLOSED')
                 cached=minute_store.load_latest(symbol,'5m',limit=96,before=cutoff+timedelta(seconds=1))
-                present={b.bar_end for b in cached if b.symbol==symbol and b.interval=='5m'}
+                selected=[b for b in cached if native(b)]
+                present={b.bar_end for b in selected}
                 if not expected<=present:
                     row['requests']=1
                     fetched=provider.fetch_bars(symbol,'5m',48,as_of=cutoff)
                     bars=list(fetched.get('bars',()) if isinstance(fetched,Mapping) else getattr(fetched,'bars',()))
                     complete=fetched.get('complete') if isinstance(fetched,Mapping) else getattr(fetched,'complete',False)
                     valid=(complete is True and len(bars)==48 and len({b.bar_end for b in bars})==48
-                           and all(b.symbol==symbol and b.interval=='5m' and b.bar_end in expected for b in bars))
+                           and all(native(b) for b in bars))
                     if not valid:raise ValueError('PATTERN_HISTORY_48_INCOMPLETE')
                     # Strict write rolls back conflicts; no partial insert or
                     # revision of an existing frozen observation is permitted.
                     minute_store.write(bars)
                     present|={b.bar_end for b in bars}
-                row.update(status='READY',reason_code='OK',available_5m_count=48,opening_prefix_ready=True)
+                    selected=bars
+                evidence=[b.model_dump(mode='json') for b in sorted(selected,key=lambda b:b.bar_end)]
+                row.update(status='READY',reason_code='OK',available_5m_count=48,opening_prefix_ready=True,
+                    native_rowset_sha256=hashlib.sha256(json.dumps(evidence,sort_keys=True,separators=(',',':')).encode()).hexdigest(),
+                    source_ids=sorted({b.source_id for b in selected}))
             except Exception as exc:
                 row.update(reason_code=str(exc) if str(exc).startswith('PATTERN_HISTORY_') else 'PATTERN_HISTORY_PREPARATION_FAILED',
-                    available_5m_count=len(expected & locals().get('present',set())),opening_prefix_ready=False)
+                    available_5m_count=len(expected & present),opening_prefix_ready=False)
             memo[key]=row
         results.append(dict(memo[key],plan_id=plan['plan_id'],target_trade_date=target.isoformat()))
     return dict(schema_version='entry-pattern-history/1',plans=results,
-        status='READY' if all(r['status']=='READY' for r in results) else 'DATA_LIMITED')
+        status='NOT_REQUESTED' if not results else 'READY' if all(r['status']=='READY' for r in results) else 'DATA_LIMITED')
 
 
 def prepare_520_history(plans, *, now, calendar, minute_store, provider):

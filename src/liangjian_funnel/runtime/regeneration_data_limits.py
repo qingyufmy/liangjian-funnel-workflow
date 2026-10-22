@@ -5,9 +5,11 @@ from dataclasses import replace
 from decimal import Decimal
 import hashlib
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
-def source_gap_detail(snapshot_data, symbol, *, strict=True):
+def source_gap_detail(snapshot_data, symbol, *, strict=True, expected_source_date=None):
     manifest = snapshot_data.get('snapshot_manifest') or {}
     failures = manifest.get('source_failures') if isinstance(manifest, Mapping) else None
     if not isinstance(failures, Mapping):
@@ -16,6 +18,14 @@ def source_gap_detail(snapshot_data, symbol, *, strict=True):
     codes = failures.get(symbol, [])
     if not isinstance(codes, (list, tuple)) or any(not isinstance(v, str) or not v.strip() for v in codes):
         raise ValueError('REGEN_A1_SOURCE_FAILURE_DETAIL_INVALID')
+    if expected_source_date is not None:
+        try:
+            at=datetime.fromisoformat(manifest.get('as_of',''))
+            local=at.astimezone(ZoneInfo('Asia/Shanghai')) if at.tzinfo is not None else None
+            current=(local is not None and local.date().isoformat()==str(expected_source_date)
+                and (local.hour,local.minute)>=(15,0))
+        except (TypeError,ValueError):current=False
+        if not current:codes=[*codes,'A1_SOURCE_AS_OF_UNPROVEN']
     if not codes:
         return None
     return dict(status='DATA_LIMITED', reason_codes=list(dict.fromkeys(codes)),

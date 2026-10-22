@@ -675,6 +675,9 @@ def _evaluate_pattern_entry(plan, five, fifteen, as_of, locked, config, daily_fa
             met_conditions=_unique(met),unmet_conditions=_unique(unmet),veto_conditions=_unique(veto))
     else:
         result=_waiting_decision(met,unmet,reasons,veto,forced_action=A4Action.NO_ACTION if locked else None)
+        if evidence.get('status')=='WAITING_CONDITION':
+            result['state']='WAITING_CONDITION'
+            result['reason_codes']=_unique(['WAITING_CONDITION',*result['reason_codes']])
     result["entry_confirmation"]=evidence
     if binding is not None and str(result.get("action")) in _ENTRY_ACTIONS:
         result["entry_pattern_binding"]=binding

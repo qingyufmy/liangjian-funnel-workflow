@@ -1516,7 +1516,7 @@ test("feature maintenance flag disables only the 03:30 job", async () => {
   await scheduler.tick(new Date("2026-08-31T01:26:10.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
 
-  expect(calls).toEqual(["team-internal", "morning"]);
+  expect(calls).toEqual(["provider-health", "team-internal", "morning"]);
   expect(scheduler.snapshot().jobs.find((job) => job.job === "features")?.enabled).toBe(false);
   expect(scheduler.snapshot().jobs.find((job) => job.job === "morning")?.enabled).toBe(true);
   scheduler.stop();

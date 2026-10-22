@@ -52,7 +52,7 @@ def test_b_no_breakout_is_waiting_not_missing_but_true_prefix_gap_stays_blocked(
     # Actual prices never exceed the effective key; all required source rows exist.
     for row in rows[20:]:row.update(open=101,high=101.2,low=100.9,close=101.1,volume=100)
     out=run(p,rows,facts=facts)
-    assert out['pattern']=='B_BREAKOUT_RETEST' and out['status']=='NOT_CONFIRMED'
+    assert out['pattern']=='B_BREAKOUT_RETEST' and out['status']=='WAITING_CONDITION'
     assert out['conditions']['B_EFFECTIVE_BREAKOUT']['status']=='UNMET'
     for k in ('B_RETEST','B_RETEST_VOLUME','B_ACCEPTED','B_STOP_ONLY_RAISED','ENTRY_RR'):
         assert out['conditions'][k]['status']=='WAITING_CONDITION'

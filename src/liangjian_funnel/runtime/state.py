@@ -618,14 +618,14 @@ def _migrate_outcome_label_identity(connection: sqlite3.Connection) -> None:
 class RuntimeStore:
     """SQLite-backed state store with durable fail-closed semantics."""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, integrity_maintenance: bool = False):
         requested = Path(path)
         if requested.exists() and requested.is_dir():
             requested = requested / "runtime.sqlite3"
         elif requested.suffix == "" and not requested.exists():
             requested = requested / "runtime.sqlite3"
         self.path = requested.resolve()
-        new_database = not self.path.exists()
+        new_database = not self.path.exists() or self.path.stat().st_size==0
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._persistence_failed = False
         # Integrity is verified once per short-lived command process.  Running
@@ -633,9 +633,25 @@ class RuntimeStore:
         # minute behind dozens of redundant database scans.  Actual write
         # failures still fail closed and permanently poison this store object.
         self._health_verified = False
+        self._health_valid_until = 0.0
+        self._health_marker_stat = None
         self._lock = threading.RLock()
+        if not new_database:
+            from .integrity import verify_integrity
+            if integrity_maintenance:
+                # No schema writes to an unchecked existing DB. Maintenance
+                # validates old pages first, migrates, then validates the final
+                # schema. It never runs on a minute command.
+                verify_integrity(self.path)
+            elif not self.healthy:
+                self._persistence_failed=True
+                return
+            else:
+                # Deployment maintenance has already initialized this exact
+                # schema. Do not take migration/DDL locks every minute.
+                return
         self._initialize()
-        if new_database:
+        if new_database or integrity_maintenance:
             from .integrity import verify_integrity
             verify_integrity(self.path)
 
@@ -654,6 +670,12 @@ class RuntimeStore:
                 # not every page of the 1.49GB production DB on each command.
                 healthy = verified_identity(self.path,connection)
                 connection.execute('SELECT name FROM sqlite_schema LIMIT 1').fetchone()
+            if healthy:
+                from .integrity import marker_path
+                receipt=json.loads(marker_path(self.path).read_bytes())
+                self._health_valid_until=datetime.fromisoformat(receipt['checked_at']).timestamp()+36*3600
+                stat=marker_path(self.path).stat()
+                self._health_marker_stat=(stat.st_mtime_ns,stat.st_size)
             self._health_verified = healthy
             return healthy
         except Exception:
@@ -663,7 +685,12 @@ class RuntimeStore:
     def assert_writable(self) -> None:
         if self._persistence_failed:
             raise PersistenceBlockedError("PERSISTENCE_FAILED")
-        if not self._health_verified and not self.healthy:
+        from .integrity import marker_path
+        try:
+            stat=marker_path(self.path).stat()
+            changed=(stat.st_mtime_ns,stat.st_size)!=self._health_marker_stat
+        except OSError:changed=True
+        if (changed or not self._health_verified or datetime.now(SHANGHAI).timestamp()>=self._health_valid_until) and not self.healthy:
             raise PersistenceBlockedError("PERSISTENCE_FAILED")
 
     def mark_persistence_failed(self) -> None:
