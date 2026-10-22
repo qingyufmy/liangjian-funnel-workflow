@@ -29,11 +29,21 @@ from .team_v2_store import TeamMeetingStore,canonical
 from .team_v2_risk_exception import RiskExceptionRuntime,restrict_exception_envelopes
 from .team_v2_tradability import production_monitor_tradability
 from .trader_guardrails import is_closed_trader_tick
+from .team_v2_review_scope import freeze_review_scope,ReviewScopeError
 
 TZ=ZoneInfo('Asia/Shanghai');_MARKET=BoundedWorkGate(1)
 
 
 def run_monitor_control(application,*,now=None,clock=None,client=None,tradability_loader=production_monitor_tradability,
+        record_fallback=None,deadline_monotonic=None,minute_sources=None):
+    try:
+        return _run_monitor_control(application,now=now,clock=clock,client=client,tradability_loader=tradability_loader,
+            record_fallback=record_fallback,deadline_monotonic=deadline_monotonic,minute_sources=minute_sources)
+    except ReviewScopeError as exc:
+        return dict(status='NOOP',reason_code=str(exc),scope_retry_required=True,record_latch_changed=False)
+
+
+def _run_monitor_control(application,*,now=None,clock=None,client=None,tradability_loader=production_monitor_tradability,
         record_fallback=None,deadline_monotonic=None,minute_sources=None):
     from ..workflow import A4_DECISION_BUDGET_SECONDS,A4_MARKET_STATE_BUDGET_SECONDS,_intraday_market_context
     from .live_market import load_or_refresh_live_market_state
@@ -52,11 +62,12 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     if not (directory/'paper.db').is_file():
         return run_source_only(settings,application.market_data,clock=clock,calendar=calendar,gate=_MARKET,deadline=deadline,
             minute_sources=minute_sources)
-    store=TeamMeetingStore(directory/'team.db');morning=store.load_morning_engine(ACCOUNT,day)
+    store=freeze_review_scope(settings,TeamMeetingStore(directory/'team.db'),account_id=ACCOUNT,trade_date=day)
+    morning=store.load_morning_engine(ACCOUNT,day)
     broker=create_broker('local_paper',database=directory/'paper.db',paper_config=settings.root/'config/paper_broker.yaml',
         risk_config=settings.root/'config/risk_limits.yaml',clock=clock,calendar=calendar,run_id='team-monitor:'+day)
     scope=read_execution_scope(settings,now=current,calendar=calendar,morning_source=morning['source'] if morning else None,
-        positions=broker.get_positions())
+        positions=broker.get_positions(),review_scope_token=store.review_scope_token,review_scope_account_id=ACCOUNT)
     if morning is None and not scope['plans']:
         return run_source_only(settings,application.market_data,clock=clock,calendar=calendar,gate=_MARKET,deadline=deadline,
             minute_sources=minute_sources)
@@ -103,6 +114,8 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
             calendar=calendar,deadline=market_deadline)),deadline=market_deadline,name='team-live-market') if morning else None
     live=market_work.value if market_work and market_work.status=='READY' else {'status':'DATA_BLOCKED','reason_code':'CONTROL_LIVE_MARKET_UNAVAILABLE'}
     decision='team:'+current.strftime('%Y%m%dT%H%M')
+    if store.review_scope_token is not None:
+        decision+=':reviewed:'+store.review_scope_token['scope_id']
     regime=morning['source']['market_regime'] if morning else 'DATA_BLOCK'
     try:
         current_state=record_current_regime(settings,store,live=live,cutoff=cutoff,
@@ -219,10 +232,11 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     exception_runtime.expire_pending(ACCOUNT,day,now=stamp(clock()))
     restrictions=exception_runtime.restrictions(ACCOUNT,day)
     utilization_cap=reviewed.utilization_cap if reviewed is not None else D(morning['engine_utilization_cap'])
-    pm_upper=store.load_pm_target_upper('morning-pm:'+day,account_id=ACCOUNT,trade_date=day)
+    pm_upper=store.load_pm_target_upper(store.pm_meeting_id,account_id=ACCOUNT,trade_date=day)
     utilization_cap=min(utilization_cap,pm_upper if pm_upper is not None else D(0))
     if restrictions['utilization_cap'] is not None:utilization_cap=min(utilization_cap,D(restrictions['utilization_cap']))
     def refresh():
+        store.ensure_current()
         if hashlib.sha256((settings.root/'config/risk_limits.yaml').read_bytes()).hexdigest()!=morning['risk_limits_sha256']:
             raise ValueError('CONTROL_MORNING_RISK_POLICY_CHANGED')
         snapshot=broker.planning_snapshot();view=snapshot['account'];basis=snapshot['risk_day']
@@ -268,7 +282,7 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         limits=limits,regime=regime,live_market_ready=not health['account_record_required'] and regime!='DATA_BLOCK' and live.get('status') in {'READY','READY_DEGRADED'},
         snapshot_ready=True,mode='control',calendar=calendar,timeout_seconds=30,
         utilization_cap_pct=utilization_cap,
-        max_output_tokens=settings.model_max_output_tokens,allow_model_call=True,pm_meeting_id='morning-pm:'+day,
+        max_output_tokens=settings.model_max_output_tokens,allow_model_call=True,pm_meeting_id=store.pm_meeting_id,
         input_projection=dict(atr5m={pid:ctx['atr5m_evidence']['value'] for pid,ctx in model_contexts.items()},
             plan_rows=[r for r in scope['plan_rows'] if r['plan_id'] in plans],
             contexts=contexts,model_contexts=model_contexts,evaluations=evaluations))
@@ -279,8 +293,14 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
             engine_utilization_cap=utilization_cap,capacity_slots=morning['capacity_slots'],
             cluster_caps=morning['cluster_caps'],trigger_policy=load_exception_policy(settings.root/'config/risk_limits.yaml'),**kwargs)
     try:
+        store.ensure_current()
         result=run_control_minute(session_kwargs=args,closed_bars=paper,deadline_monotonic=deadline,envelope_refresh=refresh,
             exception_handler=exception_handler)
+        # A nested coordinator may conservatively catch an envelope-refresh
+        # error. Surface the pointer race as the explicit tick-level NOOP too.
+        store.ensure_current()
+    except ReviewScopeError:
+        raise
     except Exception:
         latch_record(store,first_policy,account_id=ACCOUNT,now=stamp(clock()),
             reason_code='CONTROL_FIRST_DAY_EXECUTION_EXCEPTION',packet_sha256=packet['packet_sha256'])

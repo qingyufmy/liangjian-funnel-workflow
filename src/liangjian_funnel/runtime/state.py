@@ -721,6 +721,22 @@ class RuntimeStore:
                         reason TEXT NOT NULL,
                         replaced_at TEXT NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS reviewed_batch_bundles (
+                        scope_id TEXT PRIMARY KEY,account_id TEXT NOT NULL,trade_date TEXT NOT NULL,
+                        lane_id TEXT NOT NULL,bundle_sha256 TEXT NOT NULL,body_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS active_reviewed_batch_scope (
+                        account_id TEXT NOT NULL,trade_date TEXT NOT NULL,scope_id TEXT NOT NULL,
+                        bundle_sha256 TEXT NOT NULL,revision INTEGER NOT NULL,updated_at TEXT NOT NULL,
+                        PRIMARY KEY(account_id,trade_date),FOREIGN KEY(scope_id) REFERENCES reviewed_batch_bundles(scope_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS reviewed_batch_switch_audit (
+                        scope_id TEXT PRIMARY KEY,account_id TEXT NOT NULL,trade_date TEXT NOT NULL,
+                        old_scope_id TEXT,old_revision INTEGER,new_revision INTEGER NOT NULL,
+                        old_rows_sha256 TEXT NOT NULL,old_plan_ids_json TEXT NOT NULL,new_plan_ids_json TEXT NOT NULL,
+                        bundle_sha256 TEXT NOT NULL,switched_at TEXT NOT NULL
+                    );
                     CREATE TABLE IF NOT EXISTS monitor_events (
                         event_id TEXT PRIMARY KEY,
                         event_key TEXT NOT NULL UNIQUE,
@@ -2215,6 +2231,17 @@ class RuntimeStore:
             return tuple(rows)
 
         return self._write(operation)
+
+    def stage_reviewed_batch(self, bundle):
+        from .reviewed_batch_switch import stage_reviewed_batch
+        return stage_reviewed_batch(self, bundle)
+
+    def commit_reviewed_batch_switch(self, scope_id, *, expected_old_rows_sha256,
+            expected_old_plan_ids, expected_pointer_revision=None):
+        from .reviewed_batch_switch import commit_reviewed_batch_switch
+        return commit_reviewed_batch_switch(self, scope_id,
+            expected_old_rows_sha256=expected_old_rows_sha256, expected_old_plan_ids=expected_old_plan_ids,
+            expected_pointer_revision=expected_pointer_revision)
 
     def activate_pending_plan_batch(
         self,

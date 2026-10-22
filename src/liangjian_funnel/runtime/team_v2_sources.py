@@ -207,7 +207,11 @@ def read_held_bindings(settings, positions):
     return result
 
 
-def read_execution_scope(settings, *, now, calendar, morning_source, positions):
+_REVIEW_SCOPE_UNCHECKED=object()
+
+
+def read_execution_scope(settings, *, now, calendar, morning_source, positions,
+        review_scope_token=_REVIEW_SCOPE_UNCHECKED,review_scope_account_id=None):
     """Current activation + unchanged morning payload in one short RO view.
 
     Morning status/valid_from are not execution authority. Historical held
@@ -236,6 +240,9 @@ def read_execution_scope(settings, *, now, calendar, morning_source, positions):
     with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=2)) as db:
         db.row_factory=sqlite3.Row;db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
         try:
+            if review_scope_token is not _REVIEW_SCOPE_UNCHECKED:
+                from .team_v2_review_scope import assert_scope_token
+                assert_scope_token(db,review_scope_token,account_id=review_scope_account_id,trade_date=day)
             query="SELECT * FROM execution_plans WHERE lane_id=? AND ("
             match=('plan_id IN ('+','.join('?' for _ in ids)+')') if ids else '0'
             if not held_only:match+=" OR (status='ACTIVE_TODAY' AND substr(expires_at,1,10)=?)"
