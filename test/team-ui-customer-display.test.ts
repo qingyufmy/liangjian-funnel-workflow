@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 // @ts-expect-error Framework-free display functions.
 import {priceText,zoneText,riskUnitLabel,securityNames,securityText,annotateSecurities,dataStatusText,marketFacts,confirmationText,tradeRecordText,rrDisplay} from '../web/team/display.js';
 // @ts-expect-error Framework-free chart geometry.
-import {chartModel,openPlanDetail} from '../web/team/plan-detail.js';
+import {chartModel,openPlanDetail,conditionDisplayValue} from '../web/team/plan-detail.js';
 // @ts-expect-error Framework-free state projection.
 import {applyDashboard} from '../web/team/dashboard.js';
 // @ts-expect-error Framework-free state reducer.
@@ -107,4 +107,11 @@ test('RR distortion is a display flag from actual same-sample price/stop, never 
  expect(rrDisplay({rr:10,rr_basis:{price:100,stop:99.5}}).distorted).toBe(false);
  expect(rrDisplay({rr:10,rr_basis:{price:100,stop:100}}).distorted).toBe(false);
  expect(rrDisplay({rr:10}).distorted).toBe(false);expect(rrDisplay({rr:10}).explanation).toContain('缺源');
+});
+test('condition objects and arrays display at most two decimals without overwriting raw precision or inventing zero',()=>{
+ const raw={high:7.577142857142857,low:'7.552',nested:[47.49999999999887,{volume:6340,missing:null}],available:false};
+ const before=JSON.stringify(raw),shown=conditionDisplayValue(raw);
+ expect(shown).toEqual({high:7.58,low:7.55,nested:[47.5,{volume:6340,missing:'未提供'}],available:false});
+ expect(conditionDisplayValue(undefined)).toBe('未提供');expect(JSON.stringify(raw)).toBe(before);
+ expect(readFileSync('web/team/plan-detail.js','utf8')).toContain('threshold:c.threshold,value:c.value');
 });
