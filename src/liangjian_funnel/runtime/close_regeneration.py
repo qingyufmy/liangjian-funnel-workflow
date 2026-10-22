@@ -35,6 +35,7 @@ class CloseRegenerationBinding:
     source_kind:str='LEGACY_PENDING_BATCH'
     source_scope:dict|None=None
     source_a2_evidence:dict|None=None
+    closed_session:dict|None=None
 
 
 def _sha_file(path):
@@ -274,7 +275,10 @@ def bind_close_regeneration(app,source_run_id,*,now,head,source_trade_date=None,
         ids=()
     generation=app.a1_registry.require_active(as_of=current)
     a1_at=generation.as_of.astimezone(ZoneInfo('Asia/Shanghai'))
-    if a1_at.date()!=session.source_trade_date or a1_at.hour<15 or a1_at>current:
+    from .closed_session_capture import generation_capture_proof
+    closed_proof=generation_capture_proof(generation,calendar=app.trading_calendar,
+        now=current,source_trade_date=day) if hasattr(generation,'manifest') else None
+    if closed_proof is None and (a1_at.date()!=session.source_trade_date or a1_at.hour<15 or a1_at>current):
         raise ValueError('REGEN_FRESH_A1_REQUIRED')
     recovery=(_recovery_proof(app.settings.workflow_output_dir,source_run_id,session,current,
         attempt=recovery_attempt,recovers=recovery_from,terminal=recovery_terminal)
@@ -291,7 +295,8 @@ def bind_close_regeneration(app,source_run_id,*,now,head,source_trade_date=None,
     return CloseRegenerationBinding(source_run_id,run_id,day,ids,generation.snapshot_id,
         generation.snapshot_hash,hashlib.sha256(raw).hexdigest(),a1_at,
         session.target_trade_date.isoformat(),current,session.publication_deadline,caller,
-        source_kind=source_kind,source_scope=source_scope,source_a2_evidence=source_a2,**(recovery or {}))
+        source_kind=source_kind,source_scope=source_scope,source_a2_evidence=source_a2,
+        closed_session=closed_proof,**(recovery or {}))
 
 
 def require_regeneration_publication_window(proof,calendar,*,now):
@@ -346,6 +351,7 @@ def regeneration_manifest(proof,snapshot,*,raw_pass,created,publication=None):
         publication_deadline=proof.publication_deadline.isoformat(),caller=proof.caller,
         clock_override=False,snapshot_reuse_basis='SEALED_A1_LATEST_CLOSED_SESSION_HASH_VERIFIED',
         source_kind=proof.source_kind,source_scope=proof.source_scope,source_a2_evidence=proof.source_a2_evidence,
+        closed_session=proof.closed_session,
         no_full_data_resync_in_this_run=True)
 
 
@@ -365,6 +371,7 @@ def run_close_regeneration(app,source_run_id,*,source_trade_date=None,
                 source_summary_sha256=proof.source_summary_sha256,snapshot_id=proof.snapshot_id,
                 snapshot_hash=proof.snapshot_hash,clock_override=False,
                 source_kind=proof.source_kind,source_scope=proof.source_scope,source_a2_evidence=proof.source_a2_evidence,
+                closed_session=proof.closed_session,
                 **({k:getattr(proof,k) for k in ('recovery_attempt','recovers',
                     'recovery_terminal_sha256','recovery_authority')} if proof.recovery_attempt else {})),
                 stream,ensure_ascii=False,indent=2)

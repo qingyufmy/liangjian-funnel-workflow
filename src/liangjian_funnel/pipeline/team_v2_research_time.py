@@ -8,6 +8,13 @@ def research_times(snapshot, calendar):
     if not isinstance(captured, datetime) or captured.utcoffset() is None:
         raise ValueError('TEAM_RESEARCH_SOURCE_TIME_REQUIRED')
     captured = captured.astimezone(ZoneInfo('Asia/Shanghai'))
+    from ..runtime.closed_session_capture import KEY, validate_capture_proof, aware
+    if KEY in snapshot.data:
+        proof = validate_capture_proof(snapshot.data[KEY], captured_at=captured, calendar=calendar)
+        market = aware(proof['source_market_close_at'])
+        if snapshot.data.get('MARKET_DATA_AS_OF') != market.isoformat():
+            raise ValueError('CLOSED_SESSION_CAPTURE_MARKET_MISMATCH')
+        return captured, market
     if calendar.is_trading_day(captured.date()) is True:
         if captured.hour < 15:
             raise ValueError('TEAM_RESEARCH_CLOSED_SOURCE_REQUIRED')

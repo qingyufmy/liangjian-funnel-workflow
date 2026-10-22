@@ -767,6 +767,7 @@ class WorkflowApplication:
         a1_generation_reference: Mapping[str, Any] | None = None,
         auction_refresh: bool = False,
         materialize_feature_source: bool = True,
+        closed_session_source_date: str | None = None,
     ) -> PreparedSnapshot:
         """Default SHADOW takes the unchanged serial collection path.
 
@@ -782,6 +783,8 @@ class WorkflowApplication:
             progress=progress, candidate_symbols=candidate_symbols,
             a1_generation_reference=a1_generation_reference,
             auction_refresh=auction_refresh, materialize_feature_source=materialize_feature_source)
+        if closed_session_source_date is not None:
+            options['closed_session_source_date'] = closed_session_source_date
         current = _aware(as_of or datetime.now(SHANGHAI))
         market_current = _aware(market_data_as_of or current)
         enabled = (getattr(self.settings, 'disclosure_scope_mode', 'SHADOW') == 'CANDIDATE_DOMAIN'
@@ -886,12 +889,20 @@ class WorkflowApplication:
         auction_refresh: bool = False,
         materialize_feature_source: bool = True,
         start_disclosure_pipeline: Any = None,
+        closed_session_source_date: str | None = None,
     ) -> PreparedSnapshot:
         if auction_refresh:
             raise WorkflowError("AUCTION_FULL_SYNC_FORBIDDEN_USE_VERIFIED_BASE")
         current = _aware(as_of or datetime.now(SHANGHAI))
         market_current = _aware(market_data_as_of or current)
         wall_now = datetime.now(SHANGHAI)
+        capture_started_at = current
+        if closed_session_source_date is not None:
+            from .runtime.calendar import closed_research_session
+            session = closed_research_session(wall_now, self.trading_calendar)
+            if (closed_session_source_date != session.source_trade_date.isoformat()
+                    or market_current != session.market_close):
+                raise WorkflowError('CLOSED_SESSION_CAPTURE_BINDING_INVALID')
         if abs((current - wall_now).total_seconds()) > 600:
             raise WorkflowError("LIVE_FACTS_POINT_IN_TIME_UNSUPPORTED")
         if market_current > current:
@@ -1878,6 +1889,11 @@ class WorkflowApplication:
             as_of=current,
             market_data_as_of=market_current,
         ))
+        if closed_session_source_date is not None:
+            from .runtime.closed_session_capture import KEY, build_capture_proof
+            data[KEY] = build_capture_proof(source_trade_date=closed_session_source_date,
+                started_at=capture_started_at, captured_at=current,
+                completed_at=datetime.now(SHANGHAI), calendar=self.trading_calendar)
         snapshot_hash = _hash_json(data)
         snapshot_id = f"snapshot-{current.strftime('%Y%m%dT%H%M%S%z')}-{snapshot_hash[:12]}"
         snapshot = ResearchSnapshot(
@@ -2737,12 +2753,24 @@ class WorkflowApplication:
             hour=15,minute=0,second=0,microsecond=0)
         active=self.a1_registry.get_active_generation()
         def current_generation(value):
+            if value is not None:
+                from .runtime.closed_session_capture import generation_capture_proof,validate_capture_proof
+                manifest=getattr(value,'manifest',{})
+                if isinstance(manifest,Mapping):
+                    old_proof=manifest.get('delta',{}).get('daily_refresh_proof',{}).get('closed_session')
+                    if isinstance(old_proof,Mapping) and old_proof.get('source_trade_date')!=source_day.isoformat():
+                        validate_capture_proof(old_proof,captured_at=value.as_of,calendar=self.trading_calendar)
+                        return False
+                if generation_capture_proof(value, calendar=self.trading_calendar,
+                        now=min(current,datetime.now(SHANGHAI)),source_trade_date=source_day.isoformat()):
+                    return True
             return (value is not None and value.as_of.astimezone(SHANGHAI).date()==source_day
                 and cutoff<=value.as_of.astimezone(SHANGHAI)<=min(current,datetime.now(SHANGHAI)))
         if current_generation(active):
             return dict(status='CURRENT',generation_id=active.generation_id)
         try:
-            result=self.run_a1_maintenance(now=cutoff,mode=A1_INCREMENTAL if active is not None else A1_FULL,daily_refresh=True)
+            result=self.run_a1_maintenance(now=datetime.now(SHANGHAI),mode=A1_INCREMENTAL if active is not None else A1_FULL,
+                daily_refresh=True,source_trade_date=source_day.isoformat())
         except Exception:
             result={'status':'FAILED','reason_code':'A1_DAILY_REFRESH_EXCEPTION'}
         refreshed=self.a1_registry.get_active_generation()
@@ -2762,6 +2790,7 @@ class WorkflowApplication:
         run_id: str | None = None,
         snapshot_id: str | None = None,
         daily_refresh: bool = False,
+        source_trade_date: str | None = None,
     ) -> dict[str, Any]:
         """Build and atomically publish the monthly/weekly A1 generation."""
 
@@ -2769,6 +2798,17 @@ class WorkflowApplication:
         normalized_mode = str(mode or (A1_INCREMENTAL if daily_refresh else "")).strip().upper()
         if type(daily_refresh) is not bool:
             raise WorkflowError('A1_DAILY_REFRESH_INTENT_INVALID')
+        capture_session = None
+        if source_trade_date is not None:
+            from .runtime.calendar import closed_research_session
+            if not daily_refresh:
+                raise WorkflowError('A1_SOURCE_DATE_REQUIRES_DAILY_REFRESH')
+            wall_now = datetime.now(SHANGHAI)
+            if abs((current-wall_now).total_seconds()) > 600:
+                raise WorkflowError('LIVE_FACTS_POINT_IN_TIME_UNSUPPORTED')
+            capture_session = closed_research_session(wall_now,self.trading_calendar)
+            if source_trade_date != capture_session.source_trade_date.isoformat():
+                raise WorkflowError('CLOSED_SESSION_CAPTURE_BINDING_INVALID')
         active = self.a1_registry.get_active_generation()
         plan: A1MaintenancePlan | None = None
         if not normalized_mode:
@@ -2830,7 +2870,8 @@ class WorkflowApplication:
                 progress.set_phase("SNAPSHOT_REUSE")
                 prepared = self._load_research_snapshot_by_id(
                     snapshot_id,
-                    expected_date=current.date().isoformat(),
+                    expected_date=None if capture_session else current.date().isoformat(),
+                    **({'closed_session_source_date':source_trade_date} if capture_session else {}),
                 )
                 if prepared.selected_count != prepared.research_universe_count:
                     raise WorkflowError("A1_MAINTENANCE_REQUIRES_FULL_RESEARCH_UNIVERSE")
@@ -2845,15 +2886,23 @@ class WorkflowApplication:
             else:
                 prepared = self.prepare_snapshot(
                     as_of=current,
-                    market_data_as_of=current,
+                    market_data_as_of=capture_session.market_close if capture_session else current,
                     progress=progress,
+                    **({'closed_session_source_date':source_trade_date} if capture_session else {}),
                 )
             daily_proof=None
             if daily_refresh:
                 # Verify the new full-market original, not a previous pool with
                 # a new as_of label. The ordinary loader checks data SHA and ID.
                 verified=self._load_research_snapshot_by_id(prepared.snapshot.snapshot_id,
-                    expected_date=current.date().isoformat())
+                    expected_date=None if capture_session else current.date().isoformat(),
+                    **({'closed_session_source_date':source_trade_date} if capture_session else {}))
+                closed_proof = None
+                if capture_session:
+                    from .runtime.closed_session_capture import KEY, validate_capture_proof
+                    closed_proof = validate_capture_proof(prepared.snapshot.data.get(KEY),
+                        captured_at=prepared.snapshot.as_of, calendar=self.trading_calendar,
+                        now=datetime.now(SHANGHAI),source_trade_date=source_trade_date)
                 manifest=prepared.snapshot.data.get('snapshot_manifest')
                 g0=prepared.snapshot.data.get('g0_symbols')
                 manifest_at=datetime.fromisoformat(str(manifest.get('as_of') or '')) if isinstance(manifest,Mapping) else None
@@ -2870,10 +2919,13 @@ class WorkflowApplication:
                         or verified.snapshot.snapshot_hash!=prepared.snapshot.snapshot_hash
                         or _hash_json(dict(prepared.snapshot.data))!=prepared.snapshot.snapshot_hash
                         or verified.selected_count!=len(g0) or verified.research_universe_count!=len(g0)
-                        or manifest_at is None or manifest_at.date()!=current.date()
-                        or manifest_at>current or manifest_at.hour<15
+                        or manifest_at is None
+                        or (not capture_session and (manifest_at.date()!=current.date()
+                            or manifest_at>current or manifest_at.hour<15))
+                        or (capture_session and manifest_at!=prepared.snapshot.as_of)
                         or prepared.snapshot.as_of!=verified.snapshot.as_of
-                        or prepared.snapshot.as_of>current or prepared.snapshot.as_of.astimezone(SHANGHAI).hour<15):
+                        or (not capture_session and (prepared.snapshot.as_of>current
+                            or prepared.snapshot.as_of.astimezone(SHANGHAI).hour<15))):
                     raise WorkflowError('A1_DAILY_REFRESH_FULL_SNAPSHOT_UNPROVEN')
                 file_digest=hashlib.sha256()
                 with verified.path.open('rb') as frozen_file:
@@ -2884,6 +2936,9 @@ class WorkflowApplication:
                     base_generation_id=active.generation_id if active else None,
                     base_manifest_hash=active.manifest_hash if active else None,
                     base_payload_hash=active.payload_hash if active else None)
+                if closed_proof is not None:
+                    daily_proof['closed_session']=closed_proof
+                    current=prepared.snapshot.as_of  # actual sealed capture, never market cutoff
                 del verified
         except Exception as exc:
             reason = _safe_reason_code(exc)
@@ -3117,16 +3172,21 @@ class WorkflowApplication:
                 "delta": delta_payload,
                 "lanes": dict(lane_records),
             }
+            if capture_session:
+                from .runtime.closed_session_capture import validate_capture_proof
+                validate_capture_proof(daily_proof['closed_session'],captured_at=current,
+                    calendar=self.trading_calendar,now=datetime.now(SHANGHAI),
+                    source_trade_date=source_trade_date)
             sealed = self.a1_registry.seal_generation(
                 generation.generation_id,
                 manifest=manifest,
                 payload=payload,
-                sealed_at=current,
+                sealed_at=datetime.now(SHANGHAI) if capture_session else current,
             )
             activated = self.a1_registry.activate_generation(
                 sealed.generation_id,
                 expected_current_id=active.generation_id if active is not None else None,
-                activated_at=current,
+                activated_at=datetime.now(SHANGHAI) if capture_session else current,
             )
             progress.update_resources(measure_resources(self.settings.root).as_dict())
             progress.finish(
@@ -3202,6 +3262,11 @@ class WorkflowApplication:
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
+        # A caller-supplied cutoff remains exclusive to next-session-prep.
+        # Natural/regen cutoffs below are derived only after calendar/proof
+        # validation; presence of those branches must not unlock this input.
+        if market_data_as_of is not None and target_trade_date is None and not allow_non_trading_source:
+            raise WorkflowError('MARKET_DATA_AS_OF_REQUIRES_NEXT_SESSION_PREP')
         formal_close_session = None
         if (normalized_slot=='close' and as_of is None and regeneration is None and frozen_a2_stock_news is None
                 and not historical_replay and not comparison_run and target_trade_date is None
@@ -3209,14 +3274,12 @@ class WorkflowApplication:
             from .runtime.calendar import closed_research_session
             formal_close_session=closed_research_session(current,self.trading_calendar)
             if current.date()!=formal_close_session.source_trade_date:
-                # Source-data cutoff only; datetime.now and the caller's real
-                # clock are never patched. The result keeps the true clock.
-                current=datetime.combine(formal_close_session.source_trade_date,
-                    datetime.strptime('23:59:59','%H:%M:%S').time(),tzinfo=SHANGHAI)
+                # 0635: preserve real capture; market cutoff is separate.
+                market_data_as_of=formal_close_session.market_close
         if regeneration is not None:
             from .runtime.close_regeneration import CloseRegenerationBinding,require_regeneration_publication_window
             if (not isinstance(regeneration,CloseRegenerationBinding) or normalized_slot!='close'
-                    or regeneration.trade_date!=current.date().isoformat() or historical_replay
+                    or (regeneration.closed_session is None and regeneration.trade_date!=current.date().isoformat()) or historical_replay
                     or comparison_run or auction_refresh or not primary_only or not from_active_a1
                     or run_id_override!=regeneration.run_id or not publish_plans or snapshot_id
                     or frozen_a2_stock_news is not None or target_trade_date is not None):
@@ -3225,6 +3288,11 @@ class WorkflowApplication:
                 raise WorkflowError('REGEN_DATA_TIMESTAMP_MISMATCH')
             require_regeneration_publication_window(regeneration,self.trading_calendar,
                 now=datetime.now(SHANGHAI))
+            if regeneration.closed_session is not None:
+                from .runtime.closed_session_capture import validate_capture_proof, aware
+                validate_capture_proof(regeneration.closed_session,captured_at=current,
+                    calendar=self.trading_calendar,now=datetime.now(SHANGHAI),source_trade_date=regeneration.trade_date)
+                market_data_as_of=aware(regeneration.closed_session['source_market_close_at'])
         if frozen_a2_stock_news is not None:
             from .pipeline.research_overlay_resume import require_resume_arguments
             require_resume_arguments(normalized_slot=normalized_slot,from_active_a1=from_active_a1,
@@ -3283,7 +3351,7 @@ class WorkflowApplication:
             market_cutoff = _aware(market_data_as_of)
             if market_cutoff.date() != expected_market_date or market_cutoff > current:
                 raise WorkflowError("NEXT_SESSION_PREP_MARKET_DATE_INVALID")
-        elif market_data_as_of is not None:
+        elif market_data_as_of is not None and regeneration is None and formal_close_session is None:
             raise WorkflowError("MARKET_DATA_AS_OF_REQUIRES_NEXT_SESSION_PREP")
         wall_now = datetime.now(SHANGHAI)
         if same_day_recovery:
@@ -3314,7 +3382,7 @@ class WorkflowApplication:
             raise WorkflowError("SNAPSHOT_ID_REQUIRES_HISTORICAL_REPLAY")
         if comparison_run and not snapshot_id:
             raise WorkflowError("COMPARISON_SNAPSHOT_REQUIRED")
-        if normalized_slot == "close" and not next_session_prep and not comparison_run:
+        if normalized_slot == "close" and not next_session_prep and not comparison_run and regeneration is None and formal_close_session is None:
             _ensure_formal_close_cutoff(current)
         if not isinstance(from_active_a1, bool):
             raise WorkflowError("ACTIVE_A1_ARGUMENTS_INVALID")
@@ -3325,10 +3393,10 @@ class WorkflowApplication:
             raise WorkflowError("ACTIVE_A1_ARGUMENTS_INVALID")
         if not next_session_prep:
             self._ensure_trading_day(
-                current,
+                market_data_as_of if (regeneration is not None or formal_close_session is not None) and market_data_as_of is not None else current,
                 synchronize_accounts=not historical_replay and not comparison_run and frozen_a2_stock_news is None
                     and regeneration is None and not (formal_close_session is not None
-                        and current.date()!=formal_close_session.wall_clock.date()),
+                        and formal_close_session.source_trade_date!=formal_close_session.wall_clock.date()),
             )
         if normalized_slot == "morning" and current.hour == 9 and current.minute < 26:
             time.sleep(max(0.0, (_at_time(current, 9, 26) - current).total_seconds()))
@@ -3381,7 +3449,7 @@ class WorkflowApplication:
         _progress_stdout(progress.snapshot())
         if (configured_team_research is True and normalized_slot=='close' and publish_plans
                 and record_runtime and not historical_replay and not comparison_run and not auction_refresh):
-            self._ensure_daily_a1(current)
+            self._ensure_daily_a1(datetime.now(SHANGHAI) if regeneration is not None or formal_close_session is not None else current)
             # The natural close must actually consume the just-verified daily
             # pointer. An explicit older sealed ID is not a freshness bypass.
             daily_active=self.a1_registry.get_active_generation()
@@ -3431,7 +3499,8 @@ class WorkflowApplication:
                 )
                 if snapshot_id is not None
                 else self._load_research_snapshot_by_id(regeneration.snapshot_id,
-                    expected_date=regeneration.trade_date) if regeneration is not None
+                    expected_date=regeneration.trade_date if regeneration.closed_session is None else None,
+                    **({'closed_session_source_date':regeneration.trade_date} if regeneration.closed_session else {})) if regeneration is not None
                 else None if historical_replay or not reuse_resume_snapshot or auction_refresh
                 else self._load_research_resume_snapshot(
                     normalized_slot, current, candidate_symbols=active_a1_scope_symbols,
@@ -3451,6 +3520,8 @@ class WorkflowApplication:
                         market_data_as_of=market_data_as_of,
                         progress=progress,
                         candidate_symbols=active_a1_scope_symbols,
+                        **({'closed_session_source_date':formal_close_session.source_trade_date.isoformat()}
+                            if formal_close_session is not None and market_data_as_of is not None else {}),
                         materialize_feature_source=not from_active_a1,
                         **({'a1_generation_reference':{
                             'generation_id':active_a1_generation.generation_id,
@@ -3472,6 +3543,14 @@ class WorkflowApplication:
                 raise WorkflowError("COMPARISON_SNAPSHOT_HASH_MISMATCH")
             if regeneration is not None and prepared.snapshot.snapshot_hash!=regeneration.snapshot_hash:
                 raise WorkflowError('REGEN_SNAPSHOT_HASH_MISMATCH')
+            if regeneration is not None and regeneration.closed_session is not None:
+                daily=active_a1_generation.manifest['delta']['daily_refresh_proof']
+                from .runtime.close_regeneration import _sha_file
+                from .runtime.closed_session_capture import KEY
+                if (prepared.snapshot.data.get(KEY)!=regeneration.closed_session
+                        or _sha_file(prepared.path)!=daily['snapshot_file_sha256']
+                        or _hash_json(prepared.snapshot.data.get('snapshot_manifest'))!=daily['manifest_sha256']):
+                    raise WorkflowError('REGEN_SNAPSHOT_ORIGINAL_CHANGED')
         except Exception as exc:
             progress.finish(
                 status="BLOCKED",
@@ -3610,6 +3689,7 @@ class WorkflowApplication:
                 current,
                 snapshot_data=prepared.snapshot.data,
                 minimum_trade_date=((date.fromisoformat(regeneration.target_trade_date) if regeneration is not None else None)
+                                    or (formal_close_session.target_trade_date if formal_close_session is not None else None)
                                     or target_trade_date or (self.trading_calendar.next_trading_day(current.date())
                                     if normalized_slot == "close" else current.date())),
                 same_day_recovery=same_day_recovery,
@@ -4044,7 +4124,8 @@ class WorkflowApplication:
         self,
         snapshot_id: str,
         *,
-        expected_date: str,
+        expected_date: str | None,
+        closed_session_source_date: str | None = None,
     ) -> PreparedSnapshot:
         """Load one immutable snapshot for replay without fetching live facts."""
 
@@ -4069,7 +4150,15 @@ class WorkflowApplication:
             frozen_at = _aware(datetime.fromisoformat(str(payload.get("as_of") or "")))
         except (TypeError, ValueError) as exc:
             raise WorkflowError("SNAPSHOT_AS_OF_INVALID") from exc
-        if frozen_at.date().isoformat() != expected_date:
+        if closed_session_source_date is not None:
+            from .runtime.closed_session_capture import KEY, validate_capture_proof
+            proof=validate_capture_proof(data.get(KEY), captured_at=frozen_at,
+                calendar=self.trading_calendar,now=datetime.now(SHANGHAI),
+                source_trade_date=closed_session_source_date)
+            if (data.get('MARKET_DATA_AS_OF')!=proof['source_market_close_at']
+                    or data.get('snapshot_manifest',{}).get('as_of')!=frozen_at.isoformat()):
+                raise WorkflowError('CLOSED_SESSION_CAPTURE_MARKET_MISMATCH')
+        elif expected_date is None or frozen_at.date().isoformat() != expected_date:
             raise WorkflowError("SNAPSHOT_TRADE_DATE_MISMATCH")
         g0_symbols = data.get("g0_symbols")
         if not isinstance(g0_symbols, list) or not g0_symbols:

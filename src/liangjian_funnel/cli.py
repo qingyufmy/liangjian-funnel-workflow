@@ -390,6 +390,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     a1_maintenance.add_argument('--daily-refresh',action='store_true',
         help='verify a new full G0 snapshot and seal a dated generation even when low-frequency facts are unchanged')
+    a1_maintenance.add_argument('--source-trade-date',default=None,
+        help='explicit latest closed session for daily refresh; capture clock remains actual now')
     for command, help_text in (
         ("a1-coverage-report", "report field-level A1 coverage without fetching upstream data"),
         ("a1-gap-report", "report retained A1 field gaps and their reason codes"),
@@ -1211,6 +1213,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 mode=args.mode,
                 snapshot_id=args.snapshot_id,
                 daily_refresh=args.daily_refresh,
+                **({'source_trade_date':args.source_trade_date} if args.source_trade_date is not None else {}),
             )
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
             return 0 if payload.get("status") in {"PUBLISHED", "NOOP", "NOT_DUE"} else 2

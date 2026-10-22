@@ -14,6 +14,7 @@ import hashlib
 import json
 import sqlite3
 import threading
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -834,6 +835,26 @@ def validate_a1_generation_contract(
             raise A1RegistryError("A1_GENERATION_SNAPSHOT_MISMATCH")
         if payload_value and payload_value != expected_value:
             raise A1RegistryError("A1_GENERATION_SNAPSHOT_MISMATCH")
+    manifest_delta, payload_delta = manifest.get('delta', {}), payload.get('delta', {})
+    if not isinstance(manifest_delta, Mapping) or not isinstance(payload_delta, Mapping):
+        raise A1RegistryError('A1_CLOSED_SESSION_PROOF_INVALID')
+    daily = manifest_delta.get('daily_refresh_proof', {})
+    if not isinstance(daily, Mapping):
+        raise A1RegistryError('A1_CLOSED_SESSION_PROOF_INVALID')
+    if isinstance(daily, Mapping) and 'closed_session' in daily:
+        try:
+            from ..runtime.closed_session_capture import validate_capture_proof
+            from ..runtime.calendar import ExchangeTradingCalendar
+            validate_capture_proof(daily['closed_session'],captured_at=manifest.get('as_of'),
+                calendar=ExchangeTradingCalendar())
+            if (daily.get('snapshot_id') != manifest.get('snapshot_id')
+                    or daily.get('snapshot_hash') != manifest.get('snapshot_hash')
+                    or daily != payload_delta.get('daily_refresh_proof')
+                    or any(re.fullmatch(r'[0-9a-f]{64}',str(daily.get(key,''))) is None
+                        for key in ('snapshot_hash','snapshot_file_sha256','manifest_sha256'))):
+                raise ValueError()
+        except (ValueError,TypeError,KeyError):
+            raise A1RegistryError('A1_CLOSED_SESSION_PROOF_INVALID') from None
     if generation_id and payload.get("generation_id") is not None:
         if str(payload.get("generation_id") or "").strip() != str(generation_id).strip():
             raise A1RegistryError("A1_GENERATION_ID_MISMATCH")
@@ -1026,6 +1047,9 @@ class A1Registry:
                 snapshot_id=str(row["snapshot_id"]),
                 snapshot_hash=str(row["snapshot_hash"]),
             )
+            daily = manifest.get('delta', {}).get('daily_refresh_proof', {})
+            if isinstance(daily, Mapping) and 'closed_session' in daily and _aware(row['as_of']) != _aware(manifest['as_of']):
+                raise A1RegistryError('A1_CLOSED_SESSION_PROOF_INVALID')
         return A1Generation(
             generation_id=str(row["generation_id"]),
             mode=str(row["mode"]),
