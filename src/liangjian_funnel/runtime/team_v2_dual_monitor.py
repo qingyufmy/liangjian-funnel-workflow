@@ -36,6 +36,19 @@ def _market_source(settings, live, raw, *, clock, calendar, deadline):
     target = root/'state/team_v2/shared_market'/(identity+'.json')
     if target.resolve() != target:
         raise ValueError('TEAM_SHARED_MARKET_PATH_INVALID')
+    # Source-only Team collection already embeds its owned emotion result in
+    # the legacy cache. A subsequent customer cache hit has no raw snapshot;
+    # do not demand a second sidecar that this writer never created.
+    embedded=live.get('team_v2_source')
+    if raw is None and isinstance(embedded,dict):
+        try:
+            source_at=datetime.fromisoformat(embedded['source_as_of']);now=clock()
+            pin=embedded['frame_sha256']
+            if (embedded.get('status')=='READY' and isinstance(pin,str) and len(pin)==64
+                    and all(c in '0123456789abcdef' for c in pin)
+                    and source_at.date()==now.date() and 0<=(now-source_at).total_seconds()<=300):
+                return deepcopy(embedded)
+        except (KeyError,TypeError,ValueError):pass
     if not target.exists() and raw is not None:
         source = observe_full_market(settings, raw, observed_at=clock(), calendar=calendar, deadline=deadline)
         body = dict(market_sha256=identity, known_at=clock().isoformat(), source=source)
@@ -56,7 +69,17 @@ def _market_source(settings, live, raw, *, clock, calendar, deadline):
             raise ValueError
         return body['source']
     except (OSError, KeyError, TypeError, ValueError):
-        return dict(status='DATA_BLOCK', reason_code='TEAM_SHARED_MARKET_UNAVAILABLE')
+        from .monitor_phase_trace import record_business_reasons
+        from .provider_health import queue_internal
+        now=clock()
+        event=queue_internal(settings,kind='SHARED_MARKET_UNAVAILABLE',
+            source_id=now.date().isoformat(),
+            text='Team共享市场证据缺失，已显式降级；请核查原始采集与缓存绑定，未调用交易模型。',now=now)
+        record_business_reasons({'TEAM_SHARED_MARKET_UNAVAILABLE':1})
+        return dict(status='DATA_BLOCK',reason_code='TEAM_SHARED_MARKET_UNAVAILABLE',
+            missing_path=str(target),market_sha256=identity,
+            raw_snapshot_captured=raw is not None,legacy_cache_hit=live.get('cache_hit') is True,
+            internal_alert_event_id=event,internal_alert_status='PENDING')
 
 
 class SharedMinuteSources:

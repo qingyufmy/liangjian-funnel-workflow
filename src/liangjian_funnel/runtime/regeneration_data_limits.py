@@ -1,4 +1,4 @@
-"""0498 regeneration-only A1 source gaps; no new facts or model permissions."""
+"""A1 source gaps for natural and recovery publications; no invented facts."""
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import replace
@@ -7,18 +7,19 @@ import hashlib
 import json
 
 
-def source_gap_detail(snapshot_data, symbol):
+def source_gap_detail(snapshot_data, symbol, *, strict=True):
     manifest = snapshot_data.get('snapshot_manifest') or {}
     failures = manifest.get('source_failures') if isinstance(manifest, Mapping) else None
     if not isinstance(failures, Mapping):
-        raise ValueError('REGEN_A1_SOURCE_FAILURE_MANIFEST_MISSING')
+        if strict:raise ValueError('REGEN_A1_SOURCE_FAILURE_MANIFEST_MISSING')
+        failures={symbol:['A1_SOURCE_FAILURE_MANIFEST_MISSING']}
     codes = failures.get(symbol, [])
     if not isinstance(codes, (list, tuple)) or any(not isinstance(v, str) or not v.strip() for v in codes):
         raise ValueError('REGEN_A1_SOURCE_FAILURE_DETAIL_INVALID')
     if not codes:
         return None
     return dict(status='DATA_LIMITED', reason_codes=list(dict.fromkeys(codes)),
-        authority='0498_REGENERATION_A1_SOURCE_GAPS', symbol=symbol,
+        authority='0498_REGENERATION_A1_SOURCE_GAPS' if strict else '0589_A1_SOURCE_GAPS', symbol=symbol,
         source_failures_sha256=hashlib.sha256(json.dumps(failures, ensure_ascii=False,
             sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
         source_as_of=manifest.get('as_of'), a6_explicit_review_required=True,
@@ -47,7 +48,7 @@ def a6_gap_requirements(catalog, envelopes):
         if not isinstance(value, Mapping) or value.get('plan_id') not in tagged:
             continue
         detail = (value.get('publication_facts') or {}).get('source_data_limits')
-        if (isinstance(detail, Mapping) and detail.get('authority') == '0498_REGENERATION_A1_SOURCE_GAPS'
+        if (isinstance(detail, Mapping) and detail.get('authority') in {'0498_REGENERATION_A1_SOURCE_GAPS','0589_A1_SOURCE_GAPS','0589_PLAN_HISTORY_GAPS'}
                 and isinstance(detail.get('reason_codes'), list) and detail['reason_codes']
                 and all(isinstance(v, str) and v for v in detail['reason_codes'])):
             result[value['plan_id']] = dict(plan_ref=item['id'], reason_codes=detail['reason_codes'])

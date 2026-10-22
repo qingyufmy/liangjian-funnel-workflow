@@ -4,13 +4,13 @@ import {join} from 'node:path';
 import {expect,test,vi} from 'vitest';
 import {loadConfig,JOB_DEFINITIONS} from '../../server/config.js';
 import {LogStore} from '../../server/logger.js';
-import {JobRunner,timeoutForJob} from '../../server/runner.js';
+import {JobRunner,timeoutForJob,validateModelBudgets} from '../../server/runner.js';
 import {WorkflowScheduler} from '../../server/scheduler.js';
 import type {JobName} from '../../server/types.js';
 
-test('Team A5 separate command has 240s review budget and never changes customer A5 budget',async()=>{
+test('Team A5 parent allows 600s model plus margin and never changes customer A5 budget',async()=>{
   expect(JOB_DEFINITIONS.find(x=>x.name==='team-a5-close')?.command).toBe('run-team-a5-close');
-  expect(timeoutForJob('team-a5-close',5400000)).toBe(240000);
+  expect(timeoutForJob('team-a5-close',5400000)).toBe(900000);
   expect(timeoutForJob('a5-close',5400000)).toBe(900000);
   const root=await mkdtemp(join(tmpdir(),'team-coach-slot-'));const logger=new LogStore(loadConfig({},root));
   const runner=new JobRunner(loadConfig({},root),logger);
@@ -20,6 +20,12 @@ test('Team A5 separate command has 240s review budget and never changes customer
     await runner.run('team-a5-close');expect(slot).toBe('review');
     internals.review={runId:'customer-review'};expect((await runner.run('team-a5-close')).status).toBe('skipped');
   }finally{vi.useRealTimers();await(logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}
+});
+
+test('startup refuses parent below model budget plus margin',()=>{
+  expect(()=>validateModelBudgets(loadConfig({LIANGJIAN_JOB_TIMEOUT_MS:'240000'}),{})).toThrow('PARENT_CHILD_TIMEOUT_MISMATCH');
+  expect(()=>validateModelBudgets(loadConfig({}),{})).not.toThrow();
+  expect(()=>validateModelBudgets(loadConfig({}),{LIANGJIAN_MODEL_TIMEOUT_SECONDS:'NaN'})).toThrow('INVALID_MODEL_TIMEOUT');
 });
 
 test('only pre-model wait75 retries once/minute; model failure never retried or routed to v1',async()=>{

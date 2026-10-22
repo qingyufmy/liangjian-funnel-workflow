@@ -42,10 +42,11 @@ export function timeoutForJob(
   // the single worker before the 09:26/15:10 research protection windows.
   if (job === "monitor") return Math.min(configuredTimeoutMs, 58_000);
   if (job === "auction-evidence") return Math.min(configuredTimeoutMs, 30_000);
+  if (job === "provider-health") return Math.min(configuredTimeoutMs, 300_000);
   if (job === "paper-settle" || job === "team-close-bar") return Math.min(configuredTimeoutMs, 60_000);
   if (job === "team-eod") return Math.min(configuredTimeoutMs, 120_000);
   if (job === "team-internal") return Math.min(configuredTimeoutMs, 8_000);
-  if (job === "team-a5-midday" || job === "team-a5-close") return Math.min(configuredTimeoutMs, 240_000);
+  if (job === "team-a5-midday" || job === "team-a5-close") return Math.min(configuredTimeoutMs, 900_000);
   if (job.startsWith("team-morning-")) return Math.min(configuredTimeoutMs, 120_000);
   if (job === "auction-base") return Math.min(configuredTimeoutMs, 60 * 60 * 1000);
   if (job === "auction-refresh") return Math.min(configuredTimeoutMs, 30 * 60 * 1000);
@@ -64,6 +65,19 @@ export function timeoutForJob(
 
 export function monitorSnapshotDelay(job: JobName, timeoutMs: number | null): number | null {
   return job === "monitor" && timeoutMs !== null && timeoutMs > 50_000 ? 50_000 : null;
+}
+
+export function validateModelBudgets(config: AppConfig, env: NodeJS.ProcessEnv = process.env): void {
+  // A5 has one 600s model session plus fact assembly, validation and delivery.
+  // Validate at server startup, before a scheduler or model can run.
+  const configured = Number(env.LIANGJIAN_MODEL_TIMEOUT_SECONDS ?? '600');
+  if (!Number.isFinite(configured) || configured <= 0) throw new Error('INVALID_MODEL_TIMEOUT');
+  const child = Math.min(configured, 600) * 1000;
+  for (const job of ['a5-midday','a5-close','team-a5-midday','team-a5-close'] as const) {
+    if ((timeoutForJob(job, config.jobTimeoutMs) ?? 0) < child + 60_000) {
+      throw new Error(`PARENT_CHILD_TIMEOUT_MISMATCH:${job}`);
+    }
+  }
 }
 
 export function ensureMonitorTimeoutSnapshot(directory: string, runId: string, elapsedMs: number): void {

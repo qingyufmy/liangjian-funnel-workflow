@@ -54,6 +54,16 @@ assert_no_active_workflow_jobs() {
 }
 
 assert_no_active_workflow_jobs
+# BaoTa's Node may remain a descendant of the invoking systemd unit. Refuse
+# default control-group cleanup BEFORE installing/stopping anything.
+deployment_unit="$(sed -n 's|.*system.slice/\([^/]*\.service\).*|\1|p' /proc/self/cgroup | head -n 1)"
+if [[ -n "${deployment_unit}" ]]; then
+  deployment_kill_mode="$(systemctl show "${deployment_unit}" --property=KillMode --value)"
+  if [[ "${deployment_kill_mode}" != "process" ]]; then
+    echo "[deploy] Supervisor must use KillMode=process; refusing unsafe lifecycle."
+    exit 8
+  fi
+fi
 bootstrap_pid_before="$(systemctl show "${BOOTSTRAP_UNIT}" --property=MainPID --value 2>/dev/null || true)"
 bootstrap_state_before="$(systemctl is-active "${BOOTSTRAP_UNIT}" 2>/dev/null || true)"
 echo "[deploy] G0 bootstrap before deploy: state=${bootstrap_state_before:-unknown} pid=${bootstrap_pid_before:-0}"
@@ -182,6 +192,9 @@ wait_for_stable_health() {
 }
 
 echo "[deploy] Stopping BaoTa Node project..."
+# Verify the final migrated schema before starting any minute process. No
+# workflow, model, quote or notification is invoked by this maintenance edge.
+runuser -u www -- .venv/bin/python -B -m liangjian_funnel verify-runtime-integrity
 old_node_pid="$(pgrep -u www -f 'node dist/server/index\.js' | head -n 1 || true)"
 if [[ -n "${old_node_pid}" ]]; then
   baota_action stop

@@ -357,6 +357,9 @@ class OpenAICompatibleModelClient:
                             timeout=remaining_timeout,
                         ) as response:
                             status = response.status_code
+                            from ..runtime.provider_health import observe_http
+                            observe_http(self.settings,model=model,
+                                role=str(stage or 'UNSPECIFIED')+':'+str(team_session or 'LEGACY'),status=status)
                             if status in (403, 429) or status >= 500:
                                 from .provider_rejection_evidence import persist_provider_rejection, ProviderRejectionEvidenceError
                                 try:

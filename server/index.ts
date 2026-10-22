@@ -7,7 +7,7 @@ import { DashboardData } from "./dashboard.js";
 import { ProjectFiles } from "./files.js";
 import { LogStore } from "./logger.js";
 import { LarkSettingsStore } from "./lark-settings.js";
-import { JobRunner } from "./runner.js";
+import { JobRunner, validateModelBudgets } from "./runner.js";
 import { WorkflowScheduler } from "./scheduler.js";
 
 export interface RunningControlPlane {
@@ -20,6 +20,7 @@ export interface RunningControlPlane {
 
 export async function startServer(): Promise<RunningControlPlane> {
   const config = loadConfig();
+  validateModelBudgets(config);
   const startedAt = Date.now();
   const logger = new LogStore(config);
   const runner = new JobRunner(config, logger);

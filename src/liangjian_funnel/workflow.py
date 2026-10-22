@@ -2730,6 +2730,24 @@ class WorkflowApplication:
                     results[result.source_id] = result
         return results
 
+    def _ensure_daily_a1(self, current):
+        """Use the existing atomic A1 pipeline, never just relabel an old as_of."""
+        source_day=_latest_closed_market_trade_date(current,self.trading_calendar)
+        cutoff=current.replace(year=source_day.year,month=source_day.month,day=source_day.day,
+            hour=15,minute=0,second=0,microsecond=0)
+        active=self.a1_registry.get_active_generation()
+        if active is not None and active.as_of.astimezone(SHANGHAI)>=cutoff:
+            return dict(status='CURRENT',generation_id=active.generation_id)
+        result=self.run_a1_maintenance(now=cutoff,mode=A1_INCREMENTAL if active is not None else A1_FULL)
+        refreshed=self.a1_registry.get_active_generation()
+        if (result.get('status') not in {'READY','READY_DEGRADED','COMPLETED','PUBLISHED'}
+                or refreshed is None or refreshed.as_of.astimezone(SHANGHAI)<cutoff):
+            from .runtime.provider_health import queue_internal
+            queue_internal(self.settings,kind='A1_DAILY_REFRESH_FAILED',source_id=source_day.isoformat(),
+                text='A1当日股票池刷新失败，已停止下游研究，未静默沿用旧池。',now=datetime.now(SHANGHAI))
+            raise WorkflowError('A1_DAILY_REFRESH_FAILED_KEEP_OLD_PLANS')
+        return result
+
     def run_a1_maintenance(
         self,
         *,
@@ -3298,6 +3316,9 @@ class WorkflowApplication:
             _progress_stdout(progress.snapshot())
             raise WorkflowError(resource_decision.reason_codes[0])
         _progress_stdout(progress.snapshot())
+        if (configured_team_research is not None and normalized_slot=='close' and publish_plans
+                and record_runtime and not historical_replay and not comparison_run and not auction_refresh):
+            self._ensure_daily_a1(current)
         active_a1_generation: A1Generation | None = None
         active_a1_scope_symbols: tuple[str, ...] | None = None
         a1_reuse_degraded = False
@@ -7277,9 +7298,10 @@ class WorkflowApplication:
                 payload = projection['payload']
                 from .runtime.plan_cluster_display import project_cluster_display
                 payload = project_cluster_display(payload)
-            if regeneration is not None:
+            if regeneration is not None or candidate['lane_id'] in team_geometry_lanes:
                 from .runtime.regeneration_data_limits import source_gap_detail, project_data_limited
-                payload = project_data_limited(payload, source_gap_detail(snapshot_data, candidate['symbol']))
+                payload = project_data_limited(payload, source_gap_detail(snapshot_data, candidate['symbol'],
+                    strict=regeneration is not None))
             candidate["payload"] = payload
             geometry_ready.append(candidate)
             original = original_plans[candidate["plan_id"]]
@@ -7333,6 +7355,28 @@ class WorkflowApplication:
         )
         if regeneration is not None and not batch:
             raise WorkflowError('REGEN_NO_GEOMETRY_VALID_PLANS_KEEP_OLD')
+        pattern_preparation={'status':'NOT_APPLICABLE','plans':[]}
+        if slot=='close' and hasattr(self,'minute_store') and hasattr(self,'market_data'):
+            from .runtime.indicator_history import prepare_pattern_history
+            from .runtime.regeneration_data_limits import project_data_limited
+            pattern_preparation=prepare_pattern_history(batch,now=now,calendar=self.trading_calendar,
+                minute_store=self.minute_store,provider=self.market_data)
+            missing={r['plan_id']:r for r in pattern_preparation['plans'] if r['status']!='READY'}
+            for candidate in batch:
+                if candidate['plan_id'] not in missing:continue
+                row=missing[candidate['plan_id']];payload=candidate['payload']
+                old=payload.get('source_data_limits') or {}
+                detail=dict(status='DATA_LIMITED',authority='0589_PLAN_HISTORY_GAPS',
+                    reason_codes=list(dict.fromkeys([*old.get('reason_codes',()),row['reason_code']])),
+                    a6_explicit_review_required=True,maximum_risk_unit='PROBE',history_readiness=row)
+                candidate['payload']=project_data_limited(payload,detail)
+                original_plans[candidate['plan_id']]['submitted_payload']={
+                    'value':deepcopy(candidate['payload']),'sha256':object_hash(candidate['payload'])}
+            if missing:
+                from .runtime.provider_health import queue_internal
+                queue_internal(self.settings,kind='PLAN_HISTORY_INCOMPLETE',source_id=result.run_id,
+                    text='新计划历史5分钟数据未齐：'+','.join(sorted({r['symbol'] for r in missing.values()}))+'；已标数据受限，需A6显式审核。',
+                    now=datetime.now(SHANGHAI))
         published = self.store.publish_plan_batch(
             batch,
             expire_active_lanes=ready_lanes if formal_close and regeneration is None else (),
@@ -7394,6 +7438,7 @@ class WorkflowApplication:
             "atomic": True,
             "projection_manifests": projection_manifests,
             "indicator_preparation": indicator_preparation,
+            "pattern_preparation": pattern_preparation,
             "created": created,
             "activated": activated,
             "blocked": blocked,

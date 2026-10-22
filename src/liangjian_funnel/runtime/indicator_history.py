@@ -4,6 +4,50 @@ from datetime import datetime, timedelta
 from collections.abc import Mapping
 
 
+def prepare_pattern_history(plans, *, now, calendar, minute_store, provider):
+    """Native closed previous-session 48 bars; all-or-none before strict insert.
+
+    A full previous session also supplies ATR20/V6 for the opening attempt
+    prefix. Later current-day bars must never substitute for that prefix.
+    """
+    results=[];memo={}
+    for plan in plans:
+        target=datetime.fromisoformat(str(plan['expires_at'])).date()
+        prior=calendar.previous_trading_day(target);symbol=str(plan['symbol']);key=(symbol,prior)
+        if key not in memo:
+            cutoff=now.replace(year=prior.year,month=prior.month,day=prior.day,hour=15,minute=0,second=0,microsecond=0)
+            expected=set()
+            for hour in (9,13):
+                start=cutoff.replace(hour=hour,minute=30 if hour==9 else 0)
+                expected.update(start+timedelta(minutes=5*n) for n in range(1,25))
+            row=dict(symbol=symbol,status='DATA_LIMITED',required_5m_count=48,
+                source_trade_date=prior.isoformat(),history_cutoff=cutoff.isoformat(),requests=0)
+            try:
+                if cutoff>now:raise ValueError('PATTERN_HISTORY_CUTOFF_NOT_CLOSED')
+                cached=minute_store.load_latest(symbol,'5m',limit=96,before=cutoff+timedelta(seconds=1))
+                present={b.bar_end for b in cached if b.symbol==symbol and b.interval=='5m'}
+                if not expected<=present:
+                    row['requests']=1
+                    fetched=provider.fetch_bars(symbol,'5m',48,as_of=cutoff)
+                    bars=list(fetched.get('bars',()) if isinstance(fetched,Mapping) else getattr(fetched,'bars',()))
+                    complete=fetched.get('complete') if isinstance(fetched,Mapping) else getattr(fetched,'complete',False)
+                    valid=(complete is True and len(bars)==48 and len({b.bar_end for b in bars})==48
+                           and all(b.symbol==symbol and b.interval=='5m' and b.bar_end in expected for b in bars))
+                    if not valid:raise ValueError('PATTERN_HISTORY_48_INCOMPLETE')
+                    # Strict write rolls back conflicts; no partial insert or
+                    # revision of an existing frozen observation is permitted.
+                    minute_store.write(bars)
+                    present|={b.bar_end for b in bars}
+                row.update(status='READY',reason_code='OK',available_5m_count=48,opening_prefix_ready=True)
+            except Exception as exc:
+                row.update(reason_code=str(exc) if str(exc).startswith('PATTERN_HISTORY_') else 'PATTERN_HISTORY_PREPARATION_FAILED',
+                    available_5m_count=len(expected & locals().get('present',set())),opening_prefix_ready=False)
+            memo[key]=row
+        results.append(dict(memo[key],plan_id=plan['plan_id'],target_trade_date=target.isoformat()))
+    return dict(schema_version='entry-pattern-history/1',plans=results,
+        status='READY' if all(r['status']=='READY' for r in results) else 'DATA_LIMITED')
+
+
 def prepare_520_history(plans, *, now, calendar, minute_store, provider):
     results = []
     for plan in plans:

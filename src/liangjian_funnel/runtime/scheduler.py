@@ -217,6 +217,7 @@ class Scheduler:
                             status=DispatchStatus.FAILED,
                             dispatch_key=job.dispatch_key,
                             reason_code=business_reason,
+                            diagnostics=self._result_diagnostics(result),
                         )
                     )
                     continue
@@ -246,7 +247,8 @@ class Scheduler:
             finally:
                 heartbeat_stop.set()
                 heartbeat.join(timeout=1.0)
-            records.append(DispatchRecord(kind=job.kind, due=job.due, status=DispatchStatus.DISPATCHED, dispatch_key=job.dispatch_key))
+            records.append(DispatchRecord(kind=job.kind, due=job.due, status=DispatchStatus.DISPATCHED,
+                dispatch_key=job.dispatch_key,diagnostics=self._result_diagnostics(result)))
         return tuple(records)
 
     def _next_on_day(self, day: date, current: datetime) -> ScheduledJob | None:
@@ -394,6 +396,19 @@ class Scheduler:
             if fields:
                 result["differing_fields"] = fields
         return result
+
+    @staticmethod
+    def _result_diagnostics(result: Any) -> dict[str, Any]:
+        if not isinstance(result,Mapping):return {}
+        # Keep only bounded server result labels, never prompts/cards/account.
+        def labels(value):
+            if not isinstance(value,Mapping):return {}
+            safe={k:value[k] for k in ('status','reason_code','mode')
+                  if isinstance(value.get(k),(str,int,bool))}
+            for key in ('result','trader','protection','team_control_fallback'):
+                if isinstance(value.get(key),Mapping):safe[key]=labels(value[key])
+            return safe
+        return {'team':labels(result['team'])} if isinstance(result.get('team'),Mapping) else {}
 
     @staticmethod
     def _callback_result_reason(result: Any) -> str | None:

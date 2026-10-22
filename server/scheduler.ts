@@ -160,6 +160,7 @@ export class WorkflowScheduler {
     } else {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
       if (clock.hour === 7 && clock.minute < 15) due.push("auction-base");
+      if (clock.hour === 8 && clock.minute === 0) due.push("provider-health");
       if (clock.hour === 8 && clock.minute === 30) due.push("premarket");
       // Independent budgets and durable Python prerequisites. No delayed
       // catch-up/model retry can make a missed prior edge appear successful.

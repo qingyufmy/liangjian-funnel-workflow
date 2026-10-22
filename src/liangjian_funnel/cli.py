@@ -348,6 +348,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="liangjian-funnel")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="offline configuration and directory check")
+    sub.add_parser("verify-runtime-integrity", help="bounded full SQLite check outside minute hot path")
+    sub.add_parser("run-provider-availability", help="08:00 one minimal request per configured model")
     sub.add_parser("probe-hithink", help="run the real Hithink capability gate")
     sub.add_parser("probe-models", help="run model strict-JSON and thinking gates")
     sub.add_parser("probe-mootdx", help="run mootdx minute-history and cross-source gates")
@@ -658,6 +660,14 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         sys.stdout.reconfigure(encoding="utf-8", errors="strict")
     args = build_parser().parse_args(argv)
     active = settings or Settings.from_env()
+    if args.command=='run-provider-availability':
+        from .runtime.provider_health import run_daily_availability
+        result=run_daily_availability(active)
+        print(json.dumps(result));return 0 if result['status']=='READY' else 2
+    if args.command=='verify-runtime-integrity':
+        from .runtime.integrity import verify_integrity
+        result=verify_integrity(active.state_db_path)
+        print(json.dumps(result));return 0
     if args.command.startswith('run-team-morning-'):
         from .runtime.team_v2_morning import run_morning_stage
         try:

@@ -625,6 +625,7 @@ class RuntimeStore:
         elif requested.suffix == "" and not requested.exists():
             requested = requested / "runtime.sqlite3"
         self.path = requested.resolve()
+        new_database = not self.path.exists()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._persistence_failed = False
         # Integrity is verified once per short-lived command process.  Running
@@ -634,6 +635,9 @@ class RuntimeStore:
         self._health_verified = False
         self._lock = threading.RLock()
         self._initialize()
+        if new_database:
+            from .integrity import verify_integrity
+            verify_integrity(self.path)
 
     @property
     def persistence_failed(self) -> bool:
@@ -645,8 +649,11 @@ class RuntimeStore:
             return False
         try:
             with self._connect() as connection:
-                result = connection.execute("PRAGMA quick_check").fetchone()
-            healthy = bool(result and result[0] == "ok")
+                from .integrity import verified_identity
+                # This touches the schema page and a small maintenance receipt,
+                # not every page of the 1.49GB production DB on each command.
+                healthy = verified_identity(self.path,connection)
+                connection.execute('SELECT name FROM sqlite_schema LIMIT 1').fetchone()
             self._health_verified = healthy
             return healthy
         except Exception:

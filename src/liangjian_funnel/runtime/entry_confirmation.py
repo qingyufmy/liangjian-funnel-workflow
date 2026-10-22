@@ -154,6 +154,17 @@ def _condition(rows,name,passed,value,threshold,source):
         value=value,threshold=threshold,source_as_of=source)
 
 
+def _waiting(conditions, names, *, prerequisites):
+    """No setup is not missing market data. Keep the actual dependency visible.
+
+    Call only for a structurally absent setup, never for an observed setup
+    whose required quote/bar/fact is missing. A real missing prefix therefore
+    remains UNPROVEN even when another prerequisite is UNMET.
+    """
+    for name in names:
+        conditions[name].update(status='WAITING_CONDITION', waiting_for=list(prerequisites))
+
+
 def _finish(pattern,conditions,required,*,close,metrics=None,stop=None,force_probe=False):
     states=[conditions[k]['status'] for k in required]
     confirmed=all(s=='MET' for s in states)
@@ -247,7 +258,8 @@ def _a(plan,rows,fifteen,cfg,daily,vwap,tol,atr):
     support=max(candidates,key=lambda item:item[1]) if candidates else None
     s=support[1] if support else None;pull_low=min(r['low'] for r in pull) if pull else None
     rise_high=max(r['high'] for r in rise) if rise else None
-    _condition(conditions,'A_SUPPORT',None if s is None else True,dict(level=s,source=support[0] if support else None),dict(at_or_below=close),support[2] if support else None)
+    available_support=any(value is not None and value>0 for value in (low,ma,vw,previous['low'] if previous else None))
+    _condition(conditions,'A_SUPPORT',True if s is not None else False if available_support else None,dict(level=s,source=support[0] if support else None),dict(at_or_below=close),support[2] if support else None)
     _condition(conditions,'A_PULLBACK',None if not pair or s is None else pull_low>=s-tol and close<rise_high,
         dict(low=pull_low,close=close,rise_high=rise_high),dict(support_floor=s-tol if s is not None else None),_stamp(pull))
     pv=mean(r['volume'] for r in pull) if pull else None;uv=mean(r['volume'] for r in rise) if rise else None
@@ -266,6 +278,10 @@ def _a(plan,rows,fifteen,cfg,daily,vwap,tol,atr):
     _condition(conditions,'A_15M_SUPPORT',None if not env or s is None else all(r['close']>=s-tol for r in env),
         [r['close'] for r in env],dict(minimum=s-tol if s is not None else None),_stamp(env))
     _geometry(conditions,plan,close,at)
+    if not pair:
+        _waiting(conditions,('A_PULLBACK','A_CONTRACTION'),prerequisites=('A_UP_THEN_DOWN_SEGMENT',))
+    if s is None and available_support:
+        _waiting(conditions,('A_PULLBACK','A_HIGHER_LOWS','A_LOWER_WICK','A_STABILIZED','A_15M_SUPPORT'),prerequisites=('A_SUPPORT',))
     return _finish('A_TREND_PULLBACK',conditions,('A_SUPPORT','A_PULLBACK','A_CONTRACTION','A_STABILIZED','A_15M_SUPPORT','ENTRY_ZONE','ENTRY_RR'),close=close,
         metrics=dict(atr5=atr,tol=tol,support=s,support_source=support[0] if support else None,v6=v6))
 
@@ -352,6 +368,12 @@ def _b(plan,rows,cfg,daily,vwap,tol,atr,reference):
     _condition(conditions,'B_STOP_ONLY_RAISED',None if candidate is None or old is None else candidate>=old,candidate,dict(original_stop=old),_stamp(pull))
     _condition(conditions,'B_NO_CHASE',None if chase is None else close<=chase,close,dict(maximum=chase),at.isoformat())
     _geometry(conditions,plan,close,at.isoformat(),stop=candidate,inside_zone=False)
+    if key is not None and prefix_known and active is None:
+        _waiting(conditions,('B_RETEST','B_RETEST_VOLUME','B_CANDLE_ACCEPTANCE','B_VWAP_RECLAIM',
+            'B_ACCEPTED','B_STOP_ONLY_RAISED','ENTRY_RR'),prerequisites=('B_EFFECTIVE_BREAKOUT',))
+    elif active is not None and not pull:
+        _waiting(conditions,('B_RETEST','B_RETEST_VOLUME','B_CANDLE_ACCEPTANCE','B_VWAP_RECLAIM',
+            'B_ACCEPTED','B_STOP_ONLY_RAISED','ENTRY_RR'),prerequisites=('B_PULLBACK_SEGMENT',))
     return _finish('B_BREAKOUT_RETEST',conditions,('B_KEY_LEVEL','B_KEY_BELOW_NO_CHASE','B_ATTEMPT_PREFIX','B_EFFECTIVE_BREAKOUT','B_RETEST','B_RETEST_VOLUME','B_ACCEPTED','B_STOP_ONLY_RAISED','B_NO_CHASE','ENTRY_RR'),
         close=close,stop=candidate,force_probe=True,metrics=dict(atr5=atr,tol=tol,key_level=key,breakout_count=attempts,
             max_breakouts=cfg['b_max_breakouts'],invalidated_at=invalidated,active_breakout=active,key_evidence=k_evidence,
@@ -386,6 +408,8 @@ def _c(plan,rows,cfg,vwap,tol,atr):
     synchronized=any(abs(v-r)<=cfg['c_sync_bars'] and max(v,r)==len(rows)-1 for v in volume_events for r in repair_events)
     _condition(conditions,'C_VOLUME_PRICE_SYNCHRONIZED',synchronized,dict(volume_events=volume_events,repair_events=repair_events),dict(maximum_gap=cfg['c_sync_bars'],current_bar_required=True),_stamp(rows[-2:]))
     _geometry(conditions,plan,close,at)
+    if down is None:
+        _waiting(conditions,('C_DECLINE',),prerequisites=('C_DOWN_SEGMENT',))
     return _finish('C_VOLUME_REBOUND',conditions,('C_DECLINE','C_VOLUME_PRICE_SYNCHRONIZED','ENTRY_ZONE','ENTRY_RR'),
         close=close,metrics=dict(atr5=atr,tol=tol,decline=decline))
 
