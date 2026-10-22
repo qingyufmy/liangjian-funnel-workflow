@@ -1,0 +1,547 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-21T06:39:22.688Z",
+  "title": "Design System: 量见交易团队 /team HOME_STUDIO_V3",
+  "extensions": {
+    "colorMeta": {
+      "brand": {
+        "role": "primary",
+        "displayName": "琥珀品牌金",
+        "tonalRamp": [
+          "oklch(15% 0.1644 84.43)",
+          "oklch(26% 0.1644 84.43)",
+          "oklch(38% 0.1644 84.43)",
+          "oklch(49% 0.1644 84.43)",
+          "oklch(61% 0.1644 84.43)",
+          "oklch(72% 0.1644 84.43)",
+          "oklch(84% 0.1644 84.43)",
+          "oklch(95% 0.1644 84.43)"
+        ]
+      },
+      "amber": {
+        "role": "primary",
+        "displayName": "琥珀关注",
+        "tonalRamp": [
+          "oklch(15% 0.1647 70.08)",
+          "oklch(26% 0.1647 70.08)",
+          "oklch(38% 0.1647 70.08)",
+          "oklch(49% 0.1647 70.08)",
+          "oklch(61% 0.1647 70.08)",
+          "oklch(72% 0.1647 70.08)",
+          "oklch(84% 0.1647 70.08)",
+          "oklch(95% 0.1647 70.08)"
+        ]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "锌黑画布",
+        "tonalRamp": [
+          "oklch(15% 0.0044 285.82)",
+          "oklch(26% 0.0044 285.82)",
+          "oklch(38% 0.0044 285.82)",
+          "oklch(49% 0.0044 285.82)",
+          "oklch(61% 0.0044 285.82)",
+          "oklch(72% 0.0044 285.82)",
+          "oklch(84% 0.0044 285.82)",
+          "oklch(95% 0.0044 285.82)"
+        ]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "深卡面",
+        "tonalRamp": [
+          "oklch(15% 0.0041 285.98)",
+          "oklch(26% 0.0041 285.98)",
+          "oklch(38% 0.0041 285.98)",
+          "oklch(49% 0.0041 285.98)",
+          "oklch(61% 0.0041 285.98)",
+          "oklch(72% 0.0041 285.98)",
+          "oklch(84% 0.0041 285.98)",
+          "oklch(95% 0.0041 285.98)"
+        ]
+      },
+      "fg": {
+        "role": "neutral",
+        "displayName": "主字",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.88)",
+          "oklch(26% 0.0000 89.88)",
+          "oklch(38% 0.0000 89.88)",
+          "oklch(49% 0.0000 89.88)",
+          "oklch(61% 0.0000 89.88)",
+          "oklch(72% 0.0000 89.88)",
+          "oklch(84% 0.0000 89.88)",
+          "oklch(95% 0.0000 89.88)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "悬停表面",
+        "tonalRamp": [
+          "oklch(15% 0.0056 285.98)",
+          "oklch(26% 0.0056 285.98)",
+          "oklch(38% 0.0056 285.98)",
+          "oklch(49% 0.0056 285.98)",
+          "oklch(61% 0.0056 285.98)",
+          "oklch(72% 0.0056 285.98)",
+          "oklch(84% 0.0056 285.98)",
+          "oklch(95% 0.0056 285.98)"
+        ]
+      },
+      "muted-fg": {
+        "role": "neutral",
+        "displayName": "次级字",
+        "tonalRamp": [
+          "oklch(15% 0.0129 286.07)",
+          "oklch(26% 0.0129 286.07)",
+          "oklch(38% 0.0129 286.07)",
+          "oklch(49% 0.0129 286.07)",
+          "oklch(61% 0.0129 286.07)",
+          "oklch(72% 0.0129 286.07)",
+          "oklch(84% 0.0129 286.07)",
+          "oklch(95% 0.0129 286.07)"
+        ]
+      },
+      "secondary-fg": {
+        "role": "neutral",
+        "displayName": "辅助字",
+        "tonalRamp": [
+          "oklch(15% 0.0055 286.29)",
+          "oklch(26% 0.0055 286.29)",
+          "oklch(38% 0.0055 286.29)",
+          "oklch(49% 0.0055 286.29)",
+          "oklch(61% 0.0055 286.29)",
+          "oklch(72% 0.0055 286.29)",
+          "oklch(84% 0.0055 286.29)",
+          "oklch(95% 0.0055 286.29)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "透明细线",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(26% 0 0)",
+          "oklch(38% 0 0)",
+          "oklch(49% 0 0)",
+          "oklch(61% 0 0)",
+          "oklch(72% 0 0)",
+          "oklch(84% 0 0)",
+          "oklch(95% 0 0)"
+        ]
+      },
+      "control": {
+        "role": "neutral",
+        "displayName": "控件底",
+        "tonalRamp": [
+          "oklch(15% 0.0059 285.89)",
+          "oklch(26% 0.0059 285.89)",
+          "oklch(38% 0.0059 285.89)",
+          "oklch(49% 0.0059 285.89)",
+          "oklch(61% 0.0059 285.89)",
+          "oklch(72% 0.0059 285.89)",
+          "oklch(84% 0.0059 285.89)",
+          "oklch(95% 0.0059 285.89)"
+        ]
+      },
+      "stage": {
+        "role": "neutral",
+        "displayName": "二维工作室底",
+        "tonalRamp": [
+          "oklch(15% 0.0132 264.18)",
+          "oklch(26% 0.0132 264.18)",
+          "oklch(38% 0.0132 264.18)",
+          "oklch(49% 0.0132 264.18)",
+          "oklch(61% 0.0132 264.18)",
+          "oklch(72% 0.0132 264.18)",
+          "oklch(84% 0.0132 264.18)",
+          "oklch(95% 0.0132 264.18)"
+        ]
+      },
+      "stage-3d": {
+        "role": "neutral",
+        "displayName": "三维舞台底",
+        "tonalRamp": [
+          "oklch(15% 0.0241 259.29)",
+          "oklch(26% 0.0241 259.29)",
+          "oklch(38% 0.0241 259.29)",
+          "oklch(49% 0.0241 259.29)",
+          "oklch(61% 0.0241 259.29)",
+          "oklch(72% 0.0241 259.29)",
+          "oklch(84% 0.0241 259.29)",
+          "oklch(95% 0.0241 259.29)"
+        ]
+      },
+      "stage-light": {
+        "role": "neutral",
+        "displayName": "三维顶部光",
+        "tonalRamp": [
+          "oklch(15% 0.0459 260.05)",
+          "oklch(26% 0.0459 260.05)",
+          "oklch(38% 0.0459 260.05)",
+          "oklch(49% 0.0459 260.05)",
+          "oklch(61% 0.0459 260.05)",
+          "oklch(72% 0.0459 260.05)",
+          "oklch(84% 0.0459 260.05)",
+          "oklch(95% 0.0459 260.05)"
+        ]
+      },
+      "relay": {
+        "role": "primary",
+        "displayName": "三维接力金",
+        "tonalRamp": [
+          "oklch(15% 0.1558 82.54)",
+          "oklch(26% 0.1558 82.54)",
+          "oklch(38% 0.1558 82.54)",
+          "oklch(49% 0.1558 82.54)",
+          "oklch(61% 0.1558 82.54)",
+          "oklch(72% 0.1558 82.54)",
+          "oklch(84% 0.1558 82.54)",
+          "oklch(95% 0.1558 82.54)"
+        ]
+      },
+      "warn": {
+        "role": "primary",
+        "displayName": "关注浅金",
+        "tonalRamp": [
+          "oklch(15% 0.1534 91.61)",
+          "oklch(26% 0.1534 91.61)",
+          "oklch(38% 0.1534 91.61)",
+          "oklch(49% 0.1534 91.61)",
+          "oklch(61% 0.1534 91.61)",
+          "oklch(72% 0.1534 91.61)",
+          "oklch(84% 0.1534 91.61)",
+          "oklch(95% 0.1534 91.61)"
+        ]
+      },
+      "up": {
+        "role": "secondary",
+        "displayName": "涨红与止损",
+        "tonalRamp": [
+          "oklch(15% 0.1661 22.22)",
+          "oklch(26% 0.1661 22.22)",
+          "oklch(38% 0.1661 22.22)",
+          "oklch(49% 0.1661 22.22)",
+          "oklch(61% 0.1661 22.22)",
+          "oklch(72% 0.1661 22.22)",
+          "oklch(84% 0.1661 22.22)",
+          "oklch(95% 0.1661 22.22)"
+        ]
+      },
+      "down": {
+        "role": "secondary",
+        "displayName": "跌绿",
+        "tonalRamp": [
+          "oklch(15% 0.1535 163.22)",
+          "oklch(26% 0.1535 163.22)",
+          "oklch(38% 0.1535 163.22)",
+          "oklch(49% 0.1535 163.22)",
+          "oklch(61% 0.1535 163.22)",
+          "oklch(72% 0.1535 163.22)",
+          "oklch(84% 0.1535 163.22)",
+          "oklch(95% 0.1535 163.22)"
+        ]
+      },
+      "price": {
+        "role": "secondary",
+        "displayName": "价格浅灰白",
+        "tonalRamp": [
+          "oklch(15% 0.0040 286.32)",
+          "oklch(26% 0.0040 286.32)",
+          "oklch(38% 0.0040 286.32)",
+          "oklch(49% 0.0040 286.32)",
+          "oklch(61% 0.0040 286.32)",
+          "oklch(72% 0.0040 286.32)",
+          "oklch(84% 0.0040 286.32)",
+          "oklch(95% 0.0040 286.32)"
+        ]
+      },
+      "volume": {
+        "role": "secondary",
+        "displayName": "成交量灰",
+        "tonalRamp": [
+          "oklch(15% 0.0138 285.94)",
+          "oklch(26% 0.0138 285.94)",
+          "oklch(38% 0.0138 285.94)",
+          "oklch(49% 0.0138 285.94)",
+          "oklch(61% 0.0138 285.94)",
+          "oklch(72% 0.0138 285.94)",
+          "oklch(84% 0.0138 285.94)",
+          "oklch(95% 0.0138 285.94)"
+        ]
+      },
+      "a1-accent": {
+        "role": "tertiary",
+        "displayName": "基本面点缀",
+        "tonalRamp": [
+          "oklch(15% 0.1521 289.77)",
+          "oklch(26% 0.1521 289.77)",
+          "oklch(38% 0.1521 289.77)",
+          "oklch(49% 0.1521 289.77)",
+          "oklch(61% 0.1521 289.77)",
+          "oklch(72% 0.1521 289.77)",
+          "oklch(84% 0.1521 289.77)",
+          "oklch(95% 0.1521 289.77)"
+        ]
+      },
+      "a2-accent": {
+        "role": "tertiary",
+        "displayName": "题材点缀",
+        "tonalRamp": [
+          "oklch(15% 0.0923 204.44)",
+          "oklch(26% 0.0923 204.44)",
+          "oklch(38% 0.0923 204.44)",
+          "oklch(49% 0.0923 204.44)",
+          "oklch(61% 0.0923 204.44)",
+          "oklch(72% 0.0923 204.44)",
+          "oklch(84% 0.0923 204.44)",
+          "oklch(95% 0.0923 204.44)"
+        ]
+      },
+      "pm-accent": {
+        "role": "tertiary",
+        "displayName": "组合点缀",
+        "tonalRamp": [
+          "oklch(15% 0.1461 262.41)",
+          "oklch(26% 0.1461 262.41)",
+          "oklch(38% 0.1461 262.41)",
+          "oklch(49% 0.1461 262.41)",
+          "oklch(61% 0.1461 262.41)",
+          "oklch(72% 0.1461 262.41)",
+          "oklch(84% 0.1461 262.41)",
+          "oklch(95% 0.1461 262.41)"
+        ]
+      },
+      "rk-accent": {
+        "role": "tertiary",
+        "displayName": "风控点缀",
+        "tonalRamp": [
+          "oklch(15% 0.0312 262.51)",
+          "oklch(26% 0.0312 262.51)",
+          "oklch(38% 0.0312 262.51)",
+          "oklch(49% 0.0312 262.51)",
+          "oklch(61% 0.0312 262.51)",
+          "oklch(72% 0.0312 262.51)",
+          "oklch(84% 0.0312 262.51)",
+          "oklch(95% 0.0312 262.51)"
+        ]
+      },
+      "tr-accent": {
+        "role": "tertiary",
+        "displayName": "交易点缀",
+        "tonalRamp": [
+          "oklch(15% 0.1452 80.93)",
+          "oklch(26% 0.1452 80.93)",
+          "oklch(38% 0.1452 80.93)",
+          "oklch(49% 0.1452 80.93)",
+          "oklch(61% 0.1452 80.93)",
+          "oklch(72% 0.1452 80.93)",
+          "oklch(84% 0.1452 80.93)",
+          "oklch(95% 0.1452 80.93)"
+        ]
+      },
+      "rv-accent": {
+        "role": "tertiary",
+        "displayName": "复盘点缀",
+        "tonalRamp": [
+          "oklch(15% 0.1147 158.79)",
+          "oklch(26% 0.1147 158.79)",
+          "oklch(38% 0.1147 158.79)",
+          "oklch(49% 0.1147 158.79)",
+          "oklch(61% 0.1147 158.79)",
+          "oklch(72% 0.1147 158.79)",
+          "oklch(84% 0.1147 158.79)",
+          "oklch(95% 0.1147 158.79)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "首页结论",
+        "purpose": "34px / 600；手机26px。"
+      },
+      "metric": {
+        "displayName": "六项指标",
+        "purpose": "24px / 600；手机22px，未知值为—。"
+      },
+      "title": {
+        "displayName": "面板标题",
+        "purpose": "16px / 600。"
+      },
+      "body": {
+        "displayName": "基础正文",
+        "purpose": "Inter与Noto Sans SC；14px / 1.5，本机字体回退。"
+      },
+      "table": {
+        "displayName": "表格与记录",
+        "purpose": "13px，数字使用tabular-nums。"
+      },
+      "label": {
+        "displayName": "来源与时刻",
+        "purpose": "12px；保留非实时、局部与缺源文字。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "station-screen",
+        "value": "0 8px 24px rgba(0,0,0,.35)",
+        "purpose": "二维工位屏幕的局部投影。"
+      },
+      {
+        "name": "station-active",
+        "value": "0 0 24px rgba(245,158,11,.3)",
+        "purpose": "work / talk工位头像；呼吸峰值alpha .48。"
+      },
+      {
+        "name": "drawer",
+        "value": "-20px 0 60px rgba(0,0,0,.4)",
+        "purpose": "原生模态抽屉与页面分离。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "studio-breathe",
+        "value": "2.4s ease-in-out infinite",
+        "purpose": "二维活跃工位头像；减少动态时关闭。"
+      },
+      {
+        "name": "source-relay",
+        "value": "720ms cubic ease-out",
+        "purpose": "3D同一CatmullRom曲线上的接力；历史缺源不补造。"
+      },
+      {
+        "name": "happy-return",
+        "value": "1500ms",
+        "purpose": "完成姿态回work，不表示盈利；评审暂停可冻结。"
+      },
+      {
+        "name": "idle",
+        "value": "static",
+        "purpose": "无周期晃头或眨眼。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "stats-three-columns",
+        "value": "1100px"
+      },
+      {
+        "name": "mobile-two-column-stats",
+        "value": "760px"
+      },
+      {
+        "name": "three-dimensional-scroll",
+        "value": "720px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "只读操作与抽屉关闭；没有主题切换入口。",
+      "html": "<button type=\"button\" class=\"ds-button\">关闭</button>",
+      "css": ".ds-button{font:14px/1.5 Inter,'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;background:#18181b;color:var(--secondary-fg,#d4d4d8);border:1px solid var(--border,rgba(255,255,255,.08));border-radius:8px;min-height:44px;padding:8px 12px;cursor:pointer}.ds-button:hover{background:var(--muted,#202023);color:var(--fg,#fafafa)}.ds-button:focus-visible{outline:3px solid var(--brand,#fbbf24);outline-offset:3px}.ds-button:disabled{opacity:.6;cursor:not-allowed}"
+    },
+    {
+      "name": "Review Select",
+      "kind": "input",
+      "description": "角色评审台已有的原生下拉框；没有文本输入框。",
+      "html": "<label class=\"ds-select-label\">显示方式<select class=\"ds-select\"><option>彩色</option><option>灰阶</option><option>无标签剪影</option></select></label>",
+      "css": ".ds-select-label{display:flex;flex-direction:column;gap:5px;color:var(--muted-fg,#a1a1aa);font:14px/1.5 Inter,'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif}.ds-select{font:inherit;color:#d4d4d8;background:#18181b;border:1px solid var(--border,rgba(255,255,255,.08));border-radius:8px;min-height:44px;padding:8px 12px;cursor:pointer}.ds-select:hover{background:var(--muted,#202023)}.ds-select:focus-visible{outline:3px solid var(--brand,#fbbf24);outline-offset:3px}"
+    },
+    {
+      "name": "Segmented Navigation",
+      "kind": "nav",
+      "description": "64px页头内的紧凑导航，当前页透明白填充。",
+      "html": "<nav class=\"ds-nav\" aria-label=\"团队导航\"><a href=\"#today\" aria-current=\"page\">今日</a><a href=\"#roles\">团队</a><a href=\"#plans\">计划</a></nav>",
+      "css": ".ds-nav{display:flex;gap:2px;padding:4px;border:1px solid var(--border,rgba(255,255,255,.08));border-radius:12px;background:rgba(255,255,255,.04);font:13px/1.5 Inter,'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif}.ds-nav a{display:flex;align-items:center;min-height:36px;padding:6px 14px;color:var(--muted-fg,#a1a1aa);text-decoration:none;border-radius:8px}.ds-nav a[aria-current=page]{background:rgba(255,255,255,.1);color:var(--fg,#fafafa);font-weight:500}.ds-nav a:hover{background:rgba(255,255,255,.06);color:var(--fg,#fafafa)}.ds-nav a:focus-visible{outline:3px solid var(--brand,#fbbf24);outline-offset:3px}"
+    },
+    {
+      "name": "Information Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "透明白渐变、细边线与20px圆角。",
+      "html": "<section class=\"ds-panel\"><div class=\"ds-panel-head\"><h2>今日计划</h2><span>等待来源</span></div></section>",
+      "css": ".ds-panel{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.015));color:var(--fg,#fafafa);border:1px solid var(--border,rgba(255,255,255,.08));border-radius:20px;min-width:0;font:14px/1.5 Inter,'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif}.ds-panel-head{display:flex;justify-content:space-between;gap:12px;padding:16px 20px;align-items:center}.ds-panel-head h2{margin:0;font-size:16px;font-weight:600;line-height:1.25}.ds-panel-head span{color:var(--muted-fg,#a1a1aa);font-size:12px}"
+    },
+    {
+      "name": "Unknown Metric",
+      "kind": "custom",
+      "refersTo": "stat",
+      "description": "六项指标之一；缺值保留—，历史曲线待原件。",
+      "html": "<article class=\"ds-stat\"><span>模拟盘净值</span><strong>—</strong><div>走势待有序原件</div><small>净值账本未提供</small></article>",
+      "css": ".ds-stat{display:flex;flex-direction:column;gap:9px;min-height:148px;min-width:0;padding:16px;border-radius:16px;border:1px solid var(--border,rgba(255,255,255,.08));background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));font:13px/1.5 Inter,'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;color:var(--muted-fg,#a1a1aa);font-variant-numeric:tabular-nums}.ds-stat strong{font-size:24px;font-weight:600;letter-spacing:-.4px;line-height:1.3;color:var(--fg,#fafafa)}.ds-stat div{height:24px;display:flex;align-items:center;font-size:11px;border-bottom:1px solid rgba(255,255,255,.04)}.ds-stat small{font-size:12px}"
+    },
+    {
+      "name": "Active Plan Chip",
+      "kind": "chip",
+      "refersTo": "status-active",
+      "description": "ACTIVE_TODAY状态，颜色与文字共同说明。",
+      "html": "<span class=\"ds-chip\">有效计划</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;background:rgba(245,158,11,.14);color:#fcd34d;font:12px/1.5 Inter,'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif}.ds-chip::before{content:\"\";width:5px;height:5px;border-radius:50%;background:currentColor;margin-right:6px}"
+    },
+    {
+      "name": "Default Workstation",
+      "kind": "custom",
+      "refersTo": "workstation",
+      "description": "二维工位缺源状态，头像为角色标识。",
+      "html": "<article class=\"ds-station\"><div class=\"ds-screen\">等待工作原件</div><div class=\"ds-avatar\" aria-hidden=\"true\">基</div><strong>基本面</strong><span>尚无状态记录</span></article>",
+      "css": ".ds-station{display:flex;flex-direction:column;align-items:center;gap:8px;padding:24px 10px;background:#101319;color:var(--fg,#fafafa);text-align:center;font:13px/1.5 Inter,'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif}.ds-screen{width:92px;height:50px;display:flex;align-items:center;justify-content:center;padding:7px;border-radius:10px;background:rgba(9,9,11,.9);border:1px solid rgba(255,255,255,.1);box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:10px;color:#a1a1aa}.ds-avatar{width:46px;height:46px;display:grid;place-items:center;border-radius:50%;border:2px solid #8B78E0;background:#18181b;font-weight:600}.ds-station strong{font-size:13px;font-weight:600}.ds-station>span{font-size:12px;color:#a1a1aa}"
+    },
+    {
+      "name": "Plan Chart Missing State",
+      "kind": "custom",
+      "description": "没有闭合5分钟样本时保留文字；不绘制示意价格。",
+      "html": "<p class=\"ds-chart-missing\">5分钟原件待接入</p>",
+      "css": ".ds-chart-missing{margin:0;padding:16px;background:var(--bg,#09090b);color:var(--muted-fg,#a1a1aa);font:12px/1.5 Inter,'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif}"
+    },
+    {
+      "name": "Evidence Disclosure",
+      "kind": "custom",
+      "description": "默认折叠观测条件与来源。",
+      "html": "<details class=\"ds-evidence\"><summary>观测条件与任务证据</summary><p>等待带来源的工作记录</p></details>",
+      "css": ".ds-evidence{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.015));color:var(--fg,#fafafa);border:1px solid var(--border,rgba(255,255,255,.08));border-radius:20px;font:13px/1.5 Inter,'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif}.ds-evidence summary{padding:16px 20px;cursor:pointer;font-weight:500;color:var(--muted-fg,#a1a1aa)}.ds-evidence p{padding:0 20px 16px;color:var(--muted-fg,#a1a1aa)}.ds-evidence summary:hover{background:rgba(255,255,255,.04)}.ds-evidence summary:focus-visible{outline:3px solid var(--brand,#fbbf24);outline-offset:3px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "锌黑六人工作室",
+    "overview": "本规范只覆盖 `web/team` 的只读 Operate 页面。当前视觉权威为用户锁定的 `0458-notice-d / HOME_STUDIO_V3`；旧浅色资产栏与计划、记录并排的首页说明已经过时。按 `index.html`、后加载的 `studio.css`、`studio.js`、`plan-detail.js`、`app.js` 和 `stage.js` 的实际实现记录，根 `DESIGN.md` 继续属于旧控制台。\n\n锌黑画布上方有受边界约束的琥珀与天蓝径向微光。结论标题、六项指标、六人工位与团队记录、全宽计划表依次呈现。未知数值保留未知；角色与图表只表达有来源的观测或明确标识的演示。当前为本机实现记录：独立 review 已确认本轮原三项修正均 resolved，disposition 为 ship，仅覆盖该 fix-list；Claude 的完整 V3 六项视觉评分与批准仍待，F5/F6/F7 与 VM 发布仍待门禁。",
+    "keyCharacteristics": [
+      "深色单主题；琥珀用于品牌、关注与选中，细线和透明表面划分信息。",
+      "六项指标保持相同权重，未知历史显示文字，不生成装饰曲线。",
+      "默认二维六人工位，用户手动展开专业六角色 3D 舞台。",
+      "交易室与记录约为 8:4；计划占满内容宽度，窄屏滚动留在组件内部。"
+    ],
+    "rules": [
+      {
+        "name": "The Color Separation Rule",
+        "body": "品牌、角色点缀和涨跌色各自表达既定语义，不借角色色暗示成交、风险或收益。",
+        "section": "colors"
+      },
+      {
+        "name": "The Evidence Text Rule",
+        "body": "缺源、来源、只读与演示说明保留可读文字，不以颜色或姿态代替。",
+        "section": "typography"
+      },
+      {
+        "name": "The Material Boundary Rule",
+        "body": "页面以透明表面和局部微光分层，立体材质与空间投影留在展开的角色工作室中。",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** 延续已锁定的深色 V3、六项指标、约 8:4 工作室与记录、全宽计划表。",
+      "**Do** 默认二维工位，按用户操作展开 3D；窄屏内部滚动并保留键盘与文字提示。",
+      "**Do** 让价格线、条件状态、额度与指标回到有 ID、SHA、时刻的原始记录。",
+      "**Do** 区分缺源、已证实空列表、局部原件、演示及完整业务验收。"
+    ],
+    "donts": [
+      "**Don't** 用零、装饰曲线、角色姿态或页面连通暗示缺源的收益、成交或系统健康。",
+      "**Don't** 把 9 份计划与 32 个闭合 5 分钟样本写成全天完整覆盖，或跨时间缺口连线。",
+      "**Don't** 把本机修复、截图、独立评审或文档完成写成 Claude V3 ACCEPT、F5/F6/F7 通过或 VM 已发布。",
+      "**Don't** 把 /team 的设计系统覆盖到根 DESIGN.md 所属旧控制台。"
+    ]
+  }
+}
