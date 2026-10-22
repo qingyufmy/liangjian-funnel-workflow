@@ -1,13 +1,14 @@
 /** Display-only projections. Identity, raw prices and evidence stay unchanged. */
 import {conditionLabel} from './labels.js';
-export function priceText(value){return typeof value==='number'&&Number.isFinite(value)?value.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}):'未提供';}
+import {reasonText} from './copy/reasons.js';
+export function priceText(value){const number=typeof value==='number'?value:typeof value==='string'&&/^\d+(?:\.\d+)?$/.test(value)?Number(value):NaN;return Number.isFinite(number)?number.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}):'未提供';}
 export function zoneText(plan){
   const values=Array.isArray(plan.zone_values)?plan.zone_values:Array.isArray(plan.zone)?plan.zone:null;
   if(values?.length===2)return values.map(priceText).join('–');
   if(typeof plan.zone==='string'&&/^\d+(?:\.\d+)?[–—~-]\d+(?:\.\d+)?$/.test(plan.zone))return plan.zone.split(/[–—~-]/).map(Number).map(priceText).join('–');
   return '区间缺源';
 }
-export const riskUnitLabel=value=>({PROBE:'试探仓',STANDARD:'标准仓',FULL:'足额仓',OBSERVE:'只观察',NO_TRADE:'不新开',NONE:'不适用／不持仓'})[value]??'仓位上限缺源';
+export const riskUnitLabel=value=>({PROBE:'试探仓',STANDARD:'标准仓',FULL:'足额仓',OBSERVE:'只观察',NO_TRADE:'不新开',NONE:'不适用'})[value]??'仓位上限缺源';
 export function securityNames(state){
   const names=new Map(),conflicts=new Set();
   const rows=[...(state.plans??[]),...(state.positions??[]),...(state.orders??[]),...(state.fills??[]),...(state.admissions??[])];
@@ -57,7 +58,7 @@ export function confirmationText(plan){
 export function tradeRecordText(record){
   const security=record.symbol||record.code?`${securityText(record)}：`:'';
   if(record.kind==='PLAN_CONDITIONS'&&Array.isArray(record.unmet_conditions))return `${security}${record.unmet_conditions.length?`等待${record.unmet_conditions.map(conditionLabel).join('、')}`:'所需条件已满足'}`;
-  if(record.kind==='EXECUTION_ADMISSION'&&typeof record.shares==='number')return `${security}执行准入${({APPROVED:'批准',REDUCED:'收紧',REJECTED:'拒绝'})[record.status]??'状态缺源'} ${record.shares.toLocaleString('zh-CN')} 股 · ${riskUnitLabel(record.risk_unit)}`;
+  if(record.kind==='EXECUTION_ADMISSION'&&typeof record.shares==='number'){const reasons=Array.isArray(record.reason_labels)&&record.reason_labels.length?record.reason_labels:(record.reason_codes??[]).map(reasonText);return `${security}执行准入${({APPROVED:'批准',REDUCED:'收紧',REJECTED:'拒绝'})[record.status]??'状态缺源'} ${record.shares.toLocaleString('zh-CN')} 股${reasons.length?` · ${reasons.slice(0,2).join('；')}`:''}`;}
   if(record.kind==='EXECUTION_FILL'&&typeof record.qty==='number')return `${security}${record.side==='SELL'?'卖出':record.side==='BUY'?'买入':'方向缺源'}成交 ${record.qty.toLocaleString('zh-CN')} 股，价格 ${priceText(record.price)}`;
   return `${security}${record.title?`${record.title}：`:''}${record.text??'内容缺源'}`;
 }

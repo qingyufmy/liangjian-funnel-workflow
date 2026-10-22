@@ -28,10 +28,10 @@ test('name ambiguity never guesses exchange, text annotation avoids hashes and a
 });
 test('prices and zones use at most two display decimals without altering raw judgment values',()=>{
  const plan={zone:[12.3292,12.4525]},raw=JSON.stringify(plan);
- expect(zoneText(plan)).toBe('12.33–12.45');expect(priceText(18.725)).toBe('18.73');
+ expect(zoneText(plan)).toBe('12.33–12.45');expect(priceText(18.725)).toBe('18.73');expect(priceText('18.725')).toBe('18.73');expect(priceText(null)).toBe('未提供');expect(priceText('0x20')).toBe('未提供');
  expect(zoneText({zone:'12.3292–12.4525'})).toBe('12.33–12.45');expect(zoneText({zone:[null,10]})).toContain('未提供');
  expect(JSON.stringify(plan)).toBe(raw);expect(riskUnitLabel('PROBE')).toBe('试探仓');
- expect(riskUnitLabel('STANDARD')).toBe('标准仓');expect(riskUnitLabel('NONE')).toBe('不适用／不持仓');
+ expect(riskUnitLabel('STANDARD')).toBe('标准仓');expect(riskUnitLabel('NONE')).toBe('不适用');
 });
 test('missing research flags are not substituted by green live data; sourced statuses stay distinct',()=>{
  expect(dataStatusText({})).toBe('研究完整性标记缺源');
@@ -65,6 +65,7 @@ test('customer trading records use structured actual sources, not model-validati
  expect(applyDashboard(emptyState(),{status:'AVAILABLE',sections:{calls:{status:'AVAILABLE',rows:[{role:'A2',validated:true}]}}}).feed).toEqual([]);
  expect(tradeRecordText({kind:'PLAN_CONDITIONS',symbol:'300556.SZ',name:'丝路视觉',unmet_conditions:['TREND_PULLBACK_VOLUME_CONTRACTION']})).toBe('丝路视觉 300556.SZ：等待回调缩量');
  expect(tradeRecordText({kind:'EXECUTION_FILL',symbol:'002270.SZ',name:'华明装备',qty:4160,side:'SELL',price:18.725})).toContain('华明装备 002270.SZ：卖出成交 4,160 股，价格 18.73');
+ expect(tradeRecordText({kind:'EXECUTION_ADMISSION',symbol:'002270.SZ',name:'华明装备',shares:10500,status:'APPROVED',risk_unit:'NONE',reason_labels:['触及硬止损']})).toBe('华明装备 002270.SZ：执行准入批准 10,500 股 · 触及硬止损');
  const ledger=applyDashboard(emptyState(),{status:'AVAILABLE',sections:{},trade_records:[{role:'SYSTEM',text:'实际成交',source:{id:'fill',sha256:'a'.repeat(64)}}]});
  expect(ledger.feed[0]).toMatchObject({id:null,who:'系统账本'});
 });
@@ -73,6 +74,7 @@ test('default full trading room and all three mobile plan rows are not collapsed
  expect(html).not.toContain('id="stage-toggle"');expect(html).toContain('id="scene-shell"><');
  expect(css).toContain('.studio-main{grid-template-columns:minmax(0,1fr)}');
  expect(css).toContain('.plans-panel .table-wrap{max-height:none}');
+ expect(css).toContain('@media(max-width:1200px) and (min-width:761px)');expect(css).toContain('white-space:nowrap;overflow-wrap:normal;word-break:normal');
  const rows=[{at:null,id:1},{at:'2026-10-22T08:38:00+08:00',id:2},{at:'2026-10-22T08:35:00+08:00',id:3},{at:'bad',id:4}];
  expect(orderedHealthEvents(rows).map((x:{id:number})=>x.id)).toEqual([3,2,1,4]);expect(rows[0].id).toBe(1);
 });

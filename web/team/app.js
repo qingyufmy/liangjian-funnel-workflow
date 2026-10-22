@@ -8,7 +8,7 @@ import {reasonText,translateReasonMessage} from './copy/reasons.js';
 import {mountStudio,renderStudio} from './studio.js';
 import {planChart,openPlanDetail} from './plan-detail.js';
 import {healthEventText,orderedHealthEvents} from './health.js';
-import {zoneText,riskUnitLabel,securityNames as buildSecurityNames,securityName,securityText,annotateSecurities,dataStatusText,confirmationText} from './display.js';
+import {priceText,zoneText,riskUnitLabel,securityNames as buildSecurityNames,securityName,securityText,annotateSecurities,dataStatusText,confirmationText} from './display.js';
 
 const $=id=>document.getElementById(id);
 const number=(v,digits=2)=>typeof v==='number'&&Number.isFinite(v)?v.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits}):'—';
@@ -54,7 +54,7 @@ function table(host,columns,rows,{compactEvidence=false}={}){
       if(['security','code','symbol'].includes(key)){const code=byText('small','');code.textContent=row.code??row.symbol??'代码缺源';cell.append(byText('b',securityName(row,names)??'名称缺源'),code);}
       else if(key==='risk_unit')cell.append(byText('span',riskUnitLabel(row[key])));
       else if(key==='status'){const chip=byText('span',planStatusLabel(row.status),'status-chip');chip.dataset.status=row.status;cell.append(chip);}
-      else cell.append(byText('span',key==='strat'?strategyLabel(row[key]):key==='cluster'?clusterLabel(row[key]):['price','limit_price','entry','stop'].includes(key)&&typeof row[key]==='number'?number(row[key],2):row[key]));
+      else cell.append(byText('span',key==='strat'?strategyLabel(row[key]):key==='cluster'?clusterLabel(row[key]):['price','limit_price','entry','stop'].includes(key)?priceText(row[key]):row[key]));
       line.append(cell);
     }
     const details=document.createElement('details');details.append(byText('summary','来源'),byText('p',`记录：${row.source_id??'缺少记录ID'} · SHA ${row.source_sha256??'缺失'}`));
@@ -124,7 +124,7 @@ function render(){
       const delivery=history.notifications??{},team=history.team_reviews??{},monitor=history.monitor??{};
       $('system-health').append(byText('p',`通知元数据：送达 ${delivery.sent??'未知'}，失败 ${delivery.failed??'未知'}。${delivery.complete?'当日查询未截断':'缺源或超出有界读取，不判断全部送达'}；不读取客户正文。`),byText('p',`客户A4有效监控信号 ${monitor.signals??'未知'}；形态确认 ${monitor.confirmations??'未知'}。Team有效执行准入 ${d.metrics?.team_effective_admissions??'未知'}（只计批准/收紧且股数大于0，按信号去重）；Team确认观测 ${team.confirmed_observations??'未知'}，模型评审对象 ${team.model_objects??'未知'}；这些不是订单数，也不把多轮观测当独立信号。`));
     }
-    if(state.positions!==null)table($('positions'),[['code','代码'],['qty','持有股数'],['sellable_qty','可卖股数'],['t1_text','T+1'],['entry','平均成本'],['price','账本估价']],state.positions.map(p=>({...p,qty:number(p.qty,0),sellable_qty:number(p.sellable_qty,0),entry:number(p.avg_cost),price:number(p.price),t1_text:p.t1_locked?`今日买入 ${number(p.t1_locked_qty,0)} 股，不可卖`:'原账本可卖量见左列',source_id:p.source?.id,source_sha256:p.source?.sha256})),{compactEvidence:true});
+    if(state.positions!==null)table($('positions'),[['code','代码'],['qty','持有股数'],['sellable_qty','可卖股数'],['t1_text','T+1'],['entry','平均成本'],['price','账本估价']],state.positions.map(p=>({...p,qty:number(p.qty,0),sellable_qty:number(p.sellable_qty,0),entry:p.avg_cost,price:p.price,t1_text:p.t1_locked?`今日买入 ${number(p.t1_locked_qty,0)} 股，不可卖`:'原账本可卖量见左列',source_id:p.source?.id,source_sha256:p.source?.sha256})),{compactEvidence:true});
     if($('orders')){if(state.orders===null)$('orders').replaceChildren(byText('p','委托原件不可用，不能判断有无委托','empty'));else table($('orders'),[['code','代码'],['side','方向'],['qty','委托股数'],['limit_price','委托价'],['status_text','状态']],state.orders.map(o=>({...o,side:o.side==='SELL'?'卖出':o.side==='BUY'?'买入':'未知',status_text:({OPEN:'待成交',PARTIAL:'部分成交',FILLED:'已成交',CANCELLED:'已撤单',REJECTED:'已拒绝'})[o.status]??reasonText(o.status),source_id:o.source?.id,source_sha256:o.source?.sha256})),{compactEvidence:true});}
     if($('fills')){if(state.fills===null)$('fills').replaceChildren(byText('p','成交原件不可用，不能判断有无成交','empty'));else table($('fills'),[['symbol','代码'],['side','方向'],['qty','成交股数'],['price','成交价'],['minute_end','成交时刻']],state.fills.map(f=>({...f,side:f.side==='SELL'?'卖出':f.side==='BUY'?'买入':'未知',source_id:f.source?.id,source_sha256:f.source?.sha256})),{compactEvidence:true});}
     if($('admissions')){if(state.admissions===null)$('admissions').replaceChildren(byText('p','准入原件缺失，不能判断有无信号或下单','empty'));else table($('admissions'),[['code','代码'],['at_text','准入时刻'],['shares','核准股数'],['risk_unit','仓位'],['result_text','结果'],['reason_text','原因']],state.admissions.map(a=>({...a,at_text:chinaClock(a.at),result_text:({APPROVED:'批准',REDUCED:'收紧',REJECTED:'拒绝'})[a.status]??'见原件',reason_text:(a.reason_codes??[]).map(reasonText).join('；'),source_id:a.source?.id,source_sha256:a.source?.sha256})),{compactEvidence:true});}
