@@ -16,7 +16,7 @@ def _run_a2_batched(
 
     adapter=getattr(self,'team_research_adapter',None)
     if adapter is not None and adapter.supports('A2'):
-        try:snapshot=adapter.prepare_a2_snapshot(snapshot,upstream_symbols)
+        try:snapshot=adapter.prepare_a2_snapshot(snapshot,upstream_symbols,upstream_output=upstream_output)
         except (ValueError,TypeError,KeyError):
             return self._blocked_stage(lane_id,model,'A2',snapshot.snapshot_id,'TEAM_A2_SCORE_SOURCE_INVALID')
 

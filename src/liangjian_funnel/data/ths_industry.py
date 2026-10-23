@@ -200,28 +200,41 @@ def select_industry_diversified_symbols(
     if not membership.ok or not membership.complete:
         raise ValueError("industry membership must be complete")
 
-    record_by_symbol = {
-        str(getattr(record, "symbol", "")): record
-        for record in records
-        if str(getattr(record, "symbol", ""))
-    }
+    record_by_symbol: dict[str, Any] = {}
+    for record in records:
+        symbol = str(getattr(record, "symbol", ""))
+        if not symbol:
+            continue
+        if symbol in record_by_symbol:
+            raise ValueError("THS_RESEARCH_DUPLICATE_SYMBOL")
+        record_by_symbol[symbol] = record
     full_coverage = limit >= len(record_by_symbol)
     node_by_symbol: dict[str, tuple[str, str, str, str]] = {}
+    seen_membership_symbols: set[str] = set()
+    taxonomy_names: dict[str, str] = {}
     for raw in membership.items:
         row = raw.model_dump(mode="python")
         symbol = _symbol(row.get("thscode"))
         raw_memberships = row.get("memberships")
         if symbol not in record_by_symbol or not isinstance(raw_memberships, list):
             continue
-        available = [
+        if symbol in seen_membership_symbols:
+            raise ValueError("THS_RESEARCH_DUPLICATE_MEMBERSHIP_SYMBOL")
+        seen_membership_symbols.add(symbol)
+        available = sorted((
             item
             for item in raw_memberships
             if isinstance(item, Mapping)
             and _symbol(item.get("industry_thscode"))
             and str(item.get("industry_name") or "").strip()
-        ]
+        ), key=lambda item: (str(item["industry_thscode"]), str(item["industry_name"])))
         if not available:
             continue
+        for item in available:
+            code, name = str(item["industry_thscode"]), str(item["industry_name"])
+            if code in taxonomy_names and taxonomy_names[code] != name:
+                raise ValueError("THS_RESEARCH_CONFLICTING_NODE_NAME")
+            taxonomy_names[code] = name
         specific_items = sorted(
             (item for item in available if str(item.get("industry_thscode") or "").startswith("884")),
             key=lambda item: str(item.get("industry_thscode") or ""),
