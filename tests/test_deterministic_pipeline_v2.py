@@ -1068,7 +1068,11 @@ def test_v2_pipeline_does_not_send_the_full_g0_to_a1(tmp_path: Path):
         )
 
 
-def test_empty_a3_stage_emits_terminal_no_action_progress(tmp_path: Path):
+@pytest.mark.parametrize("verified_upstream", [False, True])
+def test_empty_a3_stage_emits_terminal_no_action_progress(tmp_path: Path, verified_upstream):
+    from dataclasses import replace
+    from liangjian_funnel.pipeline.research.common import StageAudit
+
     events: list[dict] = []
     settings = Settings.from_env({"LIANGJIAN_MODEL_API_KEY": "test"}, root=tmp_path)
     snapshot = FrozenInputSnapshot("snapshot-empty-a3", _snapshot(1), as_of=NOW)
@@ -1078,18 +1082,63 @@ def test_empty_a3_stage_emits_terminal_no_action_progress(tmp_path: Path):
         now=lambda: NOW,
     )
 
+    upstream_output = {"focus_pool": []}
+    upstream = StageAudit(
+        lane="lane_1", model="deepseek-v4-pro-0813", stage="A2", status="VALIDATED",
+        snapshot_id=snapshot.snapshot_id, prompt_hash="a2-prompt", input_hash="a2-input",
+        output_hash=None, latency_ms=1, attempts=1, thinking_variant="team_v2",
+        symbols=(), reason_codes=(), output=upstream_output,
+        diagnostics={"local_screen": {"evaluated_count": 1517}},
+    )
     audit = pipeline._empty_stage(
         run_id="run-empty-a3",
         lane_id="lane_1",
         model="deepseek-v4-pro-0813",
         stage="A3",
         snapshot=snapshot,
-        upstream_output={"focus_pool": []},
+        upstream_output=upstream_output,
         status="VALIDATED_NO_ACTION",
         outcome="NO_ACTION_UPSTREAM_NO_OPPORTUNITY",
+        upstream_audit=upstream if verified_upstream else None,
     )
 
     assert audit.status == "VALIDATED_NO_ACTION"
+    projected = audit.outcome()
+    if verified_upstream:
+        assert projected.data_sufficiency_state == "NOT_APPLICABLE"
+        assert projected.actionability_state == "NOT_APPLICABLE"
+        assert projected.quality_state == "VALIDATED"
+        assert projected.counts == {"input": 0, "evaluated": 0, "selected": 0, "upstream_evaluated": 1517}
+        assert "DATA_COVERAGE_INSUFFICIENT" not in projected.reason_codes
+        assert "A3_NOT_APPLICABLE_NO_ELIGIBLE_UPSTREAM" in projected.reason_codes
+        # A model execution, a selected symbol or a failed upstream must never
+        # borrow the no-op receipt to bypass the normal evidence guard.
+        assert replace(audit, attempts=1).outcome().quality_state == "BLOCKED"
+        assert replace(audit, symbols=("000001.SZ",)).outcome().quality_state == "BLOCKED"
+        proof = dict(audit.diagnostics["empty_domain_proof"])
+        proof["upstream_outcome"] = {**proof["upstream_outcome"], "data_sufficiency_state": "INSUFFICIENT"}
+        changed = replace(audit, diagnostics={**audit.diagnostics, "empty_domain_proof": proof})
+        assert changed.outcome().quality_state == "BLOCKED"
+    else:
+        assert projected.quality_state == "BLOCKED"
+        assert "DATA_COVERAGE_INSUFFICIENT" in projected.reason_codes
+    for invalid_upstream in (
+        replace(upstream, diagnostics={}),
+        replace(upstream, diagnostics={"local_screen": {"evaluated_count": 0}}),
+        replace(upstream, status="BLOCKED_MODEL"),
+        replace(upstream, status="DEGRADED_UNDERFILLED_DATA_GAP"),
+        replace(upstream, stage="A1"),
+        replace(upstream, lane="lane_2"),
+        replace(upstream, model="other-model"),
+    ):
+        invalid = pipeline._empty_stage(
+            lane_id="lane_1", model="deepseek-v4-pro-0813", stage="A3",
+            snapshot=snapshot, upstream_output=upstream_output,
+            status="VALIDATED_NO_ACTION", outcome="NO_ACTION_UPSTREAM_NO_OPPORTUNITY",
+            upstream_audit=invalid_upstream,
+        )
+        assert "empty_domain_proof" not in invalid.diagnostics
+        assert invalid.outcome().quality_state == "BLOCKED"
     assert events == [
         {
             "run_id": "run-empty-a3",

@@ -95,6 +95,13 @@ from ..research_checkpoint import (
     ResearchCheckpointStore,
 )
 from ..outcomes import (
+    ActionabilityState,
+    DataSufficiencyState,
+    JobLifecycleState,
+    LifecycleState,
+    OpportunityState,
+    PublicationState,
+    QualityState,
     LaneOutcome,
     RunOutcome,
     StageOutcome,
@@ -2014,6 +2021,7 @@ class ResearchPipeline:
                     upstream_output=a2_output,
                     status=STATUS_VALIDATED_NO_ACTION,
                     outcome="NO_ACTION_UPSTREAM_NO_OPPORTUNITY",
+                    upstream_audit=a2_audit,
                 )
                 lane_status = "READY"
             return LaneResult(
@@ -2202,6 +2210,7 @@ class ResearchPipeline:
                     upstream_output=a2_output,
                     status=STATUS_VALIDATED_NO_ACTION,
                     outcome="NO_ACTION_UPSTREAM_NO_OPPORTUNITY",
+                    upstream_audit=a2_audit,
                 )
                 lane_status = "READY"
             return LaneResult(
@@ -3200,6 +3209,7 @@ class ResearchPipeline:
         upstream_output: Mapping[str, Any] | None,
         status: str = STATUS_VALIDATED,
         outcome: str = "NO_ACTION",
+        upstream_audit: StageAudit | None = None,
     ) -> StageAudit:
         runtime = _runtime_input(
             snapshot,
@@ -3260,6 +3270,31 @@ class ResearchPipeline:
                 else {"outcome_code": outcome, "upstream_pool_empty": True}
             ),
         )
+        # An intentionally empty A3 domain is not an A3 coverage failure.
+        # Bind the no-op to a sufficient, completed A2 audit; a legacy empty
+        # status alone must still fail the generic missing-denominator guard.
+        if (stage == "A3" and status == STATUS_VALIDATED_NO_ACTION
+                and outcome == "NO_ACTION_UPSTREAM_NO_OPPORTUNITY"
+                and upstream_audit is not None and upstream_audit.stage == "A2"
+                and upstream_audit.lane == lane_id and upstream_audit.model == model
+                and isinstance(upstream_audit.output, Mapping)
+                and _sha256_json(upstream_audit.output) == _sha256_json(upstream_output)
+                and not _build_a3_candidate_domain(upstream_audit.output)[1]):
+            upstream = upstream_audit.outcome()
+            if (upstream.job_status is JobLifecycleState.SUCCEEDED
+                    and upstream.quality_state is QualityState.VALIDATED
+                    and upstream.data_sufficiency_state is DataSufficiencyState.SUFFICIENT
+                    and upstream.counts.get("input", 0) > 0
+                    and upstream.counts.get("evaluated", 0) >= upstream.counts["input"]):
+                audit = replace(audit, diagnostics={
+                    **dict(audit.diagnostics or {}),
+                    "empty_domain_proof": {
+                        "schema": "a3-empty-domain/1",
+                        "upstream_output_sha256": _sha256_json(upstream_audit.output),
+                        "upstream_outcome": upstream.as_dict(),
+                        "eligible_candidate_count": 0,
+                    },
+                })
         if run_id is not None:
             self._emit_progress(
                 run_id=run_id,
@@ -6653,6 +6688,40 @@ def _stage_outcome(audit: StageAudit) -> StageOutcome:
 
     counts: dict[str, int] = {"selected": len(audit.symbols)}
     diagnostics = audit.diagnostics if isinstance(audit.diagnostics, Mapping) else {}
+    proof = diagnostics.get("empty_domain_proof")
+    if (audit.stage == "A3" and audit.status == STATUS_VALIDATED_NO_ACTION
+            and audit.thinking_variant == "deterministic_noop" and audit.attempts == 0
+            and audit.prompt_hash is None and not audit.symbols and not audit.reason_codes
+            and diagnostics.get("outcome_code") == "NO_ACTION_UPSTREAM_NO_OPPORTUNITY"
+            and isinstance(audit.output, Mapping)
+            and audit.output_hash == _sha256_json(audit.output)
+            and not any(_stage_pool_counts(audit.output, "A3").values())
+            and isinstance(proof, Mapping) and proof.get("schema") == "a3-empty-domain/1"
+            and type(proof.get("eligible_candidate_count")) is int
+            and proof.get("eligible_candidate_count") == 0
+            and isinstance(proof.get("upstream_output_sha256"), str)
+            and re.fullmatch(r"[0-9a-f]{64}", proof["upstream_output_sha256"])):
+        raw_upstream = proof.get("upstream_outcome")
+        upstream = StageOutcome.from_mapping(raw_upstream) if isinstance(raw_upstream, Mapping) else None
+        if (upstream is not None and upstream.stage == "A2"
+                and upstream.job_status is JobLifecycleState.SUCCEEDED
+                and upstream.quality_state is QualityState.VALIDATED
+                and upstream.data_sufficiency_state is DataSufficiencyState.SUFFICIENT
+                and upstream.counts.get("input", 0) > 0
+                and upstream.counts.get("evaluated", 0) >= upstream.counts["input"]):
+            return StageOutcome(
+                stage="A3", lifecycle_state=LifecycleState.TERMINAL,
+                quality_state=QualityState.VALIDATED,
+                opportunity_state=OpportunityState.NOT_APPLICABLE,
+                publication_state=PublicationState.NOT_APPLICABLE,
+                job_status=JobLifecycleState.SUCCEEDED,
+                data_sufficiency_state=DataSufficiencyState.NOT_APPLICABLE,
+                actionability_state=ActionabilityState.NOT_APPLICABLE,
+                reason_codes=("A3_NOT_APPLICABLE_NO_ELIGIBLE_UPSTREAM",),
+                counts={"input": 0, "evaluated": 0, "selected": 0,
+                        "upstream_evaluated": upstream.counts["evaluated"]},
+                legacy_status=audit.status,
+            )
     local = diagnostics.get("local_screen")
     local = local if isinstance(local, Mapping) else {}
     evaluated = _safe_int(local.get("evaluated_count"))
