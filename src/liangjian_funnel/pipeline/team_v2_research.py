@@ -42,9 +42,9 @@ class TeamResearchAdapter:
         return (stage=='A1' and self.a1_role_mode=='team' or stage=='A3'
                 or stage=='A2' and self.a2_config is not None)
 
-    def prepare_a2_snapshot(self,snapshot,symbols,*,upstream_output=None):
+    def prepare_a2_snapshot(self,snapshot,symbols):
         from .team_v2_a2_research import prepare_a2_snapshot
-        return prepare_a2_snapshot(self,snapshot,symbols,upstream_output=upstream_output)
+        return prepare_a2_snapshot(self,snapshot,symbols)
 
     def method_feedback(self,recipient,as_of):
         from .team_v2_feedback import read_a5_method_feedback

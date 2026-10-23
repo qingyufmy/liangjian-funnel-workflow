@@ -1525,14 +1525,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
         print(json.dumps({"status": "CANCELLED", "reason_code": "RUN_CANCELLED"}, ensure_ascii=False))
         return 130
     except (ValueError, KeyError, TypeError) as exc:
-        # Typed research contracts contain safe, fixed machine codes. Keep the
-        # actual first gate instead of hiding it behind a generic ValueError;
-        # arbitrary exception/provider text must still never be emitted here.
-        code = str(exc)
-        if not (isinstance(exc, ValueError) and code.startswith('RESEARCH_UPDATE_')
-                and re.fullmatch(r'RESEARCH_UPDATE_[A-Z0-9_]{1,160}', code)):
-            code = type(exc).__name__
-        print(json.dumps({"status": "FAILED", "reason_code": code}, ensure_ascii=False))
+        print(json.dumps({"status": "FAILED", "reason_code": type(exc).__name__}, ensure_ascii=False))
         return 4
     except OSError as exc:
         print(json.dumps({"status": "FAILED", "reason_code": type(exc).__name__}, ensure_ascii=False))

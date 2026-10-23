@@ -18,8 +18,7 @@ from .team_v2_a1_research import _hash
 from .team_v2_research_time import research_times
 from .team_v2_a2_recovery import bind_a2_retry_feedback, drop_focused_rotation, validation_feedback
 from .team_v2_prompts import _VERSIONS as PROMPT_VERSIONS
-from .a2_theme_research import (add_unscored_theme_hypotheses, independent_theme_reviews,
-    hot100_research_intake, attention_theme_hypotheses, ATTENTION_SCHEMA)
+from .a2_theme_research import add_unscored_theme_hypotheses, independent_theme_reviews
 
 
 def directory_reference_feedback(raw,catalog,issues,*,nomination_sample=()):
@@ -50,114 +49,7 @@ def directory_reference_feedback(raw,catalog,issues,*,nomination_sample=()):
         same_fact_namespace_suggestions=same_fact_namespace_suggestions(raw,catalog,issues,nomination_sample))
 
 
-def _fair_research_slots(nomination, attention, *, maximum=30):
-    """Round robin original queues, old path first; one symbol owns one slot."""
-    queues={'NOMINATION':nomination,'HOT100':attention}
-    positions={route:0 for route in queues};owners={};slots=[]
-    while len(slots)<maximum and any(positions[r]<len(q) for r,q in queues.items()):
-        for route,queue in queues.items():
-            if positions[route]>=len(queue):continue
-            row=queue[positions[route]];positions[route]+=1
-            symbol=row['symbol']
-            if symbol in owners:continue
-            owners[symbol]=route
-            slots.append(dict(slot=len(slots)+1,symbol=symbol,owner_route=route,queue_position=positions[route]))
-            if len(slots)==maximum:break
-    return slots,owners
-
-
-def _attention_plan(snapshot, upstream_output, formal_symbols):
-    """Fairly share the existing global 30-row side sample, no new calls.
-
-    This plan never creates a batch. It is consumed by the first already
-    scheduled formal A2 batch; absent such a batch every lead stays deferred.
-    """
-    from .research import common as legacy
-    supplied=upstream_output.get('independent_research_intake') if isinstance(upstream_output,Mapping) else None
-    if supplied is None:return None
-    expected=hot100_research_intake(upstream_output,snapshot.data,legacy._extract_g0(snapshot.data),
-        hard_risks=legacy._daily_emotion_hard_risks(snapshot.data))
-    if (not isinstance(supplied,Mapping) or supplied.get('schema')!=ATTENTION_SCHEMA
-            or supplied.get('candidates')!=expected['candidates']):
-        raise ValueError('TEAM_A2_ATTENTION_SOURCE_MISMATCH')
-    from .team_v2_nomination_source import nomination_source_candidates
-    nomination=nomination_source_candidates(snapshot,formal_symbols)
-    slots,owners=_fair_research_slots(nomination['candidates'],expected['candidates'],maximum=30 if formal_symbols else 0)
-    selected_evidence=[r for r in expected['candidates'] if r['symbol'] in owners]
-    attention_by_symbol={r['symbol']:r for r in selected_evidence}
-    nomination_symbols={r['symbol'] for r in nomination['candidates']}
-    attention_symbols={r['symbol'] for r in expected['candidates']}
-    # A shared symbol has one physical transport row. The nomination row keeps
-    # its old qualification and embeds the independently verified attention
-    # proof; all its exact themes remain mandatory, regardless of slot owner.
-    selected_nomination=[]
-    for original in nomination['candidates']:
-        if original['symbol'] not in owners:continue
-        row=deepcopy(original)
-        if row['symbol'] in attention_by_symbol:
-            row['independent_attention_research']=deepcopy(attention_by_symbol[row['symbol']])
-        selected_nomination.append(row)
-    selected=[r for r in selected_evidence if r['symbol'] not in nomination_symbols]
-    if len(selected_nomination)+len(selected)!=len(slots):
-        raise ValueError('TEAM_A2_FAIR_UNIQUE_SLOT_MISMATCH')
-    selected_ids={r['candidate_id'] for r in selected_evidence}
-    for slot in slots:
-        symbol=slot['symbol']
-        slot.update(evidence_routes=[r for r,pool in (('NOMINATION',nomination_symbols),('HOT100',attention_symbols)) if symbol in pool],
-            transport_representation='NOMINATION_ROW_WITH_HOT100_PROOF' if symbol in nomination_symbols & attention_symbols
-                else 'NOMINATION_ROW' if symbol in nomination_symbols else 'HOT100_THEME_RESEARCH_ROW')
-    dispositions=[]
-    for row in expected['dispositions']:
-        item={k:row[k] for k in ('candidate_id','symbol','hot100_rank','original_a1_partition','reason_codes')}
-        item.update(execution_authority=False,formal_a1_member=False)
-        item['status']=('PLANNED_EXISTING_A2_CALL' if row['candidate_id'] in selected_ids else
-            'INELIGIBLE' if row['status']=='INELIGIBLE' else
-            'DEFERRED_NO_EXISTING_A2_CALL' if not formal_symbols else 'DEFERRED_A2_SIDE_SAMPLE_CAPACITY')
-        item['selected_owner_route']=owners.get(row['symbol'])
-        item['shared_slot']=row['symbol'] in nomination_symbols & attention_symbols
-        dispositions.append(item)
-    nomination_dispositions=[]
-    for position,row in enumerate(nomination['candidates'],1):
-        owner=owners.get(row['symbol'])
-        nomination_dispositions.append(dict(symbol=row['symbol'],queue_position=position,
-            original_context_sha256=row['original_context_sha256'],selected_owner_route=owner,
-            status='PLANNED_EXISTING_A2_CALL' if owner is not None else
-                'DEFERRED_NO_EXISTING_A2_CALL' if not formal_symbols else 'DEFERRED_A2_SIDE_SAMPLE_CAPACITY',
-            shared_slot=row['symbol'] in attention_symbols,execution_authority=False))
-    body=dict(schema=ATTENTION_SCHEMA,source_snapshot_sha256=snapshot.snapshot_hash,
-        candidates=selected,attention_evidence_candidates=selected_evidence,
-        hypotheses=attention_theme_hypotheses(selected_evidence),dispositions=dispositions,
-        nomination_candidates=selected_nomination,nomination_dispositions=nomination_dispositions,
-        nomination_source=dict(original_candidate_count=len(nomination['candidates']),
-            full_queue_sha256=_hash(nomination['candidates']),source_context_sha256=nomination['source_context_sha256']),
-        attention_original_candidate_count=len(expected['candidates']),attention_full_queue_sha256=_hash(expected['candidates']),
-        selected_slots=slots,duplicate_symbols=[dict(symbol=s,owner_route=owners.get(s),
-            available_evidence_routes=['NOMINATION','HOT100'],
-            disposition='SELECTED_ONCE_BOTH_EVIDENCE_ROUTES_RETAINED' if s in owners else 'DEFERRED_SHARED')
-            for s in sorted(nomination_symbols & attention_symbols)],
-        first_formal_symbol=min(formal_symbols) if formal_symbols else None,
-        maximum_side_sample_size=30,existing_nomination_sample_size=len(snapshot.data['A2_QUANT_FILTERED_SAMPLE']),
-        selected_nomination_count=sum(r=='NOMINATION' for r in owners.values()),
-        selected_attention_count=sum(r=='HOT100' for r in owners.values()),
-        transport_nomination_count=len(selected_nomination),transport_attention_only_count=len(selected),
-        selected_attention_evidence_count=len(selected_evidence),selected_unique_count=len(slots),
-        count_basis='SELECTED_ROUTE_COUNTS_ARE_SLOT_OWNERS;TRANSPORT_COUNTS_ARE_PHYSICAL_UNIQUE_ROWS;SHARED_ATTENTION_EVIDENCE_REMAINS_MANDATORY',
-        selection='ROUND_ROBIN_NOMINATION_FIRST;EACH_ORIGINAL_ORDER;UNIQUE_SYMBOL_OWNER_FIRST_SELECTED;EMPTY_QUEUE_FILL',
-        formal_candidate_ids_unchanged=True,new_model_calls_authorized=False,execution_authority=False)
-    body['plan_sha256']=_hash(body)
-    return body
-
-
-def _sampling_audit(plan):
-    return {key:deepcopy(plan[key]) for key in ('plan_sha256','source_snapshot_sha256',
-        'nomination_source','attention_original_candidate_count','attention_full_queue_sha256',
-        'selected_slots','duplicate_symbols','maximum_side_sample_size','selected_nomination_count',
-        'selected_attention_count','transport_nomination_count','transport_attention_only_count',
-        'selected_attention_evidence_count','selected_unique_count','selection','formal_candidate_ids_unchanged','new_model_calls_authorized',
-        'count_basis','execution_authority')}
-
-
-def prepare_a2_snapshot(adapter,snapshot,symbols,*,upstream_output=None):
+def prepare_a2_snapshot(adapter,snapshot,symbols):
     from .research import common as legacy
     from .team_v2_nomination_source import prepare_nomination_source
     config=adapter.a2_config
@@ -165,29 +57,22 @@ def prepare_a2_snapshot(adapter,snapshot,symbols,*,upstream_output=None):
             or snapshot.data.get('PENALTY_RULES')!=config.get('penalty_rules')):
         raise ValueError('TEAM_A2_CONFIG_SOURCE_MISMATCH')
     existing=snapshot.data.get('_TEAM_A2_SCORE_FREEZE')
-    domain=set(existing['review_symbols']) if existing is not None else set(symbols)
-    if not set(symbols)<=domain:raise ValueError('TEAM_A2_GLOBAL_DOMAIN_MISMATCH')
-    base=freeze_theme_scores(legacy._jsonable(snapshot.data),review_symbols=domain,
-        weights=config['score_weights'],policy=config['team_theme_score_policy'],source_snapshot_sha256=snapshot.snapshot_hash)
-    old_attention=snapshot.data.get('_TEAM_A2_ATTENTION_RESEARCH_FREEZE')
     if existing is not None:
-        original=add_unscored_theme_hypotheses(base,snapshot.data['A2_BOTTLENECK_CONTEXT'],
-            additional_hypotheses=old_attention['hypotheses'] if old_attention else None)
-        if original!=existing:raise ValueError('TEAM_A2_FROZEN_SOURCE_MISMATCH')
-    snapshot=prepare_nomination_source(snapshot,domain)
-    attention=_attention_plan(snapshot,upstream_output,domain)
+        if not set(symbols)<=set(existing['review_symbols']):raise ValueError('TEAM_A2_GLOBAL_DOMAIN_MISMATCH')
+        expected=freeze_theme_scores(legacy._jsonable(snapshot.data),review_symbols=set(existing['review_symbols']),
+            weights=config['score_weights'],policy=config['team_theme_score_policy'],source_snapshot_sha256=snapshot.snapshot_hash)
+        expected=add_unscored_theme_hypotheses(expected,snapshot.data['A2_BOTTLENECK_CONTEXT'])
+        if expected!=existing:raise ValueError('TEAM_A2_FROZEN_SOURCE_MISMATCH')
+        return prepare_nomination_source(snapshot,set(existing['review_symbols']))
     # The caller supplies the complete quantitative review domain before any
     # transport split. Membership is not reconstructed from model FOCUS.
-    frozen=add_unscored_theme_hypotheses(base,snapshot.data['A2_BOTTLENECK_CONTEXT'],
-        additional_hypotheses=attention['hypotheses'] if attention else None)
-    if existing is not None and frozen!=existing:raise ValueError('TEAM_A2_FROZEN_SOURCE_MISMATCH')
-    if old_attention is not None and old_attention!=attention:raise ValueError('TEAM_A2_ATTENTION_SOURCE_MISMATCH')
-    data={**snapshot.data,'_TEAM_A2_SCORE_FREEZE':frozen}
-    if attention is not None:data['_TEAM_A2_ATTENTION_RESEARCH_FREEZE']=attention
-    return replace(snapshot,data=data)
+    frozen=freeze_theme_scores(legacy._jsonable(snapshot.data),review_symbols=set(symbols),
+        weights=config['score_weights'],policy=config['team_theme_score_policy'],source_snapshot_sha256=snapshot.snapshot_hash)
+    frozen=add_unscored_theme_hypotheses(frozen,snapshot.data['A2_BOTTLENECK_CONTEXT'])
+    return prepare_nomination_source(replace(snapshot,data={**snapshot.data,'_TEAM_A2_SCORE_FREEZE':frozen}),set(symbols))
 
 
-def _post_policy(raw,snapshot,upstream_output,symbols,lane_id,model,*,policy_audit=None,attention_hypotheses=None):
+def _post_policy(raw,snapshot,upstream_output,symbols,lane_id,model,*,policy_audit=None):
     from .research import common as legacy
     output=legacy._expand_a2_compact_output(raw,snapshot.data,symbols)
     for theme,review in zip(output['active_themes'],raw['theme_reviews'],strict=True):
@@ -206,8 +91,7 @@ def _post_policy(raw,snapshot,upstream_output,symbols,lane_id,model,*,policy_aud
     output,_=legacy._canonicalize_stage_lineage(output,'A2',upstream_output,snapshot.data)
     output,_=legacy._enrich_a2_decision_facts(output,snapshot.data)
     output=legacy._refresh_analysis_counts(legacy._annotate_a2_pool_target(output,snapshot.data),'A2')
-    output['independent_theme_reviews']=independent_theme_reviews(output,snapshot.data['A2_BOTTLENECK_CONTEXT'],symbols,
-        additional_hypotheses=attention_hypotheses)
+    output['independent_theme_reviews']=independent_theme_reviews(output,snapshot.data['A2_BOTTLENECK_CONTEXT'],symbols)
     from .team_v2_a2_normalization import complete_server_policy_demotions
     directions=legacy._project_a2_bottleneck_context(snapshot.data['A2_BOTTLENECK_CONTEXT'],symbols)['_rotation_review_scope']
     completion=complete_server_policy_demotions(output,provider_raw=raw,direction_members=directions)
@@ -222,20 +106,7 @@ def _post_policy(raw,snapshot,upstream_output,symbols,lane_id,model,*,policy_aud
 def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstream_symbols,bundle,run_id,
         projection_symbols=None):
     from .research import common as legacy
-    attention_state=None
-    ids=[]
     def blocked(code,diagnostics=None):
-        if attention_state is not None:
-            rows=deepcopy(attention_state['dispositions'])
-            nominations=deepcopy(attention_state['nomination_dispositions'])
-            for item in rows+nominations:
-                if item['status']=='PLANNED_EXISTING_A2_CALL':
-                    item.update(status='BLOCKED_A2_RESEARCH_AUDIT_INCOMPLETE' if ids else 'DEFERRED_A2_CALL_NOT_EXECUTED',
-                        reason_codes=[code],team_call_ids=list(ids))
-            diagnostics={**(diagnostics or {}),'independent_attention_research':dict(
-                plan_sha256=attention_state['plan_sha256'],dispositions=rows,
-                nomination_dispositions=nominations,sampling_plan=_sampling_audit(attention_state),
-                new_model_calls_authorized=False,formal_candidate_ids_unchanged=True)}
         return replace(pipeline._blocked_stage(lane_id,model,'A2',snapshot.snapshot_id,code),diagnostics=diagnostics)
     if bundle is None:return blocked('PROMPT_REPOSITORY_BLOCKED')
     try:
@@ -244,7 +115,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         return blocked(str(exc))
     symbols=set(upstream_symbols if projection_symbols is None else projection_symbols)
     try:
-        snapshot=prepare_a2_snapshot(adapter,snapshot,set(upstream_symbols),upstream_output=upstream_output)
+        snapshot=prepare_a2_snapshot(adapter,snapshot,set(upstream_symbols))
         frozen=snapshot.data['_TEAM_A2_SCORE_FREEZE']
         values=legacy._prompt_replacements(bundle,'A2',snapshot,upstream_output,projection_symbols=symbols)
         for key in set(adapter.repository.document('A2').placeholders)-set(values):
@@ -262,27 +133,6 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         if len({r['symbol'] for r in sample})!=len(sample) or set(r['symbol'] for r in sample)&set(frozen['review_symbols']):
             return blocked('TEAM_A2_NOMINATION_SOURCE_INVALID')
         values['A2_QUANT_FILTERED_SAMPLE']=sample
-        attention=snapshot.data.get('_TEAM_A2_ATTENTION_RESEARCH_FREEZE')
-        first_attention_batch=bool(attention and attention['first_formal_symbol'] in symbols)
-        attention_state=attention if first_attention_batch else None
-        if attention is not None:
-            sample=attention['nomination_candidates'] if first_attention_batch else []
-            values['A2_QUANT_FILTERED_SAMPLE']=sample
-        attention_hypotheses=attention['hypotheses'] if first_attention_batch else {}
-        if first_attention_batch:
-            for symbol,rows in attention_hypotheses.items():
-                for row in rows:
-                    projected.setdefault('_theme_review_scope',{}).setdefault(row['theme_id'],[]).append(symbol)
-            projected['_hot100_independent_research']={
-                'schema':ATTENTION_SCHEMA,'candidates':attention['candidates'],
-                'shared_nomination_symbols':[r['symbol'] for r in sample if 'independent_attention_research' in r],
-                'hypotheses':attention_hypotheses,'plan_sha256':attention['plan_sha256'],
-                'contract':'Review every exact theme hypothesis, including Hot100 proof embedded in a shared nomination row. Each shared symbol occupies one slot, not two. All these symbols are outside formal A1: never put them in focus_decisions, reject_decisions or the rotation symbol domain. Only the original selected nomination scope may appear in model_nominations. Membership is not a catalyst/stage/entry proof. Missing theme-specific facts remain DATA_LIMITED.',
-                'execution_authority':False,'formal_candidate_ids_unchanged':True}
-        # Do not send the unbounded queue in the upstream pool projection.
-        if isinstance(values.get('UPSTREAM_ACTIVE_POOL'),Mapping):
-            values['UPSTREAM_ACTIVE_POOL']={k:v for k,v in values['UPSTREAM_ACTIVE_POOL'].items()
-                if k!='independent_research_intake'}
         values['PRIOR_OUTCOME_FEEDBACK']=adapter.method_feedback('A2',source)
         values['PENALTY_RULES']=dict(penalty_mode=frozen['policy']['penalty_mode'],
             penalty_points=frozen['policy']['penalty_points'],minimum_penalty_points=-30)
@@ -293,8 +143,6 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             dict(id='A2:MARKET',category='MARKET',sha256=_hash(values.get('MARKET_REGIME_SNAPSHOT'))),
             dict(id='A2:NEWS',category='NEWS',sha256=_hash(values.get('NEWS_HEAT_SNAPSHOT'))),
             *[dict(id='A2:QUANT:'+s,category='QUANT',sha256=_hash(projected[s])) for s in sorted(symbols)],
-            *([dict(id='A2:ATTENTION:'+r['symbol'],category='QUANT',sha256=_hash(r))
-                for r in attention['attention_evidence_candidates']] if first_attention_batch else []),
             *[dict(id='A2:NOMINATION:'+r['symbol'],category='QUANT',sha256=_hash(r)) for r in sample]])
         # Missing source is not evidence. Keep the absent catalog entry out.
         if values.get('NEWS_HEAT_SNAPSHOT') is None:
@@ -326,8 +174,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             try:
                 key=_hash(raw)
                 if key not in policy_previews:
-                    policy_previews[key]=_post_policy(raw,snapshot,upstream_output,symbols,lane_id,model,
-                        attention_hypotheses=attention_hypotheses)[0]
+                    policy_previews[key]=_post_policy(raw,snapshot,upstream_output,symbols,lane_id,model)[0]
                 return policy_previews[key]
             except (TypeError,KeyError,ValueError,AttributeError):return None
         def validate(raw):
@@ -452,8 +299,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             output=None
             if valid:
                 policy_audit={}
-                output,issues=_post_policy(effective_raw,snapshot,upstream_output,symbols,lane_id,model,
-                    policy_audit=policy_audit,attention_hypotheses=attention_hypotheses)
+                output,issues=_post_policy(effective_raw,snapshot,upstream_output,symbols,lane_id,model,policy_audit=policy_audit)
                 if policy_audit:
                     key='a2-research-policy-demotion:'+identity
                     policy_audit.update(source_call_id=call_id,audit_context_key=key)
@@ -517,27 +363,6 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             original_theme_review_domain=sorted(projected['_theme_review_scope']),
             score_snapshot_sha256=frozen['score_snapshot_sha256'],
             nomination_source=snapshot.data['_TEAM_A2_NOMINATION_FREEZE'])
-        if first_attention_batch:
-            dispositions=deepcopy(attention['dispositions'])
-            nominations=deepcopy(attention['nomination_dispositions'])
-            for item in dispositions:
-                if item['status']=='PLANNED_EXISTING_A2_CALL':
-                    item.update(status='VALIDATED_THEME_RESEARCH' if valid else 'BLOCKED_THEME_RESEARCH',
-                        team_call_ids=list(ids),input_hash=request.input_hash,
-                        reason_codes=[] if valid else list(issues))
-            nominated={r['symbol'] for r in output.get('model_nominations',())} if valid else set()
-            for item in nominations:
-                if item['status']=='PLANNED_EXISTING_A2_CALL':
-                    item.update(status='DELIVERED_IN_VALIDATED_A2_CALL' if valid else 'BLOCKED_NOMINATION_RESEARCH',
-                        team_call_ids=list(ids),input_hash=request.input_hash,model_nominated=item['symbol'] in nominated,
-                        reason_codes=[] if valid else list(issues))
-            diagnostics['independent_attention_research']=dict(plan_sha256=attention['plan_sha256'],
-                dispositions=dispositions,nomination_dispositions=nominations,sampling_plan=_sampling_audit(attention),
-                new_model_calls_authorized=False,formal_candidate_ids_unchanged=True)
-            if valid:
-                output['independent_attention_research_dispositions']=dispositions
-                output['independent_nomination_research_dispositions']=nominations
-                output['independent_research_sampling_plan']=_sampling_audit(attention)
         from .early_discovery import finalize_a2_discovery_review
         discovery_audit=finalize_a2_discovery_review(snapshot.data,upstream_output,symbols=symbols,
             status='VALIDATED' if valid else 'BLOCKED',call_ids=ids,input_hash=request.input_hash)

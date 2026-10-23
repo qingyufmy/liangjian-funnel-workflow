@@ -1374,7 +1374,6 @@ class WorkflowApplication:
                 market_as_of=market_current,
                 research_as_of=current,
                 included_fact_as_of=hithink_manifest.as_of,
-                closed_session=closed_session_source_date is not None,
             )
             current = max(current, hithink_manifest.as_of)
             def sync_progress(event: Mapping[str, Any]) -> None:
@@ -10447,23 +10446,17 @@ def _advance_live_market_cutoff(
     market_as_of: datetime,
     research_as_of: datetime,
     included_fact_as_of: datetime,
-    closed_session: bool = False,
 ) -> datetime:
     """Advance a same-session live cutoff to the latest included event.
 
     A request-start timestamp is not a valid upper bound for facts returned a
     few seconds later. Historical and next-session runs retain their explicit
     completed-session cutoff; only a live same-date collection may advance.
-    Same-date post-close preparation is also closed, not an intraday request.
     """
 
     market = _aware(market_as_of)
     research = _aware(research_as_of)
     included = _aware(included_fact_as_of)
-    if type(closed_session) is not bool:
-        raise ValueError("CLOSED_SESSION_INTENT_INVALID")
-    if closed_session:
-        return market
     if market.date() == research.date() == included.date():
         return max(market, included)
     return market

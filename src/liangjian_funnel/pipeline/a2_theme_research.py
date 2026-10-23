@@ -13,133 +13,6 @@ from datetime import datetime
 from .feature_store import content_hash
 
 SCHEMA = 'a2-independent-theme-research/1'
-ATTENTION_SCHEMA = 'a2-hot100-independent-intake/1'
-
-
-def hot100_research_intake(output, snapshot, g0, *, hard_risks):
-    """Freeze attention leads separately from every formal A1 partition.
-
-    This establishes only a dated taxonomy research question. It is neither a
-    fundamental admission nor evidence of a catalyst, stage, shape or entry.
-    """
-    from ..data.hot100_observation import observe_snapshot_hot100, snapshot_decision_as_of
-    from .emotion_theme import bind_emotion_themes
-    observation = observe_snapshot_hot100(snapshot)
-    if not observation.complete:
-        return dict(schema=ATTENTION_SCHEMA, candidates=[], dispositions=[],
-            source_health=observation.health(), execution_authority=False)
-    capture = datetime.fromisoformat(snapshot_decision_as_of(snapshot))
-    usable = dict(snapshot)
-    membership_proofs = {}
-    for taxonomy in ('INDUSTRY', 'CONCEPT'):
-        key = 'THS_' + taxonomy + '_MEMBERSHIP'
-        source = snapshot.get(key)
-        valid = (isinstance(source, Mapping) and source.get('available') is True
-            and isinstance(source.get('content_hash'), str) and len(source['content_hash']) == 64
-            and all(c in '0123456789abcdef' for c in source['content_hash']))
-        clocks = {}
-        if valid:
-            for field in ('as_of', 'event_time', 'fetch_time', 'ingest_time', 'publish_time'):
-                if source.get(field) is None:
-                    continue
-                try:
-                    stamp = datetime.fromisoformat(source[field])
-                    valid = valid and stamp.tzinfo is not None and stamp.utcoffset() is not None and stamp <= capture
-                    clocks[field] = stamp.isoformat()
-                except (TypeError, ValueError):
-                    valid = False
-            valid = valid and bool(clocks) and isinstance(source.get('records'), (list, tuple))
-        if not valid:
-            usable[key] = {}
-            continue
-        membership_proofs[taxonomy] = dict(source_id=source.get('source_id'),
-            declared_content_hash=source.get('content_hash'), frozen_source_sha256=content_hash(source), clocks=clocks)
-    symbols = {row['symbol'] for row in observation.records}
-    bindings = bind_emotion_themes(output, usable, symbols)
-    partitions = {}
-    original_rows = {}
-    for partition in ('active_research_pool', 'monitor_pool', 'rejected_candidates'):
-        for row in output.get(partition, ()):
-            if isinstance(row, Mapping) and row.get('symbol') in symbols:
-                partitions[row['symbol']] = partition
-                original_rows[row['symbol']] = row
-    candidates, dispositions = [], []
-    for hot in observation.records:
-        symbol = hot['symbol']
-        partition = partitions.get(symbol, 'NOT_IN_MONTHLY_OUTPUT')
-        if partition == 'active_research_pool':
-            continue
-        binding = bindings[symbol]
-        reason = ('OUTSIDE_FROZEN_G0' if symbol not in g0 else
-            hard_risks.get(symbol) or ('A1_EMOTION_MAJOR_RISK' if original_rows.get(symbol, {}).get('hard_risk_events') else None))
-        if reason is None and not binding.get('research_resolved'):
-            reason = 'DATED_EXACT_THEME_MEMBERSHIP_UNPROVEN'
-        body = dict(schema=ATTENTION_SCHEMA, symbol=symbol, hot100_rank=hot['rank'],
-            source_trade_date=observation.trade_date, capture_as_of=capture.isoformat(),
-            source_health=observation.health(), original_a1_partition=partition,
-            formal_a1_member=False, execution_authority=False, execution_permission='BLOCKED',
-            confirms_catalyst=False, confirms_theme_stage=False,
-            theme_research_binding=deepcopy(binding),
-            membership_sources={taxonomy: membership_proofs[taxonomy]
-                for taxonomy in sorted({m['taxonomy'] for m in binding.get('matches', ())})},
-            status='DEFERRED_A2_RESEARCH_BUDGET' if reason is None else 'INELIGIBLE',
-            reason_codes=[] if reason is None else [reason])
-        body['candidate_id'] = content_hash(body)
-        dispositions.append(body)
-        if reason is None:
-            candidates.append(body)
-    return dict(schema=ATTENTION_SCHEMA, source_health=observation.health(), candidates=candidates,
-        dispositions=dispositions, execution_authority=False,
-        formal_a1_partitions_changed=False, new_model_calls_authorized=False)
-
-
-def attention_theme_hypotheses(candidates):
-    """Reuse exact route validation without pretending attention passed A1/A2."""
-    result = {}
-    for candidate in candidates:
-        symbol = candidate['symbol']
-        binding = candidate['theme_research_binding']
-        for route in _exact_theme_routes(symbol, binding):
-            body = dict(schema=SCHEMA, symbol=symbol, theme_id=route['theme_id'],node_id=route['node_id'],
-                decision_id=candidate['candidate_id'], as_of=candidate['capture_as_of'],
-                evidence=deepcopy(route['evidence']),membership_source_hash=binding['source_hash'],
-                monthly_primary_theme_id=None, origin='HOT100_ATTENTION_RESEARCH_ONLY',
-                formal_a1_member=False,execution_authority=False,confirms_catalyst=False,confirms_theme_stage=False)
-            body['hypothesis_id'] = content_hash(body)
-            result.setdefault(symbol, []).append(body)
-    return result
-
-
-def _exact_theme_routes(symbol, binding):
-    """Only route proof is shared; formal eligibility is not synthesized."""
-    if not isinstance(binding, Mapping) or binding.get('research_resolved') is not True:
-        return []
-    if (binding.get('schema_version') != 'emotion-theme-binding/1.1.0'
-            or not isinstance(binding.get('matches'), list)
-            or binding.get('source_hash') != content_hash({'symbol': symbol, 'matches': binding['matches']})):
-        return []
-    known_memberships = {content_hash(e) for e in binding['matches'] if isinstance(e, Mapping)}
-    # Frozen older bindings retain their original routes, not invented proof.
-    routes = binding.get('research_candidate_routes', binding.get('candidate_routes'))
-    if not isinstance(routes, list):
-        return []
-    result, seen = [], set()
-    for route in routes:
-        if not isinstance(route, Mapping):
-            continue
-        theme, node, evidence = route.get('theme_id'), route.get('node_id'), route.get('evidence')
-        if not isinstance(theme, str) or not theme or not isinstance(node, str) or not node:
-            continue
-        if not isinstance(evidence, list) or not evidence or any(
-            not isinstance(e, Mapping) or e.get('theme_id') != theme or e.get('node_id') != node
-            or e.get('match_method') != 'MATURE_THEME_REGISTRY_EXACT_NAME'
-            or e.get('taxonomy') not in ('INDUSTRY', 'CONCEPT') or not e.get('taxonomy_code')
-            or content_hash(e) not in known_memberships for e in evidence
-        ) or (theme, node) in seen:
-            continue
-        seen.add((theme, node))
-        result.append(route)
-    return result
 
 
 def theme_hypotheses(contexts, symbols):
@@ -163,9 +36,38 @@ def theme_hypotheses(contexts, symbols):
         except (KeyError, TypeError, ValueError):
             continue
         binding = row.get('theme_research_binding') or row.get('emotion_theme_binding')
-        for route in _exact_theme_routes(symbol, binding):
+        if not isinstance(binding, Mapping) or binding.get('research_resolved') is not True:
+            continue
+        if (binding.get('schema_version') != 'emotion-theme-binding/1.1.0'
+                or not isinstance(binding.get('matches'), list)
+                or binding.get('source_hash') != content_hash({'symbol': symbol, 'matches': binding['matches']})):
+            continue
+        known_memberships = {content_hash(e) for e in binding['matches'] if isinstance(e, Mapping)}
+        # New bindings distinguish stable primary identity from the complete
+        # evidence-bound research vocabulary. Frozen older bindings retain
+        # their original candidate set; do not synthesize missing proof.
+        routes = binding.get('research_candidate_routes', binding.get('candidate_routes'))
+        if not isinstance(routes, list):
+            continue
+        seen = set()
+        for route in routes:
+            if not isinstance(route, Mapping):
+                continue
             theme, node = route.get('theme_id'), route.get('node_id')
             evidence = route.get('evidence')
+            if not isinstance(theme, str) or not theme or not isinstance(node, str) or not node:
+                continue
+            if not isinstance(evidence, list) or not evidence or any(
+                not isinstance(e, Mapping) or e.get('theme_id') != theme or e.get('node_id') != node
+                or e.get('match_method') != 'MATURE_THEME_REGISTRY_EXACT_NAME'
+                or e.get('taxonomy') not in ('INDUSTRY', 'CONCEPT') or not e.get('taxonomy_code')
+                or content_hash(e) not in known_memberships
+                for e in evidence
+            ):
+                continue
+            if (theme, node) in seen:
+                continue
+            seen.add((theme, node))
             body = dict(schema=SCHEMA, symbol=symbol, theme_id=theme, node_id=node,
                 decision_id=row['decision_id'], as_of=row['as_of'],
                 evidence=deepcopy(evidence), membership_source_hash=binding.get('source_hash'),
@@ -176,11 +78,9 @@ def theme_hypotheses(contexts, symbols):
     return result
 
 
-def add_unscored_theme_hypotheses(frozen, contexts, *, additional_hypotheses=None):
+def add_unscored_theme_hypotheses(frozen, contexts):
     """Keep old numerical populations intact; add no invented factor values."""
     hypotheses = theme_hypotheses(contexts, frozen['review_symbols'])
-    if additional_hypotheses:
-        hypotheses = {**hypotheses, **deepcopy(additional_hypotheses)}
     if not hypotheses:
         return frozen
     result = deepcopy(frozen)
@@ -204,11 +104,9 @@ def add_unscored_theme_hypotheses(frozen, contexts, *, additional_hypotheses=Non
     return result
 
 
-def independent_theme_reviews(output, contexts, symbols, *, additional_hypotheses=None):
+def independent_theme_reviews(output, contexts, symbols):
     """Preserve every batch's dated theme review before ordinary de-duplication."""
     hypotheses = theme_hypotheses(contexts, symbols)
-    if additional_hypotheses:
-        hypotheses = {**hypotheses, **additional_hypotheses}
     reviews = []
     for raw in output.get('active_themes', ()):
         if not isinstance(raw, Mapping):
