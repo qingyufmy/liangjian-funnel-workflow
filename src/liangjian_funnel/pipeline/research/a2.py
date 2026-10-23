@@ -366,6 +366,21 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
         row = result.get(symbol, {})
         if row.get("a1_theme_id"):
             theme_scope.setdefault(str(row["a1_theme_id"]), []).append(symbol)
+    from ..a2_theme_research import theme_hypotheses
+    hypotheses = theme_hypotheses(value, symbols)
+    for symbol, rows in hypotheses.items():
+        result[symbol]["independent_theme_hypotheses"] = rows
+        for row in rows:
+            members = theme_scope.setdefault(row["theme_id"], [])
+            if symbol not in members:
+                members.append(symbol)
+    if hypotheses:
+        result["_independent_theme_research_contract"] = {
+            "schema": "a2-independent-theme-research/1",
+            "rule": "Review every frozen theme separately, including non-primary memberships. Do not copy the market cycle or a stock's monthly primary theme stage. Membership alone proves neither a catalyst nor strength. Keep missing theme-specific facts explicit.",
+            "execution_authority": False,
+            "top8_flow_policy_unchanged": True,
+        }
     if theme_scope:
         result["_theme_review_scope"] = theme_scope
     return result
@@ -861,6 +876,11 @@ def _expand_a2_compact_output(
         theme_inputs = {str(key): value for key, value in context.items()
                         if isinstance(value, Mapping)
                         and value.get("theme_id") == raw.get("theme_id")}
+        from ..a2_theme_research import theme_hypotheses
+        for symbol, hypotheses in theme_hypotheses(context, expected).items():
+            matching = [h for h in hypotheses if h['theme_id'] == raw.get('theme_id')]
+            if matching and symbol not in theme_inputs:
+                theme_inputs[symbol] = {"independent_theme_hypotheses": matching}
         reference = snapshot_data.get("A2_MARKET_REFERENCE")
         observed = str(reference.get("market_trade_date") or "") if isinstance(reference, Mapping) else ""
         if theme_inputs and re.fullmatch(r"\d{4}-\d{2}-\d{2}", observed):
@@ -1593,6 +1613,9 @@ def _apply_a2_lineage_policy(
                     allowed_theme_ids.add(theme_id)
     raw_contexts = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
     if isinstance(raw_contexts, Mapping):
+        from ..a2_theme_research import theme_hypotheses
+        for hypotheses in theme_hypotheses(raw_contexts, upstream_symbols).values():
+            allowed_theme_ids.update(row['theme_id'] for row in hypotheses)
         for raw_symbol, raw_context in raw_contexts.items():
             symbol = _first_symbol(raw_symbol)
             if symbol not in upstream_symbols or not isinstance(raw_context, Mapping):
@@ -2040,6 +2063,7 @@ def _with_a2_bottleneck_context(
             "research_only_reason": item.get("research_only_reason"),
             "execution_permission": item.get("execution_permission"),
             "emotion_theme_binding": item.get("emotion_theme_binding"),
+            "theme_research_binding": item.get("theme_research_binding"),
             "trend_core_eligible": item.get("trend_core_eligible") is True,
             "trend_pre_rotation_eligible": item.get("trend_pre_rotation_eligible") is True,
             "ROTATION_GATE_EMPTY": item.get("ROTATION_GATE_EMPTY") is True,

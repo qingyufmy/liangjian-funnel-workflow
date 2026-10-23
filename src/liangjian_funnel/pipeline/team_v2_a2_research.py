@@ -18,6 +18,7 @@ from .team_v2_a1_research import _hash
 from .team_v2_research_time import research_times
 from .team_v2_a2_recovery import bind_a2_retry_feedback, drop_focused_rotation, validation_feedback
 from .team_v2_prompts import _VERSIONS as PROMPT_VERSIONS
+from .a2_theme_research import add_unscored_theme_hypotheses, independent_theme_reviews
 
 
 def directory_reference_feedback(raw,catalog,issues,*,nomination_sample=()):
@@ -60,12 +61,14 @@ def prepare_a2_snapshot(adapter,snapshot,symbols):
         if not set(symbols)<=set(existing['review_symbols']):raise ValueError('TEAM_A2_GLOBAL_DOMAIN_MISMATCH')
         expected=freeze_theme_scores(legacy._jsonable(snapshot.data),review_symbols=set(existing['review_symbols']),
             weights=config['score_weights'],policy=config['team_theme_score_policy'],source_snapshot_sha256=snapshot.snapshot_hash)
+        expected=add_unscored_theme_hypotheses(expected,snapshot.data['A2_BOTTLENECK_CONTEXT'])
         if expected!=existing:raise ValueError('TEAM_A2_FROZEN_SOURCE_MISMATCH')
         return prepare_nomination_source(snapshot,set(existing['review_symbols']))
     # The caller supplies the complete quantitative review domain before any
     # transport split. Membership is not reconstructed from model FOCUS.
     frozen=freeze_theme_scores(legacy._jsonable(snapshot.data),review_symbols=set(symbols),
         weights=config['score_weights'],policy=config['team_theme_score_policy'],source_snapshot_sha256=snapshot.snapshot_hash)
+    frozen=add_unscored_theme_hypotheses(frozen,snapshot.data['A2_BOTTLENECK_CONTEXT'])
     return prepare_nomination_source(replace(snapshot,data={**snapshot.data,'_TEAM_A2_SCORE_FREEZE':frozen}),set(symbols))
 
 
@@ -88,6 +91,7 @@ def _post_policy(raw,snapshot,upstream_output,symbols,lane_id,model,*,policy_aud
     output,_=legacy._canonicalize_stage_lineage(output,'A2',upstream_output,snapshot.data)
     output,_=legacy._enrich_a2_decision_facts(output,snapshot.data)
     output=legacy._refresh_analysis_counts(legacy._annotate_a2_pool_target(output,snapshot.data),'A2')
+    output['independent_theme_reviews']=independent_theme_reviews(output,snapshot.data['A2_BOTTLENECK_CONTEXT'],symbols)
     from .team_v2_a2_normalization import complete_server_policy_demotions
     directions=legacy._project_a2_bottleneck_context(snapshot.data['A2_BOTTLENECK_CONTEXT'],symbols)['_rotation_review_scope']
     completion=complete_server_policy_demotions(output,provider_raw=raw,direction_members=directions)

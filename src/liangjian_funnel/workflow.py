@@ -7380,6 +7380,16 @@ class WorkflowApplication:
                     permission_context = permission_context.get(symbol, {}) if isinstance(permission_context, Mapping) else {}
                     strategy = str(raw.get("strategy_profile") or "").upper()
                     authority = upstream_permissions.get(symbol) or permission_context
+                    # Researching another evidence-bound theme must not use
+                    # an otherwise valid monthly A2 permission to publish an
+                    # entry under that still-unconfirmed thematic identity.
+                    technical_evidence = raw.get('deterministic_technical_evidence') or {}
+                    if (raw.get('research_only_reason') == 'A3_INDEPENDENT_THEME_RESEARCH_ONLY'
+                            or (isinstance(technical_evidence, Mapping)
+                                and technical_evidence.get('independent_theme_research_selection'))):
+                        blocked.append({'lane': lane.lane, 'symbol': symbol or '-',
+                            'reason': 'A3_INDEPENDENT_THEME_RESEARCH_ONLY'})
+                        continue
                     scoped_permission = route_execution_permission(authority, strategy)
                     emotion_snapshot = snapshot_data.get("MARKET_EMOTION_SNAPSHOT") or {}
                     emotion_blocked = (strategy == "LEADER_INTRADAY" and raw.get("stock_behavior_type") == "EMOTION" and isinstance(emotion_snapshot, Mapping)

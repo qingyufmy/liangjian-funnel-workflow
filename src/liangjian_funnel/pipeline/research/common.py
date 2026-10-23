@@ -5127,6 +5127,7 @@ _A3_REVIEW_FACT_FIELDS = (
     "daily_macd_short_evidence", "daily_volume_evidence",
     "higher_timeframe_risk",
     "market_risk_context", "distribution", "overextended",
+    "independent_theme_research_selection", "independent_theme_research_checks",
     "price_contract_available", "one_price_locked",
 )
 
@@ -6058,6 +6059,7 @@ def _gate_item_from_decision(
             "research_only_reason": decision.get("research_only_reason"),
             "execution_permission": decision.get("execution_permission"),
             "emotion_theme_binding": decision.get("emotion_theme_binding"),
+            "theme_research_binding": decision.get("theme_research_binding"),
             "trend_core_eligible": decision.get("trend_core_eligible") is True,
             "eastmoney_hot100": dict(decision.get("eastmoney_hot100") or {}),
             "channel_source_health": dict(decision.get("channel_source_health") or {}),
@@ -7154,6 +7156,7 @@ def _canonicalize_stage_lineage(
                 canonical["research_only_reason"] = context.get("research_only_reason")
                 canonical["execution_permission"] = context.get("execution_permission")
                 canonical["emotion_theme_binding"] = context.get("emotion_theme_binding")
+                canonical["theme_research_binding"] = context.get("theme_research_binding")
                 canonical["trend_core_eligible"] = context.get("trend_core_eligible") is True
                 canonical["ROTATION_GATE_EMPTY"] = context.get("ROTATION_GATE_EMPTY") is True
                 canonical["trend_pre_rotation_eligible"] = context.get("trend_pre_rotation_eligible") is True
@@ -7225,6 +7228,7 @@ def _canonicalize_stage_lineage(
                         "daily_close", "daily_moving_averages", "previous_moving_averages",
                         "daily_state", "theme_stage", "trend_paths", "ma520_right_side",
                         "condition_details", "overextended", "distribution", "one_price_locked",
+                        "independent_theme_research_selection", "independent_theme_research_checks",
                     ) if key in strategy_facts
                 }
                 canonical["deterministic_reason_codes"] = list(technical_context.get("reason_codes") or ())

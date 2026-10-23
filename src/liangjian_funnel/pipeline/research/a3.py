@@ -250,6 +250,35 @@ def _a3_watch_only_candidate_eligible(item: Mapping[str, Any]) -> bool:
     return _a3_candidate_eligible(item, origin="WATCH_ONLY")
 
 
+def _a3_independent_trend_review_eligible(item: Mapping[str, Any]) -> bool:
+    """Recognize A2's explicit independent-trend handoff, not entry permission.
+
+    The producer uses this scope for fundamental-A1 trend observations outside
+    the leading boards.  It differs from the older rotation-reserve scope,
+    whose downstream NO_AUTOMATIC_ENTRY semantics must remain unchanged.
+    All ordinary A3 data, route and technical checks still apply afterward.
+    """
+    if not (
+        str(item.get("stock_behavior_type") or item.get("behavior_type") or "").strip().upper() == "TREND"
+        and item.get("strong_trend_observation") is True
+        and item.get("independent_strategy_review") is True
+        and item.get("research_observation_scope") == "REQUIRES_A3_A4_CONFIRMATION"
+    ):
+        return False
+    qualifications = item.get("research_route_qualifications")
+    permissions = item.get("route_permission")
+    if not isinstance(qualifications, Mapping) or not isinstance(permissions, Sequence) or isinstance(
+        permissions, (str, bytes, bytearray)
+    ):
+        return False
+    return any(
+        route in permissions
+        and isinstance(qualifications.get(route), Mapping)
+        and qualifications[route].get("eligible") is True
+        for route in ("TREND_MA5", "MA520_SWING")
+    )
+
+
 def _a3_candidate_eligible(item: Mapping[str, Any], *, origin: str) -> bool:
     behavior_value = str(
         item.get("stock_behavior_type")
@@ -268,6 +297,7 @@ def _a3_candidate_eligible(item: Mapping[str, Any], *, origin: str) -> bool:
     # channel.  Emotion rows are sourced independently from Eastmoney Hot100.
     if (behavior_value != "EMOTION" and item.get("top_rotation_theme") is False
             and not _is_rotation_reserve(item)
+            and not _a3_independent_trend_review_eligible(item)
             and not (item.get("ROTATION_GATE_EMPTY") is True
                      and item.get("trend_pre_rotation_eligible") is True)):
         return False
@@ -398,9 +428,16 @@ def _apply_a3_candidate_origin_policy(
             item["research_observation_scope"] = contexts[symbol].get("research_observation_scope", "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY")
         from ..a2_role_logic import route_execution_permission
         permission = route_execution_permission(contexts.get(symbol, {}), str(item.get("strategy_profile") or ""))
+        technical = snapshot_data.get('A3_DETERMINISTIC_CONTEXT', {}).get(symbol, {})
+        if technical.get('strategy_facts', {}).get('independent_theme_research_selection'):
+            permission = 'BLOCKED'
+            item['research_only_reason'] = 'A3_INDEPENDENT_THEME_RESEARCH_ONLY'
+            item['research_observation_scope'] = 'RESEARCH_ONLY_NO_AUTOMATIC_ENTRY'
         if permission is not None:
             item["execution_permission"] = permission
-            item["research_only_reason"] = contexts[symbol].get("research_only_reason") if permission == "BLOCKED" else None
+            item["research_only_reason"] = (
+                'A3_INDEPENDENT_THEME_RESEARCH_ONLY' if technical.get('strategy_facts', {}).get('independent_theme_research_selection')
+                else contexts.get(symbol, {}).get("research_only_reason") if permission == "BLOCKED" else None)
         origin = origins.get(symbol) or str(item.get("candidate_origin") or "FOCUS").strip().upper()
         # Unknown/malformed origins are not allowed to become a new routing
         # class.  Treat old responses without the additive field as FOCUS;
@@ -1154,4 +1191,5 @@ def _a3_decision_evidence_gaps(
 
 
 _MOVED_NAMES = ('_run_a3_batched', '_project_a3_deterministic_context', '_project_a3_gate_results', '_build_a3_candidate_domain', '_a3_watch_only_candidate_eligible', '_a3_candidate_eligible', '_apply_a3_candidate_origin_policy', '_a3_origin_only_veto_reasons', '_a3_prior_market_only_veto_reasons', '_a3_semantic_price_reasons', '_a3_secondary_probe_contract_reasons', '_apply_a3_pool_limits', '_validate_a3_provenance', '_a3_factor_contract_reasons', '_canonicalize_a3_price_fields', '_with_a3_candidate_context', '_a3_contract_scenarios', '_with_a3_deterministic_context', '_a3_decision_evidence_gaps')
+_MOVED_NAMES += ('_a3_independent_trend_review_eligible',)
 _METHOD_BINDINGS = {'_run_a3_batched': 'ResearchPipeline._run_a3_batched'}

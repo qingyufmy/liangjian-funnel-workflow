@@ -33,7 +33,7 @@ from .factors import a3_factor_contract_reasons
 
 PIPELINE_MODE = "deterministic_v2"
 FEATURE_VERSION = "deterministic-features/2.5.0"
-A2_EVIDENCE_HANDOFF_VERSION = "a2-evidence-handoff/1.0.0"
+A2_EVIDENCE_HANDOFF_VERSION = "a2-evidence-handoff/2.0.0"
 _A1_DEFAULT_WEIGHTS: dict[str, float] = {
     "structural_theme": 0.20,
     "business_mapping": 0.20,
@@ -1053,6 +1053,8 @@ def screen_a2(
         raise ValueError("A2 Top-N value must be positive")
 
     rows = [repair_cached_primary_mapping(row) for row in _mapping_list(a1_output.get("active_research_pool"))]
+    from .emotion_theme import bind_emotion_themes
+    theme_research_bindings = bind_emotion_themes(a1_output, snapshot, {_symbol(row.get('symbol')) for row in rows})
     candidates = _candidate_map(snapshot)
     # A2 is fed by its own materialized feature contract.  The legacy
     # FACTOR_SNAPSHOT is the technical/A3 projection and is only a fallback
@@ -1791,6 +1793,7 @@ def screen_a2(
             "business_exposure_facts": item.get("business_exposure_facts", []),
             "research_route": upstream_research_route or None,
             "emotion_theme_binding": item.get("emotion_theme_binding"),
+            "theme_research_binding": theme_research_bindings.get(symbol),
             "downstream_trade_eligible": item.get("downstream_trade_eligible", True) is True,
             "hard_risk_events": [
                 *(
@@ -3761,7 +3764,14 @@ def _market_core_route_result(
     }
     theme_binding = item.get("emotion_theme_binding")
     if isinstance(theme_binding, Mapping) and theme_binding.get("resolved") is False:
-        if (research_route == "DAILY_EMOTION_OVERLAY" and theme_binding.get("research_resolved") is True
+        # A monthly A1 member can also carry today's validated attention
+        # overlay. Its preserved fundamental research_route must not make the
+        # same evidence-backed alternatives look like absent membership.
+        # This opens research only; requires_theme_selection still produces
+        # A2_EMOTION_THEME_SELECTION_REQUIRED / execution_permission=BLOCKED.
+        if ((research_route == "DAILY_EMOTION_OVERLAY"
+                or (research_route_qualified and item.get("emotion_attention_eligible") is True))
+                and theme_binding.get("research_resolved") is True
                 and theme_binding.get("candidate_routes")):
             diagnostics.append("A2_EMOTION_THEME_SELECTION_REQUIRED")
         else:
@@ -4608,6 +4618,28 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             as_of=reference_close_as_of,
         ).model_dump(mode="json")
         strategy["strategy_facts"]["a2_theme_stage_binding"] = theme_stage_binding
+        from .a2_theme_research import evaluate_theme_hypotheses
+        checks, qualified_themes = evaluate_theme_hypotheses(
+            item, context, a2_output.get('independent_theme_reviews', []),
+            expected_trade_date=market_trade_date,
+            bind_stage=_a3_candidate_with_theme_stage,
+            evaluate=lambda candidate, research_context: evaluate_a3_strategy(
+                candidate, factor=factor, price_levels=price_level, tradability=flags,
+                kline=kline, a2_context=research_context, market_regime=market_regime or None,
+                sector_permission=sector_permission or None, market_emotion=market_emotion,
+                market_funding=market_funding, as_of=reference_close_as_of).model_dump(mode='json'))
+        if checks:
+            if strategy.get('eligibility') != 'QUALIFIED' and qualified_themes:
+                hypothesis, strategy, theme_stage_binding = qualified_themes[0]
+                strategy['execution_permission'] = 'BLOCKED'
+                strategy['research_only_reason'] = 'A3_INDEPENDENT_THEME_RESEARCH_ONLY'
+                strategy['research_observation_scope'] = 'RESEARCH_ONLY_NO_AUTOMATIC_ENTRY'
+                strategy['strategy_facts']['independent_theme_research_selection'] = {
+                    'hypothesis_id': hypothesis['hypothesis_id'], 'theme_id': hypothesis['theme_id'],
+                    'monthly_primary_theme_id': item.get('theme_id') or item.get('primary_theme'),
+                    'execution_authority': False}
+                strategy['strategy_facts']['a2_theme_stage_binding'] = theme_stage_binding
+            strategy['strategy_facts']['independent_theme_research_checks'] = checks
         eligibility = str(strategy["eligibility"])
         minimum_reward_risk = _number(snapshot.get("MIN_REWARD_RISK")) or 2.0
         maximum_stop_distance = _number(snapshot.get("MAX_STOP_DISTANCE")) or 0.06

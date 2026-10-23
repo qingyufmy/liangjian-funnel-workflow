@@ -1,14 +1,17 @@
 from copy import deepcopy
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from test_deterministic_pipeline_v2 import _complete_hot100_fixture
+from test_deterministic_pipeline_v2 import (
+    _complete_hot100_fixture, _complete_a2_factor_scores, _snapshot, NOW,
+)
 
 from liangjian_funnel.pipeline.emotion_theme import bind_emotion_themes
 from liangjian_funnel.pipeline.research import _with_daily_emotion_overlay
 from liangjian_funnel.pipeline.factors import FactorEngine
 from liangjian_funnel.pipeline.a3_strategy import _macd
-from liangjian_funnel.pipeline.deterministic import DeterministicGateResult, _market_core_route_result
+from liangjian_funnel.pipeline.deterministic import DeterministicGateResult, _market_core_route_result, screen_a2
 from liangjian_funnel.workflow import _compact_factor
+import pytest
 
 
 def inputs():
@@ -88,6 +91,89 @@ def test_missing_membership_does_not_infer_from_stock_name():
     route = _market_core_route_result(result["active_research_pool"][0], 90, 60, {}, {}, False, .65)
     assert "A1_THEME_MISSING" in route["missing_reason_codes"]
     assert route["eligible"] is False
+
+
+@pytest.mark.parametrize("research_route", ["HALF_YEAR_FUNDAMENTAL", "DAILY_EMOTION_OVERLAY"])
+def test_proven_ambiguous_attention_theme_is_selection_work_not_missing_data(research_route):
+    output, snapshot = inputs()
+    output["taxonomy_links"].append({**output["taxonomy_links"][0], "theme_id": "SECOND"})
+    result, _ = _with_daily_emotion_overlay(output, snapshot, {"000912.SZ"})
+    item = result["active_research_pool"][0]
+    item["research_route"] = research_route
+    assert item["emotion_theme_binding"]["requires_theme_selection"] is True
+    assert item["emotion_theme_binding"]["research_resolved"] is True
+    facts = {key: {"available": True, "score": 80} for key in
+             ("breadth", "turnover_share", "leader_structure")}
+    route = _market_core_route_result(item, 90, 60, facts, {}, False, .65)
+    # The standalone helper leaves the overlay-only business exemption to
+    # screen_a2, exactly as before. Neither route may call ambiguity absence.
+    assert route["eligible"] is (research_route == "HALF_YEAR_FUNDAMENTAL")
+    assert set(route["missing_reason_codes"]) == (
+        {"A1_BUSINESS_EVIDENCE_MISSING"} if research_route == "DAILY_EMOTION_OVERLAY" else set())
+    assert route["bottleneck_status"] == "NOT_REQUIRED_FOR_MARKET_CORE"
+    assert "A2_EMOTION_THEME_SELECTION_REQUIRED" in route["diagnostic_reason_codes"]
+    assert "A1_THEME_MISSING" not in route["missing_reason_codes"]
+    assert "A1_CHAIN_NODE_MISSING" not in route["missing_reason_codes"]
+    assert item["research_route"] == research_route
+    assert not item["emotion_theme_binding"]["resolved"]  # no arbitrary theme selection
+
+
+@pytest.mark.parametrize("defect", ["no_attention", "no_membership", "no_candidates", "no_market_facts"])
+def test_monthly_attention_ambiguity_exception_keeps_real_gaps_closed(defect):
+    output, snapshot = inputs()
+    output["taxonomy_links"].append({**output["taxonomy_links"][0], "theme_id": "SECOND"})
+    item = _with_daily_emotion_overlay(output, snapshot, {"000912.SZ"})[0]["active_research_pool"][0]
+    facts = {key: {"available": True, "score": 80} for key in
+             ("breadth", "turnover_share", "leader_structure")}
+    if defect == "no_attention":
+        item.pop("emotion_attention_eligible")
+    elif defect == "no_membership":
+        item["emotion_theme_binding"]["research_resolved"] = False
+    elif defect == "no_candidates":
+        item["emotion_theme_binding"]["candidate_routes"] = []
+    else:
+        facts = {}
+    assert _market_core_route_result(item, 90, 60, facts, {}, False, .65)["eligible"] is False
+
+
+@pytest.mark.parametrize("research_route", ["HALF_YEAR_FUNDAMENTAL", "DAILY_EMOTION_OVERLAY"])
+def test_ambiguous_attention_reaches_a2_review_but_cannot_grant_execution(research_route):
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["EASTMONEY_HOT100_SNAPSHOT"] = _complete_hot100_fixture([
+        {"symbol": symbol, "rank": 1}])
+    snapshot["SELECTED_BOARD_SNAPSHOT"] = {"available": True, "by_symbol": {}}
+    snapshot["MARKET_EMOTION_SNAPSHOT"] = {
+        "available": True, "emotion_cycle_stage": "ICE_POINT", "new_long_permission": "NO_NEW_ENTRY"}
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {"available": False, "by_symbol": {}}
+    link = dict(theme_id="ROBOTICS_ADVANCED_MANUFACTURING", node_id="robot-core",
+        taxonomy="CONCEPT", taxonomy_code="885517.TI", taxonomy_name="机器人概念",
+        match_method="MATURE_THEME_REGISTRY_EXACT_NAME")
+    snapshot["THS_CONCEPT_MEMBERSHIP"] = {"records": [{"symbol": symbol, "memberships": [
+        {"concept_thscode": "885517.TI", "concept_name": "机器人概念"}]}]}
+    snapshot["THS_INDUSTRY_MEMBERSHIP"] = {}
+    facts = _complete_a2_factor_scores(90)
+    facts["tier_structure"] = dict(score=90, available=True, availability_state="OBSERVED_VALUE",
+        ladder_height=1, first_board_observed=True, event_source="HITHINK_LIMIT_UP_POOL")
+    item = dict(symbol=symbol, candidate_id="a1:"+symbol, status="ACTIVE",
+        primary_theme="ROBOTICS_ADVANCED_MANUFACTURING", industry_chain_node="robot-core",
+        research_route=research_route, selection_basis=research_route,
+        a2_factor_scores=facts, data_quality_score=90)
+    upstream = {"active_research_pool": [item], "taxonomy_links": [link, {**link,
+        "theme_id": "SECOND", "node_id": "second-core"}]}
+    upstream, _ = _with_daily_emotion_overlay(upstream, snapshot, {symbol})
+    original = deepcopy(upstream)
+    gate = screen_a2(snapshot, upstream, minimum_identifiability_score=0, review_all_eligible=True)
+    decision = next(r for r in gate.decisions if r["symbol"] == symbol)
+    assert decision["status"] == "REVIEW_CANDIDATE"
+    assert symbol in gate.review_symbols
+    assert decision["stock_behavior_type"] == "EMOTION"
+    assert decision["execution_permission"] == "BLOCKED"
+    assert decision["research_only_reason"] == "A2_EMOTION_THEME_SELECTION_REQUIRED"
+    assert decision["route_eligibility"]["MARKET_CORE"]["eligible"] is True
+    assert decision["route_eligibility"]["SUPPLY_CHAIN_ALPHA"]["eligible"] is False
+    assert "A2_DATA_GAP" not in decision["reason_codes"]
+    assert upstream == original
 
 
 def test_source_degradation_does_not_discard_healthy_trend_route():
