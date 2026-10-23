@@ -25,7 +25,8 @@ def _relative(row):
     return number if number.is_finite() and 0<=number<=100 else None
 
 
-def prepare_nomination_source(snapshot,review_symbols):
+def nomination_source_candidates(snapshot,review_symbols):
+    """Pure full queue for the approved shared budget; old ranking unchanged."""
     from .research.common import _jsonable
     contexts=snapshot.data.get('A2_BOTTLENECK_CONTEXT')
     if not isinstance(contexts,Mapping):raise ValueError('TEAM_A2_NOMINATION_SOURCE_INVALID')
@@ -55,11 +56,18 @@ def prepare_nomination_source(snapshot,review_symbols):
             scope='RESEARCH_ONLY_NOT_A3_OR_EXECUTION'))
     sample.sort(key=lambda r:(not r['selected_board_theme_match'],r['relative_strength'] is None,
         -Decimal(r['relative_strength']) if r['relative_strength'] is not None else 0,r['symbol']))
-    total=len(sample);sample=sample[:30]
+    return dict(candidates=sample,excluded_counts=dict(sorted(excluded.items())),
+        source_context_sha256=_hash(original))
+
+
+def prepare_nomination_source(snapshot,review_symbols):
+    # Preserve the public top30 and its historical freeze byte-for-byte.
+    queue=nomination_source_candidates(snapshot,review_symbols)
+    total=len(queue['candidates']);sample=queue['candidates'][:30]
     proof=dict(schema_version='a2-filtered-sample/1',source_snapshot_sha256=snapshot.snapshot_hash,
-        source_context_sha256=_hash(original),review_symbols=sorted(review_symbols),
+        source_context_sha256=queue['source_context_sha256'],review_symbols=sorted(review_symbols),
         selection='EXCLUDED_LOCAL_MONITOR_NOT_EXISTING_TECHNICAL_WATCH;THEME_MATCH_THEN_ORIGINAL_RELATIVE_DESC_SYMBOL',
-        eligible_before_cap=total,maximum_sample_size=30,excluded_counts=dict(sorted(excluded.items())),
+        eligible_before_cap=total,maximum_sample_size=30,excluded_counts=queue['excluded_counts'],
         sample_sha256=_hash(sample))
     if ('A2_QUANT_FILTERED_SAMPLE' in snapshot.data and snapshot.data['A2_QUANT_FILTERED_SAMPLE']!=sample
             or '_TEAM_A2_NOMINATION_FREEZE' in snapshot.data and snapshot.data['_TEAM_A2_NOMINATION_FREEZE']!=proof):

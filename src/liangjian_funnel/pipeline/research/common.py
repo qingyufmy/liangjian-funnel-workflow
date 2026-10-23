@@ -4511,18 +4511,22 @@ def _with_daily_emotion_overlay(
     snapshot_data: Mapping[str, Any],
     g0: set[str],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Annotate sealed A1-active rows with today's Eastmoney top 100 facts.
+    """Annotate ACTIVE and freeze a separate non-executable attention intake.
 
     A1 is the fundamental eligibility boundary.  Daily popularity may rank or
     annotate an A1-active stock for A2, but it must never promote an A1 monitor
-    or rejected row into the executable downstream universe.  A newly observed
+    or rejected row into the executable downstream universe. Exact, dated
+    outside-ACTIVE leads may ask A2 a separate budget-bound theme question.
+    A newly observed
     hard risk may still demote an active row for the current run.
     """
 
     source = snapshot_data.get("EASTMONEY_HOT100_SNAPSHOT")
     observation = observe_snapshot_hot100(snapshot_data)
     if not observation.complete:
-        return dict(output), {
+        result = dict(output)
+        result.pop('independent_research_intake', None)
+        return result, {
             **observation.health(),
             "added_count": 0,
             "annotated_count": 0,
@@ -4565,6 +4569,11 @@ def _with_daily_emotion_overlay(
     from ..emotion_theme import bind_emotion_themes
     theme_bindings = bind_emotion_themes(output, snapshot_data, set(hot_by_symbol))
     hard_risks = _daily_emotion_hard_risks(snapshot_data)
+    from ..a2_theme_research import hot100_research_intake
+    # Attention outside ACTIVE is a separate research question, never a new
+    # member of the formal A1/A2/A3 symbol domain or the sealed registry.
+    intake = hot100_research_intake(output, snapshot_data, g0, hard_risks=hard_risks)
+    result['independent_research_intake'] = intake
     for symbol, hot in sorted(hot_by_symbol.items(), key=lambda pair: int(pair[1].get("rank") or 999)):
         metadata = {
             "source": "EASTMONEY_GUBA_POPULARITY_TOP100",
@@ -4656,6 +4665,8 @@ def _with_daily_emotion_overlay(
         "excluded_count": len(excluded),
         "complete_source_disposition_count": annotated + outside_active + len(excluded),
         "monthly_generation_mutated": False,
+        "independent_research_candidate_count": len(intake['candidates']),
+        "independent_research_disposition_count": len(intake['dispositions']),
         "theme_binding_counts": binding_counts,
     }
     return result, {
