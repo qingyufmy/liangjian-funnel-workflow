@@ -127,7 +127,7 @@ test('Node restart replays only same-day completed close handoff, never research
       run:async(job:JobName)=>{calls.push(job);return {...source,job};}};
     const scheduler=new WorkflowScheduler(fake as unknown as JobRunner,logger,{now:()=>now,comparisonEnabled:false});
     await scheduler.tick(now);await settle();await scheduler.tick(now);await settle();
-    expect(calls).toEqual(['team-internal']);
+    expect(calls).toEqual(['runtime-integrity','team-internal']);
     await scheduler.tick(new Date('2026-10-19T09:20:00Z'));await settle();
     expect(calls.filter(x=>x==='team-eod')).toHaveLength(1);
     expect(calls).not.toContain('team-a5-close');

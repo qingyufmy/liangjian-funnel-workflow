@@ -1589,6 +1589,11 @@ def calculate_rotation_strength(
             raise RotationThemeDataError("ROTATION_THEME_BOARD_ROW_INVALID")
         row = _normalize_metric_row(raw, taxonomy, trade_day)
         normalized.append(row)
+    # Percentiles and parent lookups are keyed by theme_id. Duplicate IDs
+    # would otherwise silently choose the last source row and change rankings
+    # when the same capture is enumerated in a different order.
+    if len({row["theme_id"] for row in normalized}) != len(normalized):
+        raise RotationThemeDataError("ROTATION_THEME_DUPLICATE_THEME_ID")
     if not normalized:
         return {"boards": [], "selected_primary_boards": [], "reason_code": "ROTATION_THEME_ROWS_EMPTY"}
     primary = [row for row in normalized if row["kind"] == PRIMARY]

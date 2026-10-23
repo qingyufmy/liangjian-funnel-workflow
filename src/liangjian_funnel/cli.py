@@ -349,6 +349,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="offline configuration and directory check")
     sub.add_parser("verify-runtime-integrity", help="bounded full SQLite check outside minute hot path")
+    sub.add_parser("run-runtime-integrity", help="once per weekday from 06:50; no models or migrations")
     sub.add_parser("run-provider-availability", help="08:00 one minimal request per configured model")
     sub.add_parser("probe-hithink", help="run the real Hithink capability gate")
     sub.add_parser("probe-models", help="run model strict-JSON and thinking gates")
@@ -676,6 +677,10 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         sys.stdout.reconfigure(encoding="utf-8", errors="strict")
     args = build_parser().parse_args(argv)
     active = settings or Settings.from_env()
+    if args.command=='run-runtime-integrity':
+        from .runtime.integrity_maintenance import run_integrity_maintenance
+        result=run_integrity_maintenance(active)
+        print(json.dumps(result));return 0 if result['status'] in {'PASS','NOT_DUE'} else 2
     if args.command=='run-provider-availability':
         from .runtime.provider_health import run_daily_availability
         result=run_daily_availability(active)

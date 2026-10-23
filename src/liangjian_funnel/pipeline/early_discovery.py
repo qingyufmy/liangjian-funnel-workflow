@@ -20,7 +20,7 @@ def scan_cached_universe(cache: Any, symbols: Sequence[str], *, as_of: datetime)
     parts = []
     for symbol in sorted(set(symbols)):
         rows = cache.query_daily_bars(symbol, adjust="none", start=as_of - timedelta(days=800),
-                                     end=as_of + timedelta(seconds=1))
+                                     end=as_of + timedelta(seconds=1), as_of=as_of)
         parts.append(discover_early_setups({symbol: [
             {**row["payload"], "timestamp": row["timestamp"], "adjust": row["adjust"]} for row in rows
         ]}, as_of=as_of, symbols=[symbol]))
@@ -92,6 +92,10 @@ def discover_early_setups(daily_by_symbol: Mapping[str, Any], *, as_of: datetime
                     "bar_count": len(bars)}
         leads.append({"symbol": symbol, "signals": signals, "evidence": evidence,
                       "decision_id": content_hash({"version": VERSION, "symbol": symbol, "evidence": evidence}),
+                      "setup_event_id": content_hash({"version": VERSION, "symbol": symbol,
+                          "signals": signals, "setup_bar_end": setup_end.isoformat(),
+                          "adjust_mode": bars[-1].adjust_mode}),
+                      "source_hash": content_hash([bar.model_dump(mode="json") for bar in bars]),
                       "as_of": cutoff.isoformat(), "research_state": "PREPARATION_WATCH",
                       "event_state": "NEW_SETUP" if observation_age == 0 else "CONTINUING_WATCH",
                       "execution_permission": "BLOCKED", "requires_a1_evidence": True})
@@ -114,7 +118,8 @@ def attach_discovery_queue(output: Mapping[str, Any], discovery: Mapping[str, An
     for raw in discovery.get("records", []):
         row = dict(raw)
         row["a1_formal_member"] = row["symbol"] in active
-        row["next_action"] = "A2_INDEPENDENT_REVIEW" if row["a1_formal_member"] else "A1_EVIDENCE_RECHECK"
+        row["review_state"] = "PENDING_A2_QUALIFICATION" if row["a1_formal_member"] else "PENDING_A1_EVIDENCE"
+        row["next_action"] = "A2_ELIGIBILITY_CHECK" if row["a1_formal_member"] else "A1_EVIDENCE_RECHECK"
         queue.append(row)
     return {**output, "early_discovery": {**discovery, "records": queue,
             "evidence_recheck_symbols": [row["symbol"] for row in queue
@@ -207,5 +212,79 @@ def recheck_a1_discovery(output: Mapping[str, Any], snapshot: Mapping[str, Any])
     queue["evidence_recheck_symbols"] = sorted(requested - admitted_symbols)
     for row in queue["records"]:
         if row["symbol"] in admitted_symbols:
-            row.update(a1_formal_member=True, next_action="A2_INDEPENDENT_REVIEW")
+            row.update(a1_formal_member=True, review_state="PENDING_A2_QUALIFICATION",
+                       next_action="A2_ELIGIBILITY_CHECK")
     return result
+
+
+def bind_a2_discovery_states(decisions: Sequence[dict[str, Any]], discovery: Mapping[str, Any],
+                             *, as_of: Any) -> None:
+    """Annotate existing A2 decisions; never create eligibility or a model slot.
+
+    A discovery event is a research lead, not a completed review. In particular
+    the fixed strong-trend work budget must remain visible after local ranking.
+    """
+    events = {str(row.get("symbol")): row for row in discovery.get("records", [])
+              if isinstance(row, Mapping)}
+    for item in decisions:
+        event = events.get(str(item.get("symbol")))
+        if not event:
+            continue
+        # Old artifacts can be displayed, but cannot impersonate this run's
+        # causally available discovery evidence.
+        try:
+            cutoff = datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+            event_time = datetime.fromisoformat(str(event.get("as_of")).replace("Z", "+00:00"))
+            setup = datetime.fromisoformat(str((event.get("evidence") or {}).get("setup_bar_end")).replace("Z", "+00:00"))
+            verified = (cutoff.tzinfo is not None and event_time.tzinfo is not None
+                        and setup.tzinfo is not None and setup <= event_time <= cutoff)
+        except (TypeError, ValueError):
+            verified = False
+        reasons = list(item.get("reason_codes") or [])
+        selected = item.get("sent_to_llm") is True and item.get("status") == "REVIEW_CANDIDATE"
+        state = ("SOURCE_UNVERIFIED" if not verified else "SELECTED_PENDING_MODEL" if selected else
+                 "PENDING_REVIEW_BUDGET" if "A2_STRONG_TREND_OBSERVATION_BUDGET" in reasons else
+                 "PENDING_A2_QUALIFICATION")
+        audit = {**deepcopy(event), "review_state": state,
+                 "next_action": "A2_MODEL_REVIEW" if selected and verified else
+                     "A2_REVIEW_BUDGET_WAIT" if state == "PENDING_REVIEW_BUDGET" else "A2_ELIGIBILITY_CHECK",
+                 "local_status": item.get("status"), "local_reason_codes": reasons,
+                 "model_scope_selected": selected, "model_review_validated": False,
+                 "execution_permission": "BLOCKED", "execution_authority": False}
+        item["early_discovery"] = audit
+        item.setdefault("bottleneck_context", {})["early_discovery"] = deepcopy(audit)
+
+
+def finalize_a2_discovery_review(snapshot: Mapping[str, Any], upstream: Mapping[str, Any], *,
+                                  symbols: Sequence[str], status: str,
+                                  call_ids: Sequence[str], input_hash: str) -> dict[str, Any]:
+    """Pure audit at the actual StageAudit boundary, not a provider-call claim.
+
+    Model call IDs bind the stage, not per-stock HTTP counts. Budget overflow
+    and unqualified events stay pending even when another stock was reviewed.
+    """
+    discovery = snapshot.get("EARLY_DISCOVERY_SNAPSHOT") or {}
+    queue = attach_discovery_queue(upstream, discovery)["early_discovery"]
+    contexts = snapshot.get("A2_BOTTLENECK_CONTEXT") or {}
+    scope = set(symbols)
+    records = []
+    for raw in queue.get("records", []):
+        symbol = str(raw.get("symbol"))
+        context = contexts.get(symbol) or {}
+        row = deepcopy(context.get("early_discovery") or raw)
+        in_scope = symbol in scope and row.get("review_state") == "SELECTED_PENDING_MODEL"
+        row["model_review_validated"] = bool(in_scope and status == "VALIDATED")
+        if in_scope:
+            row.update(review_state="REVIEW_VALIDATED" if status == "VALIDATED" else "REVIEW_BLOCKED",
+                       next_action="A2_REVIEW_COMPLETE_CHECK_PARTITION" if status == "VALIDATED" else "A2_REVIEW_RETRY_PENDING",
+                       model_stage_status=status, model_stage_call_ids=list(call_ids),
+                       model_stage_input_hash=input_hash)
+        records.append(row)
+    counts: dict[str, int] = {}
+    for row in records:
+        state = row["review_state"]
+        counts[state] = counts.get(state, 0) + 1
+    return {**queue, "records": records, "review_state_counts": dict(sorted(counts.items())),
+            "audit_scope": "ACTUAL_STAGE_AUDIT_NOT_GLOBAL_MODEL_OR_HTTP_COMPLETION",
+            "stage_review_symbols": sorted(scope), "stage_input_hash": input_hash,
+            "execution_authority": False}

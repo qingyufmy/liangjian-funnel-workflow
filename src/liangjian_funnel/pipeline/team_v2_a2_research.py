@@ -363,6 +363,12 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             original_theme_review_domain=sorted(projected['_theme_review_scope']),
             score_snapshot_sha256=frozen['score_snapshot_sha256'],
             nomination_source=snapshot.data['_TEAM_A2_NOMINATION_FREEZE'])
+        from .early_discovery import finalize_a2_discovery_review
+        discovery_audit=finalize_a2_discovery_review(snapshot.data,upstream_output,symbols=symbols,
+            status='VALIDATED' if valid else 'BLOCKED',call_ids=ids,input_hash=request.input_hash)
+        if discovery_audit.get('records'):
+            diagnostics['early_discovery']=discovery_audit
+            if valid:output['early_discovery']=discovery_audit
         if not valid:
             return legacy.StageAudit(lane_id,model,'A2','BLOCKED',snapshot.snapshot_id,request.prompt.sha256,request.input_hash,
                 None,sum(r[0] or 0 for r in metrics),sum(r[1] for r in metrics),'team_v2',(),tuple(issues),diagnostics=diagnostics)

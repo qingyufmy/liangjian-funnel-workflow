@@ -44,7 +44,7 @@ test("failed scheduler jobs do not wake manual auction research or suppress A4",
   const root = await mkdtemp(join(tmpdir(), "auction-failure-"));
   const calls: JobName[] = [];
   const runner = { run: async (job: JobName) => {
-    calls.push(job); return { status: "failed", job, reason: "AUCTION_BASE_A1_COVERAGE_INCOMPLETE" };
+    calls.push(job); return { status: job === "runtime-integrity" ? "succeeded" : "failed", job, reason: "AUCTION_BASE_A1_COVERAGE_INCOMPLETE" };
   }};
   const logger = new LogStore(loadConfig({}, root));
   const scheduler = new WorkflowScheduler(runner as unknown as JobRunner, logger, { comparisonEnabled: false });

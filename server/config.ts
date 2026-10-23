@@ -8,6 +8,7 @@ export const FEATURE_MAINTENANCE_AT = "03:30";
 export const A1_MAINTENANCE_AT = "18:00";
 
 export const JOB_DEFINITIONS: readonly JobDefinition[] = [
+  { name: "runtime-integrity", command: "run-runtime-integrity", label: "独立存储完整性维护", schedule: "工作日06:50起每日一次，晚启动补做，无模型或迁移" },
   { name: "provider-health", command: "run-provider-availability", label: "模型服务可用性与存储完整性", schedule: "08:00 每模型1次最小请求，无重试" },
   { name: "team-morning-engine", command: "run-team-morning-engine", label: "模拟盘晨会引擎信封", schedule: "08:33（独立120s）" },
   { name: "team-morning-risk", command: "run-team-morning-risk", label: "A6模拟盘风险晨会", schedule: "08:35（独立120s）" },

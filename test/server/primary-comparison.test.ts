@@ -42,7 +42,7 @@ test("successful close dispatch starts comparison without changing the primary d
 
   await scheduler.tick(new Date("2026-08-26T07:10:10.000Z")); // 15:10 Asia/Shanghai
   await new Promise<void>((resolve) => setImmediate(resolve));
-  expect(calls).toEqual(["team-internal", "close", "comparison"]);
+  expect(calls).toEqual(["runtime-integrity", "team-internal", "close", "comparison"]);
 });
 
 test("scheduler dispatches the read-only A3 premarket job once at 08:30", async () => {
@@ -63,7 +63,7 @@ test("scheduler dispatches the read-only A3 premarket job once at 08:30", async 
   await scheduler.tick(new Date("2026-08-31T00:30:00.000Z")); // 08:30 Asia/Shanghai
   await scheduler.tick(new Date("2026-08-31T00:30:30.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
-  expect(calls).toEqual(["premarket"]);
+  expect(calls).toEqual(["runtime-integrity", "premarket"]);
   expect(scheduler.snapshot().jobs.find((job) => job.job === "premarket")?.schedule).toBe("08:30");
 });
 
@@ -88,7 +88,7 @@ test("stable mode never starts optional comparison on startup or after close", a
   await new Promise<void>((resolve) => setImmediate(resolve));
   await scheduler.tick(new Date("2026-08-31T07:10:10.000Z")); // 15:10 Asia/Shanghai
   await new Promise<void>((resolve) => setImmediate(resolve));
-  expect(calls).toEqual(["team-internal", "close"]);
+  expect(calls).toEqual(["runtime-integrity", "team-internal", "close"]);
   expect(scheduler.snapshot().jobs.find((job) => job.job === "comparison")?.enabled).toBe(false);
   scheduler.stop();
 });

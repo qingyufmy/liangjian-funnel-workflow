@@ -26,10 +26,10 @@ test("15:30 settlement can recover once from BUSY without duplicate or research 
       "2026-10-19T07:30:06Z","2026-10-19T07:31:00Z","2026-10-19T07:39:00Z","2026-10-19T07:40:00Z"]) {
       await scheduler.tick(new Date(iso));await new Promise<void>(resolve=>setImmediate(resolve));
     }
-    expect(calls.filter(x=>x!=='team-internal')).toEqual(["paper-settle","paper-settle"]);
+    expect(calls.filter(x=>x!=='team-internal')).toEqual(["runtime-integrity","paper-settle","paper-settle"]);
     expect(calls.filter(x=>x==='team-internal')).toHaveLength(5);
     await scheduler.tick(new Date("2026-10-18T07:30:00Z"));
-    expect(calls).toHaveLength(7);
+    expect(calls).toHaveLength(8);
   } finally {scheduler.stop();await (logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}
 });
 

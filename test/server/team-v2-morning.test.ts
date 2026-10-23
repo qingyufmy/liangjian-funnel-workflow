@@ -27,7 +27,7 @@ test("explicit UTC instants dispatch 08:33,08:35,08:38 once; no weekend or late 
         await scheduler.tick(new Date(`${day}T${instant}Z`));await new Promise<void>(resolve=>setImmediate(resolve));
       }
     }
-    expect(calls).toEqual(jobs);
+    expect(calls).toEqual(['runtime-integrity',...jobs]);
   } finally {scheduler.stop();await (logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}
 });
 test("each edge uses review slot without displacing the primary process",async()=>{

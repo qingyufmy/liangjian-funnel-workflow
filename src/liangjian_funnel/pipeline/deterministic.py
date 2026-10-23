@@ -2125,6 +2125,9 @@ def screen_a2(
         item["all_failed_gates"] = failures
         item["first_blocking_gate"] = failures[0] if failures else None
     decisions.sort(key=lambda item: str(item["symbol"]))
+    from .early_discovery import bind_a2_discovery_states
+    bind_a2_discovery_states(decisions, snapshot.get("EARLY_DISCOVERY_SNAPSHOT") or {},
+                             as_of=(snapshot.get("snapshot_manifest") or {}).get("as_of"))
     return DeterministicGateResult(
         stage="A2_LOCAL_ROLE",
         decisions=tuple(decisions),
@@ -3559,16 +3562,17 @@ def _build_a2_local_market_factors(
             if code:
                 by_industry[code].add(symbol)
 
-    total_amount = sum(max(0.0, _number(item.get("amount")) or _number(item.get("turnover")) or 0.0) for item in candidates.values())
+    total_amount = sum(max(0.0, _number(candidates[symbol].get("amount")) or
+                           _number(candidates[symbol].get("turnover")) or 0.0) for symbol in sorted(candidates))
     sector_rows: dict[str, dict[str, float]] = {}
     for code, symbols in by_industry.items():
         amounts = [
             max(0.0, _number(candidates.get(symbol, {}).get("amount")) or _number(candidates.get(symbol, {}).get("turnover")) or 0.0)
-            for symbol in symbols
+            for symbol in sorted(symbols)
         ]
         changes = [
             value
-            for symbol in symbols
+            for symbol in sorted(symbols)
             if (value := _number(candidates.get(symbol, {}).get("change_ratio_pct"))) is not None
         ]
         observed = len(changes)
@@ -3590,7 +3594,7 @@ def _build_a2_local_market_factors(
         ]
         if not codes:
             codes = []
-        primary_code = max(codes, key=lambda code: sector_rows[code]["turnover_share"], default=None)
+        primary_code = min(codes, key=lambda code: (-sector_rows[code]["turnover_share"], code), default=None)
         symbol_factors: dict[str, dict[str, Any]] = {}
         if primary_code is not None:
             sector = sector_rows[primary_code]
@@ -4618,10 +4622,11 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             as_of=reference_close_as_of,
         ).model_dump(mode="json")
         strategy["strategy_facts"]["a2_theme_stage_binding"] = theme_stage_binding
-        from .a2_theme_research import evaluate_theme_hypotheses
-        checks, qualified_themes = evaluate_theme_hypotheses(
+        from .a2_theme_research import evaluate_theme_hypotheses, select_theme_research_observation
+        checks, qualified_themes, evaluated_themes = evaluate_theme_hypotheses(
             item, context, a2_output.get('independent_theme_reviews', []),
             expected_trade_date=market_trade_date,
+            include_evaluated=True,
             bind_stage=_a3_candidate_with_theme_stage,
             evaluate=lambda candidate, research_context: evaluate_a3_strategy(
                 candidate, factor=factor, price_levels=price_level, tradability=flags,
@@ -4629,15 +4634,34 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
                 sector_permission=sector_permission or None, market_emotion=market_emotion,
                 market_funding=market_funding, as_of=reference_close_as_of).model_dump(mode='json'))
         if checks:
-            if strategy.get('eligibility') != 'QUALIFIED' and qualified_themes:
-                hypothesis, strategy, theme_stage_binding = qualified_themes[0]
+            primary_strategy = strategy
+            selected_theme = (qualified_themes[0] if strategy.get('eligibility') != 'QUALIFIED'
+                and qualified_themes else select_theme_research_observation(strategy, checks, evaluated_themes))
+            if selected_theme is not None:
+                hypothesis, strategy, selected_binding = selected_theme
+                if selected_binding is not None:
+                    theme_stage_binding = selected_binding
                 strategy['execution_permission'] = 'BLOCKED'
                 strategy['research_only_reason'] = 'A3_INDEPENDENT_THEME_RESEARCH_ONLY'
                 strategy['research_observation_scope'] = 'RESEARCH_ONLY_NO_AUTOMATIC_ENTRY'
-                strategy['strategy_facts']['independent_theme_research_selection'] = {
-                    'hypothesis_id': hypothesis['hypothesis_id'], 'theme_id': hypothesis['theme_id'],
-                    'monthly_primary_theme_id': item.get('theme_id') or item.get('primary_theme'),
-                    'execution_authority': False}
+                strategy['strategy_facts']['independent_theme_original_primary_verdict'] = {
+                    key: primary_strategy.get(key) for key in ('strategy_profile', 'eligibility',
+                        'research_state', 'theme_stage', 'reason_codes', 'unmet_conditions', 'veto_conditions')}
+                if hypothesis is not None:
+                    strategy['strategy_facts']['independent_theme_research_selection'] = {
+                        'hypothesis_id': hypothesis['hypothesis_id'], 'theme_id': hypothesis['theme_id'],
+                        'monthly_primary_theme_id': item.get('theme_id') or item.get('primary_theme'),
+                        'execution_authority': False}
+                else:
+                    # The existing downstream authority guard consumes this
+                    # field. No theme was selected when its review is missing;
+                    # keep that distinction while preserving BLOCKED through
+                    # local-row projection and publication checks.
+                    strategy['strategy_facts']['independent_theme_research_selection'] = {
+                        'selection_state': 'INCOMPLETE_REVIEW_NO_THEME_SELECTED',
+                        'theme_id': None, 'hypothesis_id': None,
+                        'monthly_primary_theme_id': item.get('theme_id') or item.get('primary_theme'),
+                        'execution_authority': False}
                 strategy['strategy_facts']['a2_theme_stage_binding'] = theme_stage_binding
             strategy['strategy_facts']['independent_theme_research_checks'] = checks
         eligibility = str(strategy["eligibility"])

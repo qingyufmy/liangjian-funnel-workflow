@@ -43,6 +43,7 @@ export function timeoutForJob(
   if (job === "monitor") return Math.min(configuredTimeoutMs, 58_000);
   if (job === "auction-evidence") return Math.min(configuredTimeoutMs, 30_000);
   if (job === "provider-health") return Math.min(configuredTimeoutMs, 300_000);
+  if (job === "runtime-integrity") return Math.min(configuredTimeoutMs, 210_000);
   if (job === "paper-settle" || job === "team-close-bar") return Math.min(configuredTimeoutMs, 60_000);
   if (job === "team-eod") return Math.min(configuredTimeoutMs, 120_000);
   if (job === "team-internal") return Math.min(configuredTimeoutMs, 8_000);

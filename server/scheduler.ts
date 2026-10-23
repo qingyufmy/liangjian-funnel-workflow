@@ -96,6 +96,8 @@ export class WorkflowScheduler {
   private outcomesAfterCloseDate: string | null = null;
   private teamEodAfterCloseDate: string | null = null;
   private teamEodRecoveryCheckedDate: string | null = null;
+  private integrityReadyDate: string | null = null;
+  private integrityFlight: Promise<void> | null = null;
   private readonly now: () => Date;
   private readonly intervalMs: number;
   private readonly retryMs: number;
@@ -139,6 +141,8 @@ export class WorkflowScheduler {
     this.outcomesAfterCloseDate = null;
     this.teamEodAfterCloseDate = null;
     this.teamEodRecoveryCheckedDate = null;
+    this.integrityReadyDate = null;
+    this.integrityFlight = null;
     this.running = false;
     this.logger.info("Node 调度器已停止");
   }
@@ -150,6 +154,17 @@ export class WorkflowScheduler {
     // Sunday is a hard NOOP.  Saturday has exactly one maintenance slot;
     // research and intraday monitoring remain trading-day-only.
     if (clock.weekday === 0) return;
+    // A boot after 06:50 still gets one dedicated integrity edge before any
+    // due job. Python's durable day receipt survives Node restarts; no model,
+    // Workflow/Store construction or schema migration belongs to this edge.
+    if (clock.weekday >= 1 && clock.weekday <= 5 && clock.hour*60+clock.minute >= 6*60+50) {
+      const integrityKey = `${clock.date}T06:50`;
+      if (this.dispatched.get("runtime-integrity") !== integrityKey && !this.inFlight.has("runtime-integrity")) {
+        this.integrityFlight = this.dispatch("runtime-integrity", integrityKey, value);
+      }
+      if (this.integrityFlight) await this.integrityFlight;
+      if (this.inFlight.has("runtime-integrity") || this.integrityReadyDate !== clock.date) return;
+    }
     if (clock.weekday >= 1 && clock.weekday <= 5 && clock.hour*60+clock.minute>=15*60+10
         && this.teamEodRecoveryCheckedDate!==clock.date) {
       this.teamEodRecoveryCheckedDate=clock.date;
@@ -244,18 +259,22 @@ export class WorkflowScheduler {
     };
   }
 
-  private dispatch(job: JobName, key: string, value: Date): void {
+  private dispatch(job: JobName, key: string, value: Date): Promise<void> {
     this.dispatched.set(job, key);
     this.lastDispatch.set(job, value.toISOString());
     this.inFlight.add(job);
     this.logger.info(`触发调度 ${job} at=${key}`, { job });
-    void this.runner.run(job)
+    return this.runner.run(job)
       .then((result) => {
+        if (job === "runtime-integrity" && result.status === "succeeded") this.integrityReadyDate = key.slice(0,10);
         if (job.startsWith('team-a5-') && ((result.status==='skipped' && result.reason?.startsWith('BUSY:'))
             || result.exitCode===75)) this.dispatched.delete(job);
         // Baseline failures require investigation, not repeated full syncs.
         // Only retry a worker-busy skip while the 07:00-07:14 window is open.
         if (job === "auction-base" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
+          this.dispatched.delete(job);
+        }
+        if (job === "runtime-integrity" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
           this.dispatched.delete(job);
         }
         if ((job === "paper-settle" || job === "team-close-bar") && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {

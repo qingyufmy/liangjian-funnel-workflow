@@ -32,7 +32,7 @@ test('15:01 close wakeup recovers BUSY only inside window and never wakes monito
       await scheduler.tick(new Date(iso));await new Promise<void>(resolve=>setImmediate(resolve));
     }
     // Existing last 15:00 monitor stays intact; no monitor is added after it.
-    expect(calls.filter(x=>x!=='team-internal')).toEqual(['monitor','team-close-bar','team-close-bar']);
+    expect(calls.filter(x=>x!=='team-internal')).toEqual(['runtime-integrity','monitor','team-close-bar','team-close-bar']);
     await scheduler.tick(new Date('2026-10-18T07:01:00Z'));
     expect(calls.filter(x=>x==='team-close-bar')).toHaveLength(2);
   }finally{scheduler.stop();await(logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}

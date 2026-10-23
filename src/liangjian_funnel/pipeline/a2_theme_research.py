@@ -43,7 +43,10 @@ def theme_hypotheses(contexts, symbols):
                 or binding.get('source_hash') != content_hash({'symbol': symbol, 'matches': binding['matches']})):
             continue
         known_memberships = {content_hash(e) for e in binding['matches'] if isinstance(e, Mapping)}
-        routes = binding.get('candidate_routes')
+        # New bindings distinguish stable primary identity from the complete
+        # evidence-bound research vocabulary. Frozen older bindings retain
+        # their original candidate set; do not synthesize missing proof.
+        routes = binding.get('research_candidate_routes', binding.get('candidate_routes'))
         if not isinstance(routes, list):
             continue
         seen = set()
@@ -118,11 +121,12 @@ def independent_theme_reviews(output, contexts, symbols):
     return reviews
 
 
-def evaluate_theme_hypotheses(item, context, reviews, *, bind_stage, evaluate, expected_trade_date):
+def evaluate_theme_hypotheses(item, context, reviews, *, bind_stage, evaluate, expected_trade_date,
+                              include_evaluated=False):
     """Evaluate exact thematic alternatives without resolving entry identity."""
     symbol = item.get('symbol')
     hypotheses = theme_hypotheses({symbol: context}, {symbol}).get(symbol, [])
-    checks, qualified = [], []
+    checks, qualified, evaluated = [], [], []
     for hypothesis in hypotheses:
         theme = hypothesis['theme_id']
         matching = {}
@@ -157,6 +161,7 @@ def evaluate_theme_hypotheses(item, context, reviews, *, bind_stage, evaluate, e
                 eligibility='DATA_GAP', reason_codes=[binding.get('reason_code', 'A3_THEME_STAGE_UNPROVEN')]))
             continue
         verdict = evaluate(candidate, research_context)
+        evaluated.append((hypothesis, verdict, binding))
         checks.append(dict(hypothesis_id=hypothesis['hypothesis_id'], theme_id=theme,
             theme_stage=review['review'].get('stage'), review_id=review['review_id'],
             **{key: deepcopy(verdict.get(key)) for key in ('strategy_profile', 'eligibility',
@@ -165,4 +170,39 @@ def evaluate_theme_hypotheses(item, context, reviews, *, bind_stage, evaluate, e
         if verdict.get('eligibility') == 'QUALIFIED':
             qualified.append((hypothesis, verdict, binding))
     qualified.sort(key=lambda row: (row[0]['theme_id'], row[0]['hypothesis_id']))
-    return checks, qualified
+    return (checks, qualified, evaluated) if include_evaluated else (checks, qualified)
+
+
+def select_theme_research_observation(primary, checks, evaluated):
+    """Retain non-executable alternatives without turning a gap into rejection.
+
+    A ready primary is never downgraded. Actual alternative verdicts have
+    already passed the same safety/technical evaluator. A *synthetic* missing
+    review cannot override a known non-theme safety veto on the primary.
+    """
+    if primary.get('eligibility') == 'QUALIFIED':
+        return None
+    vetoes = set(primary.get('veto_conditions') or ())
+    if vetoes - {'LEADER_THEME_RETREAT_OR_CLIMAX'}:
+        return None
+    gaps = [row for row in checks if row.get('eligibility') == 'DATA_GAP']
+    if gaps:
+        # This is an incomplete theme review, not a computed technical verdict
+        # for that theme. Keep the original primary in the caller's evidence.
+        reasons = sorted({code for row in gaps for code in row.get('reason_codes', ())})
+        result = deepcopy(primary)
+        result.update(eligibility='DATA_GAP', research_state='EVIDENCE_PENDING',
+            reason_codes=reasons, required_conditions=['INDEPENDENT_THEME_RESEARCH_COMPLETE'],
+            met_conditions=[], unmet_conditions=['INDEPENDENT_THEME_RESEARCH_COMPLETE'],
+            veto_conditions=[], first_blocking_gate='INDEPENDENT_THEME_RESEARCH_COMPLETE',
+            all_failed_gates=['INDEPENDENT_THEME_RESEARCH_COMPLETE'],
+            gate_results={'INDEPENDENT_THEME_RESEARCH_COMPLETE': {
+                'met': False, 'available': False, 'kind': 'DATA',
+                'reason': 'A3_THEME_RESEARCH_EVIDENCE_INCOMPLETE'}},
+            llm_review={'status': 'DATA_GAP', 'reason_codes': reasons})
+        return None, result, None
+    watch = sorted((row for row in evaluated if row[1].get('eligibility') == 'WATCH'),
+        key=lambda row: (row[0]['theme_id'], row[0]['hypothesis_id']))
+    if primary.get('eligibility') == 'REJECTED' and watch:
+        return watch[0]
+    return None
