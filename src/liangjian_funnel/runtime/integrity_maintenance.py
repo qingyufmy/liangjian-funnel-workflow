@@ -5,13 +5,17 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+import time
 from zoneinfo import ZoneInfo
 
-from .integrity import marker_path, verify_integrity, verified_identity
+from .integrity import IntegrityDeadlineExceeded, marker_path, verify_integrity, verified_identity
 from .shared_json import atomic_json
 
 
-def run_integrity_maintenance(settings, *, now=None):
+def run_integrity_maintenance(settings, *, now=None, timeout_seconds=540):
+    if type(timeout_seconds) is not int or not 1<=timeout_seconds<=540:
+        raise ValueError('INTEGRITY_MAINTENANCE_TIMEOUT_INVALID')
+    deadline=time.monotonic()+timeout_seconds
     supplied=now or datetime.now(ZoneInfo('Asia/Shanghai'))
     if supplied.utcoffset() is None:
         raise ValueError('INTEGRITY_MAINTENANCE_AWARE_CLOCK_REQUIRED')
@@ -50,7 +54,7 @@ def run_integrity_maintenance(settings, *, now=None):
             with (directory/'previous-receipt.json').open('xb') as stream:
                 stream.write(raw)
             previous=hashlib.sha256(raw).hexdigest()
-        receipt=verify_integrity(database)
+        receipt=verify_integrity(database,deadline=deadline)
         result=dict(status='PASS',schema_version='runtime-integrity-maintenance/1',
             trade_date=current.date().isoformat(),database_path=str(database),previous_receipt_sha256=previous,
             receipt_sha256=hashlib.sha256(marker.read_bytes()).hexdigest(),
@@ -58,7 +62,8 @@ def run_integrity_maintenance(settings, *, now=None):
     except (OSError,ValueError,sqlite3.Error) as exc:
         # Keep the old receipt above, but do not leave a failed scan covered
         # by an unexpired PASS marker, including long-lived cached writers.
-        reason='SQLITE_INTEGRITY_CHECK_FAILED' if isinstance(exc,sqlite3.Error) else 'INTEGRITY_MAINTENANCE_FAILED'
+        reason=('RUNTIME_INTEGRITY_DEADLINE_EXCEEDED' if isinstance(exc,IntegrityDeadlineExceeded)
+            else 'SQLITE_INTEGRITY_CHECK_FAILED' if isinstance(exc,sqlite3.Error) else 'INTEGRITY_MAINTENANCE_FAILED')
         failed=dict(schema_version='runtime-integrity/2',status='FAIL',reason_code=reason,
             checked_at=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),previous_receipt_sha256=previous)
         atomic_json(marker,failed)

@@ -43,7 +43,7 @@ export function timeoutForJob(
   if (job === "monitor") return Math.min(configuredTimeoutMs, 58_000);
   if (job === "auction-evidence") return Math.min(configuredTimeoutMs, 30_000);
   if (job === "provider-health") return Math.min(configuredTimeoutMs, 300_000);
-  if (job === "runtime-integrity") return Math.min(configuredTimeoutMs, 210_000);
+  if (job === "runtime-integrity") return Math.min(configuredTimeoutMs, 600_000);
   if (job === "paper-settle" || job === "team-close-bar") return Math.min(configuredTimeoutMs, 60_000);
   if (job === "team-eod") return Math.min(configuredTimeoutMs, 120_000);
   if (job === "team-internal") return Math.min(configuredTimeoutMs, 8_000);
@@ -62,6 +62,18 @@ export function timeoutForJob(
   if (job === "close") return Math.min(configuredTimeoutMs, 90 * 60 * 1000);
   if (job === "a1") return a1TimeoutMs;
   return configuredTimeoutMs;
+}
+
+export function commandArgumentsForJob(job: JobName, command: string, timeoutMs: number | null): string[] {
+  const args = ["-m", "liangjian_funnel", command];
+  if (job !== "runtime-integrity") return args;
+  // Leave one minute for Python startup, bounded receipt persistence and the
+  // parent to observe an honest failure. A low configured cap is not enlarged.
+  if (timeoutMs === null || !Number.isSafeInteger(timeoutMs) || timeoutMs < 61_000) {
+    throw new Error("RUNTIME_INTEGRITY_PARENT_BUDGET_TOO_SMALL");
+  }
+  const seconds = Math.min(540, Math.floor((timeoutMs - 60_000) / 1000));
+  return [...args, "--timeout-seconds", String(seconds)];
 }
 
 export function monitorSnapshotDelay(job: JobName, timeoutMs: number | null): number | null {
@@ -292,13 +304,23 @@ export class JobRunner {
     this.logger.info(`开始执行 ${command}`, { job, runId });
 
     const timeoutMs = timeoutForJob(job, this.config.jobTimeoutMs, this.config.a1JobTimeoutMs);
+    let args: string[];
+    try {
+      args = commandArgumentsForJob(job, command, timeoutMs);
+    } catch (error) {
+      const failed: JobRunRecord = { ...started, status: "failed", finishedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedAt.getTime(), reason: (error as Error).message };
+      this.replaceRunning(failed);
+      this.logger.error(`任务未启动 ${command}: ${failed.reason}`, { job, runId });
+      return failed;
+    }
     const traceDir = path.join(this.config.rootDir, "outputs", "node", "timeout-snapshots");
     const env = childEnvironment(job, timeoutMs, startedAt.getTime());
     if (job === "monitor") {
       env.LIANGJIAN_PARENT_RUN_ID = runId;
       env.LIANGJIAN_MONITOR_TRACE_DIR = traceDir;
     }
-    const child = spawn(this.config.pythonBin, ["-m", "liangjian_funnel", command], {
+    const child = spawn(this.config.pythonBin, args, {
       cwd: this.config.rootDir,
       env,
       shell: false,

@@ -1,6 +1,45 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Share the external release supervisor's 1800-second acceptance envelope. Count
+# from script entry, including build/install, rather than restarting the clock
+# for each integrity scan. Python shares the passed budget across both scans
+# and migration. These stage-boundary checks are not a systemd hard kill of
+# blocked I/O. Reserve the existing stop/start/health/recovery sequence.
+readonly deployment_started_seconds=${SECONDS}
+readonly deployment_total_seconds=1800
+readonly deployment_start_health_reserve_seconds=180
+
+deployment_remaining_seconds() {
+  local elapsed=$(( SECONDS - deployment_started_seconds ))
+  if (( elapsed < 0 || elapsed >= deployment_total_seconds )); then
+    echo "[deploy] DEPLOYMENT_TOTAL_BUDGET_EXHAUSTED" >&2
+    return 9
+  fi
+  printf '%s\n' "$(( deployment_total_seconds - elapsed ))"
+}
+
+deployment_integrity_timeout_seconds() {
+  local remaining budget
+  remaining="$(deployment_remaining_seconds)" || return 9
+  budget=$(( remaining - deployment_start_health_reserve_seconds ))
+  if (( budget < 1 )); then
+    echo "[deploy] INSUFFICIENT_BUDGET_BEFORE_INTEGRITY_AND_NODE_STOP" >&2
+    return 9
+  fi
+  if (( budget > 1200 )); then budget=1200; fi
+  printf '%s\n' "${budget}"
+}
+
+assert_deployment_start_budget() {
+  local remaining
+  remaining="$(deployment_remaining_seconds)" || return 9
+  if (( remaining < deployment_start_health_reserve_seconds )); then
+    echo "[deploy] INSUFFICIENT_BUDGET_BEFORE_NODE_STOP" >&2
+    return 9
+  fi
+}
+
 # Keep the whole pre-open/intraday window (including lunch) and the scheduled
 # close-review windows free of releases. A conservative weekday guard also
 # blocks holidays.
@@ -191,11 +230,14 @@ wait_for_stable_health() {
   done
 }
 
-echo "[deploy] Stopping BaoTa Node project..."
 # Verify the final migrated schema before starting any minute process. No
 # workflow, model, quote or notification is invoked by this maintenance edge.
-runuser -u www -- .venv/bin/python -B -m liangjian_funnel verify-runtime-integrity
+integrity_timeout_seconds="$(deployment_integrity_timeout_seconds)"
+echo "[deploy] Verifying runtime integrity with shared budget ${integrity_timeout_seconds}s..."
+runuser -u www -- .venv/bin/python -B -m liangjian_funnel verify-runtime-integrity --timeout-seconds "${integrity_timeout_seconds}"
 old_node_pid="$(pgrep -u www -f 'node dist/server/index\.js' | head -n 1 || true)"
+assert_deployment_start_budget
+echo "[deploy] Stopping BaoTa Node project..."
 if [[ -n "${old_node_pid}" ]]; then
   baota_action stop
 else
@@ -253,4 +295,5 @@ echo "[deploy] G0 bootstrap after deploy: state=${bootstrap_state_after:-unknown
 if [[ "${bootstrap_state_before}" == "active" && "${bootstrap_state_after}" == "active" && "${bootstrap_pid_before}" != "${bootstrap_pid_after}" ]]; then
   echo "[deploy] WARNING: bootstrap PID changed outside this script."
 fi
+deployment_remaining_seconds >/dev/null
 echo "[deploy] Done."

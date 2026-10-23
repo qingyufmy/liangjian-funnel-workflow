@@ -31,7 +31,7 @@ test('06:50 maintenance runs once before 07:00 preparation and never calls provi
     await s.scheduler.tick(new Date('2026-10-25T22:51:00Z'));
     await s.scheduler.tick(new Date('2026-10-25T23:00:00Z'));
     expect(calls).toEqual(['runtime-integrity','auction-base']);
-    expect(timeoutForJob('runtime-integrity',5_400_000)).toBe(210_000);
+    expect(timeoutForJob('runtime-integrity',5_400_000)).toBe(600_000);
   } finally {await s.cleanup();}
 });
 

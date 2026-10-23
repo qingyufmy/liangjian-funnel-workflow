@@ -23,7 +23,7 @@ def settings(tmp_path):
 
 def test_once_weekday_even_after_process_restart(settings,monkeypatch):
     at=clock('2026-10-26T06:50:00');calls=[];real=subject.verify_integrity
-    def counted(path):calls.append(path);return real(path)
+    def counted(path,**kwargs):calls.append(path);return real(path,**kwargs)
     monkeypatch.setattr(subject,'verify_integrity',counted)
     old=marker_path(settings.state_db_path).read_bytes()
     first=subject.run_integrity_maintenance(settings,now=at)
@@ -45,7 +45,7 @@ def test_weekend_and_before_0650_are_noops(settings,monkeypatch,at):
 def test_real_failure_blocks_cached_writers_and_keeps_old_receipt(settings,monkeypatch):
     cached=RuntimeStore(settings.state_db_path);assert cached.healthy
     old=marker_path(settings.state_db_path).read_bytes()
-    def failed(_):raise sqlite3.DatabaseError('controlled page failure')
+    def failed(_,**kwargs):raise sqlite3.DatabaseError('controlled page failure')
     monkeypatch.setattr(subject,'verify_integrity',failed)
     at=clock('2026-10-26T06:50:00')
     result=subject.run_integrity_maintenance(settings,now=at)
@@ -84,6 +84,6 @@ def test_cli_never_constructs_store_or_application(settings,monkeypatch,capsys):
     from liangjian_funnel import cli
     monkeypatch.setattr(cli,'RuntimeStore',lambda *a,**k:pytest.fail('no migrations/Store'))
     monkeypatch.setattr(cli,'WorkflowApplication',lambda *a,**k:pytest.fail('no Workflow/models'))
-    monkeypatch.setattr(subject,'run_integrity_maintenance',lambda s:dict(status='PASS',models_called=0,migrations_run=False))
+    monkeypatch.setattr(subject,'run_integrity_maintenance',lambda s,**kwargs:dict(status='PASS',models_called=0,migrations_run=False))
     assert cli.main(['run-runtime-integrity'],settings=settings)==0
     assert json.loads(capsys.readouterr().out)['models_called']==0

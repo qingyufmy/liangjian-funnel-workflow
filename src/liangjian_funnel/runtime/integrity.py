@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import json
 import hashlib
+import math
 from pathlib import Path
 import sqlite3
 import stat
@@ -65,26 +66,61 @@ def _file_identity(path):
     return observed.st_dev,observed.st_ino
 
 
-def verify_integrity(path, *, timeout=180):
+class IntegrityDeadlineExceeded(ValueError):
+    def __init__(self):super().__init__('RUNTIME_INTEGRITY_DEADLINE_EXCEEDED')
+
+
+def check_integrity_deadline(deadline):
+    if (isinstance(deadline,bool) or not isinstance(deadline,(int,float))
+            or not math.isfinite(deadline)):
+        raise ValueError('RUNTIME_INTEGRITY_DEADLINE_INVALID')
+    if time.monotonic()>=deadline:raise IntegrityDeadlineExceeded()
+
+
+def verify_integrity(path, *, timeout=180, deadline=None):
+    """Complete the same full check within one non-renewable caller budget.
+
+    An explicit monotonic deadline replaces the legacy per-scan 180s budget,
+    so deployment can share one budget across both scans and migrations.
+    Progress callbacks never renew it or claim a scanned-page percentage.
+    """
+    if (isinstance(timeout,bool) or not isinstance(timeout,(int,float))
+            or not math.isfinite(timeout) or timeout<=0):
+        raise ValueError('RUNTIME_INTEGRITY_TIMEOUT_INVALID')
     path=Path(path).resolve();started=time.monotonic()
+    deadline=started+timeout if deadline is None else deadline
+    check_integrity_deadline(deadline)
+    expired=False
+    def progress():
+        nonlocal expired
+        expired=time.monotonic()>=deadline
+        return int(expired)
     original_file=_file_identity(path)
-    with sqlite3.connect(path.as_uri()+'?mode=ro',uri=True,timeout=1) as db:
-        db.execute('PRAGMA query_only=ON')
-        db.set_progress_handler(lambda:int(time.monotonic()-started>timeout),10000)
-        db.execute('BEGIN')
-        before=_stable_identity(path,db)
-        if _file_identity(path)!=original_file:
-            raise ValueError('RUNTIME_DATABASE_CHANGED_DURING_VERIFICATION')
-        results=[r[0] for r in db.execute('PRAGMA quick_check')]
-        if results!=['ok']:raise ValueError('SQLITE_INTEGRITY_FAILED')
-        after=_stable_identity(path,db)
-        if before!=after or _file_identity(path)!=original_file:
-            raise ValueError('RUNTIME_DATABASE_CHANGED_DURING_VERIFICATION')
-        receipt=dict(schema_version='runtime-integrity/2',identity=after,
-            observed_device=original_file[0],
-            checked_at=datetime.now(timezone.utc).isoformat(),elapsed_ms=round((time.monotonic()-started)*1000),status='PASS')
+    try:
+        with sqlite3.connect(path.as_uri()+'?mode=ro',uri=True,timeout=1) as db:
+            db.execute('PRAGMA query_only=ON')
+            db.set_progress_handler(progress,10000)
+            db.execute('BEGIN')
+            before=_stable_identity(path,db)
+            check_integrity_deadline(deadline)
+            if _file_identity(path)!=original_file:
+                raise ValueError('RUNTIME_DATABASE_CHANGED_DURING_VERIFICATION')
+            results=[r[0] for r in db.execute('PRAGMA quick_check')]
+            check_integrity_deadline(deadline)
+            if results!=['ok']:raise ValueError('SQLITE_INTEGRITY_FAILED')
+            after=_stable_identity(path,db)
+            check_integrity_deadline(deadline)
+            if before!=after or _file_identity(path)!=original_file:
+                raise ValueError('RUNTIME_DATABASE_CHANGED_DURING_VERIFICATION')
+            receipt=dict(schema_version='runtime-integrity/2',identity=after,
+                observed_device=original_file[0],
+                checked_at=datetime.now(timezone.utc).isoformat(),elapsed_ms=round((time.monotonic()-started)*1000),status='PASS')
+    except sqlite3.OperationalError:
+        if expired:raise IntegrityDeadlineExceeded() from None
+        raise
     if _file_identity(path)!=original_file:
         raise ValueError('RUNTIME_DATABASE_CHANGED_DURING_VERIFICATION')
+    check_integrity_deadline(deadline)
     atomic_json(marker_path(path),receipt)
     return receipt
 

@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import sys
+import time
 from collections import defaultdict
 from datetime import date, datetime
 from pathlib import Path
@@ -344,12 +345,20 @@ def _a5_review_status(application: WorkflowApplication) -> list[dict[str, object
     return projected
 
 
+def _integrity_timeout(value: str, maximum: int) -> int:
+    if not re.fullmatch(r'[0-9]+',value) or not 1<=int(value)<=maximum:
+        raise argparse.ArgumentTypeError(f'timeout-seconds must be an integer in 1..{maximum}')
+    return int(value)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="liangjian-funnel")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="offline configuration and directory check")
-    sub.add_parser("verify-runtime-integrity", help="bounded full SQLite check outside minute hot path")
-    sub.add_parser("run-runtime-integrity", help="once per weekday from 06:50; no models or migrations")
+    verify_integrity = sub.add_parser("verify-runtime-integrity", help="bounded full SQLite check outside minute hot path")
+    verify_integrity.add_argument('--timeout-seconds',type=lambda v:_integrity_timeout(v,1200),default=1200)
+    maintain_integrity = sub.add_parser("run-runtime-integrity", help="once per weekday from 06:50; no models or migrations")
+    maintain_integrity.add_argument('--timeout-seconds',type=lambda v:_integrity_timeout(v,540),default=540)
     sub.add_parser("run-provider-availability", help="08:00 one minimal request per configured model")
     sub.add_parser("probe-hithink", help="run the real Hithink capability gate")
     sub.add_parser("probe-models", help="run model strict-JSON and thinking gates")
@@ -679,7 +688,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
     active = settings or Settings.from_env()
     if args.command=='run-runtime-integrity':
         from .runtime.integrity_maintenance import run_integrity_maintenance
-        result=run_integrity_maintenance(active)
+        result=run_integrity_maintenance(active,timeout_seconds=args.timeout_seconds)
         print(json.dumps(result));return 0 if result['status'] in {'PASS','NOT_DUE'} else 2
     if args.command=='run-provider-availability':
         from .runtime.provider_health import run_daily_availability
@@ -687,7 +696,8 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         print(json.dumps(result));return 0 if result['status']=='READY' else 2
     if args.command=='verify-runtime-integrity':
         from .runtime.integrity import marker_path
-        store=RuntimeStore(active.state_db_path,integrity_maintenance=True)
+        deadline=time.monotonic()+args.timeout_seconds
+        store=RuntimeStore(active.state_db_path,integrity_maintenance=True,integrity_deadline=deadline)
         if store.persistence_failed:raise RuntimeError('RUNTIME_INTEGRITY_MIGRATION_FAILED')
         result=json.loads(marker_path(active.state_db_path).read_bytes())
         print(json.dumps(result));return 0

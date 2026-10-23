@@ -618,7 +618,12 @@ def _migrate_outcome_label_identity(connection: sqlite3.Connection) -> None:
 class RuntimeStore:
     """SQLite-backed state store with durable fail-closed semantics."""
 
-    def __init__(self, path: str | Path, *, integrity_maintenance: bool = False):
+    def __init__(self, path: str | Path, *, integrity_maintenance: bool = False,
+                 integrity_deadline: float | None = None):
+        if integrity_deadline is not None:
+            if not integrity_maintenance:raise ValueError('INTEGRITY_DEADLINE_MAINTENANCE_ONLY')
+            from .integrity import check_integrity_deadline
+            check_integrity_deadline(integrity_deadline)
         requested = Path(path)
         if requested.exists() and requested.is_dir():
             requested = requested / "runtime.sqlite3"
@@ -642,7 +647,7 @@ class RuntimeStore:
                 # No schema writes to an unchecked existing DB. Maintenance
                 # validates old pages first, migrates, then validates the final
                 # schema. It never runs on a minute command.
-                verify_integrity(self.path)
+                verify_integrity(self.path,**({'deadline':integrity_deadline} if integrity_deadline is not None else {}))
             elif not self.healthy:
                 self._persistence_failed=True
                 return
@@ -650,10 +655,12 @@ class RuntimeStore:
                 # Deployment maintenance has already initialized this exact
                 # schema. Do not take migration/DDL locks every minute.
                 return
+        if integrity_deadline is not None:check_integrity_deadline(integrity_deadline)
         self._initialize()
+        if integrity_deadline is not None:check_integrity_deadline(integrity_deadline)
         if new_database or integrity_maintenance:
             from .integrity import verify_integrity
-            verify_integrity(self.path)
+            verify_integrity(self.path,**({'deadline':integrity_deadline} if integrity_deadline is not None else {}))
 
     @property
     def persistence_failed(self) -> bool:
