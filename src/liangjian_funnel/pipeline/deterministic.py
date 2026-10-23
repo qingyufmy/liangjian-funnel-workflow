@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from ..data.hot100_observation import observe_hot100
+from ..data.hot100_observation import observe_snapshot_hot100
 
 from .bottleneck import (
     MARKET_CORE_ROUTE,
@@ -1102,7 +1102,7 @@ def screen_a2(
     market_funding = raw_market_funding if isinstance(raw_market_funding, Mapping) else {}
     raw_hot100 = snapshot.get("EASTMONEY_HOT100_SNAPSHOT")
     hot100 = raw_hot100 if isinstance(raw_hot100, Mapping) else {}
-    hot100_observation = observe_hot100(raw_hot100, decision_as_of=snapshot_as_of)
+    hot100_observation = observe_snapshot_hot100(snapshot)
     hot100_available = hot100_observation.complete
     hot100_by_symbol = {
         str(row.get("symbol") or "").strip().upper(): dict(row)

@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from liangjian_funnel.data.hot100_observation import observe_hot100
+from liangjian_funnel.data.hot100_observation import observe_snapshot_hot100
 from liangjian_funnel.pipeline.deterministic import screen_a2
 from liangjian_funnel.pipeline.disclosure_scope import build_disclosure_prefilter, audit_disclosure_scope
 from liangjian_funnel.pipeline.research.common import _sha256_json
@@ -49,8 +49,7 @@ def audit_projected_batch(snapshot, lane):
     if market_time.tzinfo is None or research_time.tzinfo is None or market_time > research_time:
         raise ValueError('MARKET_TIME_INVALID')
     day = market_time.astimezone(ZoneInfo('Asia/Shanghai')).date()
-    hot_observation = observe_hot100(data.get('EASTMONEY_HOT100_SNAPSHOT'),
-                                    decision_as_of=research_time)
+    hot_observation = observe_snapshot_hot100(data)
     tier = data.get('TIER_STRUCTURE_SNAPSHOT', {})
     tier_rows = tier.get('by_symbol', {})
     tier_time = datetime.fromisoformat(str(tier.get('as_of') or market_time.isoformat()))

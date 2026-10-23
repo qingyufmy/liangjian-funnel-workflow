@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 import hashlib
 import json
 import re
@@ -12,6 +13,12 @@ from .calendar import latest_closed_research_session
 from .closed_session_capture import KEY, aware, validate_research_capture_proof
 
 _CLOCK_SOURCE = ContextVar('closed_session_research_update_clock', default=None)
+
+
+@dataclass(frozen=True)
+class FrozenScopeRevalidation:
+    receipt_path: str
+    receipt_sha256: str
 
 
 @dataclass(frozen=True)
@@ -28,6 +35,7 @@ class ResearchUpdateBinding:
     generation_id: str
     generation_manifest_hash: str
     generation_payload_hash: str
+    frozen_scope_revalidation: FrozenScopeRevalidation | None = None
 
 
 def _require(value, reason):
@@ -41,6 +49,60 @@ def _file_sha(path):
         for chunk in iter(lambda: stream.read(1024 * 1024), b''):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _pinned_json(path, expected):
+    path = Path(path)
+    _require(path.is_absolute() and path.resolve() == path and not path.is_symlink()
+        and path.is_file() and path.stat().st_size <= 65536
+        and isinstance(expected, str) and re.fullmatch('[0-9a-f]{64}', expected),
+        'REVALIDATION_RECEIPT_REQUIRED')
+    _require(_file_sha(path) == expected, 'REVALIDATION_RECEIPT_CHANGED')
+    with path.open(encoding='utf-8') as stream:
+        result = json.load(stream)
+    _require(isinstance(result, Mapping), 'REVALIDATION_RECEIPT_INVALID')
+    return result
+
+
+def frozen_revalidation_scope(app, binding, prepared, *, now):
+    """A separately approved, exact full frozen scope; not an identity delta.
+
+    OPS owns human-authority interpretation and HTTP reservation. This typed
+    business receipt pins that authority original and the actual implementation,
+    seed, current generation, scope and deadline; it cannot select an old base.
+    """
+    from .publication_receipt import object_hash
+    _require(type(binding) is ResearchUpdateBinding and binding.purpose == 'A1', 'FROZEN_SCOPE_BINDING_REQUIRED')
+    intent = binding.frozen_scope_revalidation
+    _require(type(intent) is FrozenScopeRevalidation, 'FROZEN_SCOPE_BINDING_REQUIRED')
+    body = _pinned_json(intent.receipt_path, intent.receipt_sha256)
+    scope = tuple(sorted(prepared.snapshot.data['g0_symbols']))
+    current = aware(now)
+    deadline = aware(body.get('task_deadline'))
+    flip = datetime.combine(datetime.fromisoformat(binding.target_trade_date).date(),
+        datetime.min.time().replace(hour=15), tzinfo=current.tzinfo)
+    _require(body.get('schema') == 'research-frozen-scope-revalidation/1'
+        and body.get('operation') == 'HOT100_CLOSED_SESSION_CLOCK_CORRECTION'
+        and body.get('purpose') == 'A1' and body.get('run_id') == binding.run_id
+        and body.get('source_trade_date') == binding.source_trade_date
+        and body.get('target_trade_date') == binding.target_trade_date
+        and body.get('research_only') is True and body.get('execution_eligible') is False
+        and body.get('seed') == dict(snapshot_id=binding.snapshot_id,
+            snapshot_hash=binding.snapshot_hash, snapshot_file_sha256=binding.snapshot_file_sha256)
+        and body.get('expected_generation') == dict(generation_id=binding.generation_id,
+            manifest_hash=binding.generation_manifest_hash, payload_hash=binding.generation_payload_hash)
+        and body.get('scope_count') == len(scope) and body.get('scope_sha256') == object_hash(list(scope))
+        and current < deadline <= flip, 'FROZEN_SCOPE_RECEIPT_CONFLICT')
+    authority = body.get('authority_original', {})
+    _require(isinstance(authority, Mapping) and set(authority) == {'path', 'sha256'},
+        'REVALIDATION_AUTHORITY_ORIGINAL_REQUIRED')
+    _pinned_json(authority['path'], authority['sha256'])
+    package = Path(__file__).resolve().parent.parent
+    names = ('data/hot100_observation.py', 'pipeline/deterministic.py',
+        'pipeline/research/common.py', 'pipeline/a1_registry.py')
+    _require(body.get('implementation_sources') == {name: _file_sha(package / name) for name in names},
+        'REVALIDATION_IMPLEMENTATION_CHANGED')
+    return scope
 
 
 def load_bound_seed(app, binding, *, now, prepared=None):
@@ -74,6 +136,8 @@ def load_bound_seed(app, binding, *, now, prepared=None):
     _require(isinstance(g0, list) and len(g0) == len(set(g0))
         and prepared.selected_count == prepared.research_universe_count == len(g0) > 0,
         'FULL_SEED_REQUIRED')
+    if binding.frozen_scope_revalidation is not None:
+        frozen_revalidation_scope(app, binding, prepared, now=current)
     return prepared
 
 
@@ -87,8 +151,15 @@ def require_active_generation(app, binding):
 
 
 def bind_research_update(app, *, purpose, snapshot_id, snapshot_hash, snapshot_file_sha256,
-        source_trade_date, expected_a1_generation_id, run_id, now):
+        source_trade_date, expected_a1_generation_id, run_id, now,
+        force_revalidate_frozen_scope=False, revalidation_receipt=None,
+        revalidation_receipt_sha256=None):
     _require(purpose in {'A1', 'A2_A3'}, 'PURPOSE_INVALID')
+    _require(type(force_revalidate_frozen_scope) is bool, 'FROZEN_SCOPE_INTENT_INVALID')
+    _require((force_revalidate_frozen_scope and purpose == 'A1'
+            and isinstance(revalidation_receipt, str) and isinstance(revalidation_receipt_sha256, str))
+        or (not force_revalidate_frozen_scope and revalidation_receipt is None
+            and revalidation_receipt_sha256 is None), 'FROZEN_SCOPE_RECEIPT_REQUIRED')
     _require(isinstance(run_id, str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,150}', run_id), 'RUN_ID_INVALID')
     _require(re.fullmatch(r'snapshot-[A-Za-z0-9+._-]{8,180}', str(snapshot_id or '')), 'SEED_ID_INVALID')
     _require(all(isinstance(v, str) and re.fullmatch('[0-9a-f]{64}', v)
@@ -110,7 +181,9 @@ def bind_research_update(app, *, purpose, snapshot_id, snapshot_hash, snapshot_f
     binding = ResearchUpdateBinding(purpose, run_id, source_trade_date,
         session.target_trade_date.isoformat(), current, snapshot_id, snapshot_hash,
         snapshot_file_sha256, capture_as_of, generation.generation_id,
-        generation.manifest_hash, generation.payload_hash)
+        generation.manifest_hash, generation.payload_hash,
+        FrozenScopeRevalidation(revalidation_receipt, revalidation_receipt_sha256)
+            if force_revalidate_frozen_scope else None)
     load_bound_seed(app, binding, now=current)
     if purpose == 'A2_A3':
         manifest = generation.manifest
@@ -129,12 +202,16 @@ def claim_update(app, binding):
     directory = app.settings.workflow_output_dir / 'research_updates'
     directory.mkdir(parents=True, exist_ok=True)
     claim = directory / (binding.run_id + '.claim.json')
+    revalidation = ({'frozen_scope_revalidation_receipt': dict(
+        path=binding.frozen_scope_revalidation.receipt_path,
+        sha256=binding.frozen_scope_revalidation.receipt_sha256)}
+        if binding.frozen_scope_revalidation is not None else {})
     with claim.open('x', encoding='utf-8') as stream:
         json.dump(dict(run_id=binding.run_id, purpose=binding.purpose,
             started_at=binding.started_at.isoformat(), source_trade_date=binding.source_trade_date,
             target_trade_date=binding.target_trade_date, snapshot_id=binding.snapshot_id,
             snapshot_hash=binding.snapshot_hash, snapshot_file_sha256=binding.snapshot_file_sha256,
-            generation_id=binding.generation_id, publication='RESEARCH_ONLY_NOT_EXECUTION'), stream)
+            generation_id=binding.generation_id, publication='RESEARCH_ONLY_NOT_EXECUTION', **revalidation), stream)
 
 
 def execute_update(app, *, purpose, now, **kwargs):

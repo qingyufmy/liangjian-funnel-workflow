@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 import hashlib
 import json
@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 TZ = ZoneInfo("Asia/Shanghai")
 SCHEMA = "eastmoney-guba-hot100/1.0.0"
 SOURCE = "EASTMONEY_GUBA_POPULARITY_TOP100"
+_SOURCE_FROM_SNAPSHOT = object()
 
 
 def _aware(value):
@@ -57,6 +58,39 @@ class Hot100Observation:
 
 
 def observe_hot100(value: Any, *, decision_as_of: Any) -> Hot100Observation:
+    """Legacy same-day observation without a closed-session proof."""
+    return _observe_hot100(value, decision_as_of=decision_as_of)
+
+
+def observe_snapshot_hot100(snapshot: Mapping[str, Any], *, value: Any = _SOURCE_FROM_SNAPSHOT) -> Hot100Observation:
+    """Bind market identity to a validated session, PIT to actual frozen capture.
+
+    Child enrichment may have a later outer timestamp; the Hot100 evidence is
+    still bound to its original manifest capture, never that child wall clock.
+    Invalid proof is not a reason to fall back to the legacy same-day gate.
+    """
+    source = snapshot.get("EASTMONEY_HOT100_SNAPSHOT") if value is _SOURCE_FROM_SNAPSHOT else value
+    capture = snapshot_decision_as_of(snapshot)
+    if "CLOSED_SESSION_CAPTURE" not in snapshot:
+        return observe_hot100(source, decision_as_of=capture)
+    # Runtime imports are lazy: runtime consumers also import this data module.
+    from ..runtime.calendar import ExchangeTradingCalendar, TradingCalendarError
+    from ..runtime.closed_session_capture import validate_capture_proof
+    try:
+        proof = validate_capture_proof(snapshot["CLOSED_SESSION_CAPTURE"],
+            captured_at=capture, calendar=ExchangeTradingCalendar())
+        if (proof["capture_as_of"] != capture
+                or snapshot.get("MARKET_DATA_AS_OF") != proof["source_market_close_at"]):
+            raise ValueError("HOT100_SNAPSHOT_CLOCK_BINDING_INVALID")
+    except (ValueError, TypeError, OverflowError, TradingCalendarError):
+        return replace(observe_hot100(source, decision_as_of=capture),
+            validation_state="INVALID_SOURCE", reason_code="HOT100_CLOSED_SESSION_CLOCK_UNPROVEN", records=())
+    return _observe_hot100(source, decision_as_of=capture,
+        expected_trade_date=proof["source_trade_date"])
+
+
+def _observe_hot100(value: Any, *, decision_as_of: Any,
+                    expected_trade_date: str | None = None) -> Hot100Observation:
     """Only full records may establish membership; projection declarations cannot.
 
     Collector content_hash covers canonical records, not the envelope. Hash/PIT
@@ -78,7 +112,8 @@ def observe_hot100(value: Any, *, decision_as_of: Any) -> Hot100Observation:
     cutoff = _aware(decision_as_of)
     if cutoff is None or observed is None:
         return result("DATA_LIMITED", "HOT100_PIT_CLOCK_UNPROVEN")
-    if day != cutoff.date().isoformat() or observed.date() != cutoff.date():
+    expected_day = expected_trade_date or cutoff.date().isoformat()
+    if day != expected_day or observed.date().isoformat() != expected_day:
         return result("INVALID_SOURCE", "HOT100_TRADE_DATE_MISMATCH")
     if observed > cutoff:
         return result("INVALID_SOURCE", "HOT100_OBSERVATION_AFTER_DECISION")

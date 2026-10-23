@@ -3033,6 +3033,15 @@ class WorkflowApplication:
                 macro_revalidation_symbols = tuple(sorted(prior_research.intersection(current_g0)))
                 maintenance_scope.update(macro_revalidation_symbols)
             maintenance_scope_symbols = tuple(sorted(maintenance_scope))
+        frozen_revalidation = None
+        if _research_update is not None and _research_update.frozen_scope_revalidation is not None:
+            from .runtime.research_update import frozen_revalidation_scope
+            maintenance_scope_symbols = frozen_revalidation_scope(self, _research_update, prepared,
+                now=datetime.now(SHANGHAI))
+            frozen_revalidation = dict(schema='research-frozen-scope-revalidation/1',
+                scope_count=len(maintenance_scope_symbols), scope_sha256=_hash_json(list(maintenance_scope_symbols)),
+                receipt_sha256=_research_update.frozen_scope_revalidation.receipt_sha256,
+                identity_delta_unchanged=True, research_only=True)
         primary_model, primary_lane_index, primary_lane_id = _primary_model_for_settings(self.settings)
         generation = self.a1_registry.create_generation(
             mode=normalized_mode,
@@ -3153,6 +3162,8 @@ class WorkflowApplication:
                 delta_payload['revalidation_status']=('DAILY_REVALIDATED_UNCHANGED' if daily_refresh and not removed_symbols
                     else 'REMOVALS_REVALIDATED_WITHOUT_MODEL')
                 delta_payload['model_calls']=0
+            if frozen_revalidation is not None:
+                delta_payload['frozen_scope_revalidation'] = frozen_revalidation
             if daily_refresh:delta_payload['daily_refresh_proof']=daily_proof
             manifest = build_a1_manifest(
                 prepared.snapshot.data,

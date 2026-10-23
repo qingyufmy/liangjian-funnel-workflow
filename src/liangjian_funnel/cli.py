@@ -422,6 +422,10 @@ def build_parser() -> argparse.ArgumentParser:
         for field in ('snapshot-id', 'snapshot-hash', 'snapshot-file-sha256',
                 'source-trade-date', 'expected-a1-generation-id', 'run-id'):
             update.add_argument('--' + field, required=True)
+        if name == 'run-a1-research-update':
+            update.add_argument('--force-revalidate-frozen-scope', action='store_true')
+            update.add_argument('--revalidation-receipt')
+            update.add_argument('--revalidation-receipt-sha256')
     research = sub.add_parser("run-research", help="run three isolated A1-A2-A3 model lanes")
     research.add_argument("--slot", choices=("morning", "close"), required=True)
     research.add_argument(
@@ -1254,9 +1258,15 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
         elif args.command in {'run-a1-research-update', 'run-research-update'}:
             operation = (application.run_a1_research_update if args.command == 'run-a1-research-update'
                 else application.run_research_update)
-            payload = operation(**{name: getattr(args, name) for name in (
+            update_kwargs = {name: getattr(args, name) for name in (
                 'snapshot_id', 'snapshot_hash', 'snapshot_file_sha256', 'source_trade_date',
-                'expected_a1_generation_id', 'run_id')})
+                'expected_a1_generation_id', 'run_id')}
+            if args.command == 'run-a1-research-update' and (args.force_revalidate_frozen_scope
+                    or args.revalidation_receipt is not None or args.revalidation_receipt_sha256 is not None):
+                update_kwargs.update(force_revalidate_frozen_scope=args.force_revalidate_frozen_scope,
+                    revalidation_receipt=args.revalidation_receipt,
+                    revalidation_receipt_sha256=args.revalidation_receipt_sha256)
+            payload = operation(**update_kwargs)
         elif args.command == "run-research":
             historical_as_of = datetime.fromisoformat(args.as_of) if args.as_of else None
             if args.same_day_recovery and (

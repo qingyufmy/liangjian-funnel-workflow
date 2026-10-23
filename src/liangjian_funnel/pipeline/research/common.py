@@ -28,7 +28,7 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from ...redaction import digest_text, safe_error, sanitize
-from ...data.hot100_observation import observe_hot100, snapshot_decision_as_of
+from ...data.hot100_observation import observe_hot100, observe_snapshot_hot100
 from ...reporting import atomic_write_json, atomic_write_text
 from ...evaluation.outcome_labels import record_stage_decisions
 from ...evaluation.decision_capture import capture_gate, label_rows
@@ -4520,7 +4520,7 @@ def _with_daily_emotion_overlay(
     """
 
     source = snapshot_data.get("EASTMONEY_HOT100_SNAPSHOT")
-    observation = observe_hot100(source, decision_as_of=snapshot_decision_as_of(snapshot_data))
+    observation = observe_snapshot_hot100(snapshot_data)
     if not observation.complete:
         return dict(output), {
             **observation.health(),
@@ -5058,7 +5058,7 @@ def _project_prompt_value(
     if name == "REVIEWED_PUBLIC_RESEARCH_LEADS":
         return _project_reviewed_public_research_leads(value)
     if name == "EASTMONEY_HOT100_SNAPSHOT":
-        return _project_eastmoney_hot100(value, symbols, decision_as_of=snapshot_decision_as_of(snapshot_data or {}))
+        return _project_eastmoney_hot100(value, symbols, snapshot_data=snapshot_data or {})
     if name == "SELECTED_BOARD_SNAPSHOT":
         return _project_selected_board(value, symbols)
     if name == "A2_THEME_METRICS":
@@ -5457,10 +5457,12 @@ def _project_sector_permissions(value: Any, symbols: set[str] | None) -> Any:
 
 
 
-def _project_eastmoney_hot100(value: Any, symbols: set[str] | None, *, decision_as_of: Any = None) -> Any:
+def _project_eastmoney_hot100(value: Any, symbols: set[str] | None, *, decision_as_of: Any = None,
+                            snapshot_data: Mapping[str, Any] | None = None) -> Any:
     """Project a server-validated full Hot100 snapshot to batch rows + top10."""
 
-    observation = observe_hot100(value, decision_as_of=decision_as_of)
+    observation = (observe_snapshot_hot100(snapshot_data, value=value) if snapshot_data is not None
+                   else observe_hot100(value, decision_as_of=decision_as_of))
     source = value if isinstance(value, Mapping) else {}
     result = {key: source[key] for key in ("schema_version", "source_id", "trade_date", "as_of", "content_hash", "point_in_time") if key in source}
     result.update(available=observation.complete, reason_code=observation.reason_code, source_health=observation.health())

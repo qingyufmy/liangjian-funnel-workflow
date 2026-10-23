@@ -787,18 +787,43 @@ def merge_a1_partitions(
                 if key in delta_output["envelope"]:
                     result["envelope"][key] = delta_output["envelope"][key]
     # A summary belongs to the complete merged generation, not to the delta
-    # request.  Retain any model-provided extra fields but refresh the
-    # partition counts so consumers never see the old baseline totals.
+    # request. Retain non-count extras, but derive every existing count view
+    # from the final arrays, not from the baseline or the delta alone.
     summary = result.get("analysis_summary")
     summary_data = dict(summary) if isinstance(summary, Mapping) else {}
+    counts = {partition: len(result[partition]) for partition in A1_OUTPUT_PARTITIONS}
+    for partition, count in counts.items():
+        if partition in summary_data:
+            summary_data[partition] = count
+    if "pool_counts" in summary_data:
+        summary_data["pool_counts"] = dict(counts)
     summary_data.update(
         {
             "outcome": "A1_INCREMENTAL_MERGED",
-            "approved_count": len(result.get("active_research_pool", ())),
-            "monitor_count": len(result.get("monitor_pool", ())),
-            "rejected_count": len(result.get("rejected_candidates", ())),
+            "approved_count": counts["active_research_pool"],
+            "monitor_count": counts["monitor_pool"],
+            "rejected_count": counts["rejected_candidates"],
         }
     )
+    # These optional annotations are owned by the full A1 research path.
+    # Refresh them only when present; do not invent a target/provenance claim
+    # for legacy outputs which did not carry that annotation.
+    if "active_research_count" in summary_data:
+        summary_data["active_research_count"] = counts["active_research_pool"]
+    if "clue_pool_count" in summary_data:
+        summary_data["clue_pool_count"] = counts["active_research_pool"] + counts["monitor_pool"]
+    if "selection_basis_counts" in summary_data or "selection_basis_total" in summary_data:
+        # Match the active-only provenance contract in research/a1.py.
+        basis_counts = dict.fromkeys((
+            "LLM_REVIEWED", "DETERMINISTIC_SCORE", "QUOTA_FILL",
+            "BROKER_GOLD_DIRECT", "FUNDAMENTAL_BASELINE", "HALF_YEAR_FUNDAMENTAL",
+        ), 0)
+        for row in result["active_research_pool"]:
+            basis = str(row.get("selection_basis") or "")
+            if basis in basis_counts:
+                basis_counts[basis] += 1
+        summary_data["selection_basis_counts"] = basis_counts
+        summary_data["selection_basis_total"] = sum(basis_counts.values())
     result["analysis_summary"] = summary_data
     return result
 
