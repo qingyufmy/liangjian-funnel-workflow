@@ -148,6 +148,27 @@ def test_30_slots_remain_two_lane_fair_and_empty_formal_batch_stays_deferred():
     assert _fair_research_slots(nom,hot,maximum=0)==([],{})
 
 
+@pytest.mark.parametrize('value',[0.0,0.5,1.0,99.5,100.0])
+@pytest.mark.parametrize('reference',[True,False])
+def test_explicit_percentile_source_never_guesses_ratio_scale(value,reference):
+    s,o=inputs()
+    if reference:
+        values={SYM:value}
+        rank=dict(schema_version='a2-reference-relative-strength/1',available=True,as_of=NOW,
+            evaluation_trade_date=DAY,denominator_scope='FULL_MARKET_REFERENCE',reference_symbol_count=1,
+            reference_symbols_hash='f'*64,observed_symbol_count=1,return_window_sessions=20,
+            values=values,values_hash=content_hash(values))
+        s.data['A2_FACTOR_SNAPSHOT']={'reference_relative_strength':rank}
+    else:
+        leader=dict(available=True,availability_state='OBSERVED_VALUE',source='LOCAL_THEME_CROSS_SECTION',
+                    relative_strength_percentile=value)
+        s.data['A2_FACTOR_SNAPSHOT']=dict(available=True,content_hash='f'*64,as_of=NOW,
+            by_symbol={SYM:dict(leader_structure=leader,stock_trend_structure={'trade_date':DAY})})
+    candidate=source(s,o)['candidates'][0]
+    assert float(candidate['relative_strength'])==value
+    assert candidate['execution_permission']=='BLOCKED'
+
+
 def test_actual_adapter_delivers_startup_question_in_one_existing_call_without_formal_promotion(tmp_path):
     from test_hot100_independent_research_intake import attention_fixture
     def reply(raw,attempt):

@@ -108,8 +108,10 @@ def _relative_strength(data,symbol,day,capture):
             if isinstance(raw,bool):return None,None
             value=Decimal(str(raw))
             if not value.is_finite() or not 0<=value<=100:return None,None
-            from .deterministic import _relative_strength_score
-            value=Decimal(str(round(_relative_strength_score({'relative_strength_percentile':float(value)},default=None),4)))
+            # This typed A2 field is already a 0..100 percentile. The legacy
+            # generic score reader also accepts ratios and would turn 0.5
+            # into 50; never guess the scale of this explicit source.
+            value=Decimal(str(round(float(value),4)))
             return str(value),dict(source_field='A2_FACTOR_SNAPSHOT.reference_relative_strength.values.'+symbol,
                 values_hash=reference['values_hash'],reference_symbols_hash=reference['reference_symbols_hash'],
                 as_of=reference['as_of'],source_trade_date=day,metric='UNCHANGED_A2_20_SESSION_RETURN_PERCENTILE')
@@ -124,9 +126,8 @@ def _relative_strength(data,symbol,day,capture):
         if isinstance(raw,bool):return None,None
         value=Decimal(str(raw))
         if not value.is_finite() or not 0<=value<=100:return None,None
-        from .deterministic import _relative_strength_score
-        # Use exactly the existing A2 scale and four-decimal ranking semantics.
-        value=Decimal(str(round(_relative_strength_score({'leader_structure':leader},default=None),4)))
+        # LOCAL_THEME_CROSS_SECTION also stores absolute 0..100 percentiles.
+        value=Decimal(str(round(float(value),4)))
         return str(value),dict(source_field='A2_FACTOR_SNAPSHOT.by_symbol.'+symbol+'.leader_structure.relative_strength_percentile',
             source_content_hash=source['content_hash'],as_of=source['as_of'],source_trade_date=day,
             original_leader_sha256=content_hash(leader))
