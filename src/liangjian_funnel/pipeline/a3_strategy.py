@@ -963,6 +963,13 @@ def evaluate_a3_candidate(
             else:
                 condition("NOT_ONE_PRICE_LOCKED", True)
 
+        # A legitimate zero-range daily session carries no demonstrated
+        # entry liquidity. Preserve it as observation, rather than calling
+        # its valid OHLC malformed or allowing a research route to clear it.
+        if kline.get("single_price_session") is True:
+            condition("DAILY_SESSION_HAS_PRICE_RANGE", False,
+                reason="SINGLE_PRICE_SESSION_OBSERVE_ONLY", watch=True)
+
         # Explicit known-negative conditions are hard rejection.  Unknown
         # conditions remain data gaps so they cannot be mistaken for a real
         # opportunity.

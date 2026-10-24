@@ -162,7 +162,7 @@ def _build_kline(snapshot: TechnicalFactorSnapshot, *, future: OHLCVBar | None) 
     lower_shadow = min(latest.open, latest.close) - latest.low
     # OHLCVBar validates positive prices but keeps the high/low relation as a
     # source contract.  Protect this projection from a malformed object too.
-    if not _finite_positive(bar_range) or upper_shadow < 0 or lower_shadow < 0:
+    if not math.isfinite(bar_range) or bar_range < 0 or upper_shadow < 0 or lower_shadow < 0:
         return _fail_closed(base, reason_code="MALFORMED_DAILY_BAR", missing=_KLINE_MISSING_FIELDS)
 
     labels = _pattern_labels(latest, previous, body=body, bar_range=bar_range, upper_shadow=upper_shadow, lower_shadow=lower_shadow)
@@ -195,6 +195,8 @@ def _build_kline(snapshot: TechnicalFactorSnapshot, *, future: OHLCVBar | None) 
         "upper_shadow_ratio": _ratio(upper_shadow, bar_range),
         "lower_shadow_ratio": _ratio(lower_shadow, bar_range),
         "direction": _direction(latest),
+        "single_price_session": bar_range == 0,
+        "range_ratio_state": "UNDEFINED_ZERO_RANGE" if bar_range == 0 else "OBSERVED_VALUE",
         "labels": labels,
         # The explicit top-level aliases make the two claims easy to consume,
         # while the nested map keeps their shared reference window visible.
@@ -493,6 +495,10 @@ def _pattern_labels(
     upper_shadow: float,
     lower_shadow: float,
 ) -> list[str]:
+    if bar_range == 0:
+        # Legitimate O=H=L=C is not corrupt OHLC and does not by itself
+        # prove a limit-up lock, a breakout fill or an executable setup.
+        return ["SINGLE_PRICE_SESSION"]
     body_ratio = body / bar_range
     upper_ratio = upper_shadow / bar_range
     lower_ratio = lower_shadow / bar_range

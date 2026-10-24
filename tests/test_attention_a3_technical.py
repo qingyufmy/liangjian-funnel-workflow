@@ -133,3 +133,15 @@ def test_malformed_frame_container_does_not_crash_other_research_cases(frames):
     from liangjian_funnel.pipeline.a3_attention_research import technical_source_day_proof
     proof=technical_source_day_proof(dict(FACTOR_SNAPSHOT={LEAD:{'timeframes':frames}}),LEAD,'2026-10-23')
     assert proof['usable'] is False and 'A3_DAILY_SOURCE_DATE_UNPROVEN' in proof['reason_codes']
+
+
+def test_valid_single_price_session_remains_observation_not_data_gap_or_entry(tmp_path):
+    data,a1,domain=technical(tmp_path)
+    data['KLINE_PATTERNS'][LEAD]['single_price_session']=True
+    result=evaluate_attention_a3_domain(data,a1,domain);row=result['records'][0]
+    assert result['first_pass_model_requests']==0
+    assert row['technical']['status']=='LOCAL_MONITOR'
+    assert 'SINGLE_PRICE_SESSION_OBSERVE_ONLY' in row['technical']['reason_codes']
+    assert row['technical']['technical_source_day_proof']['usable'] is True
+    assert row['constraints']['research_blocker_category']=='OBSERVATION_CONDITIONS'
+    assert row['risk_unit']=='NO_ENTRY'

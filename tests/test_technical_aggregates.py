@@ -68,6 +68,19 @@ def test_breakout_20_excludes_current_bar_from_reference_window() -> None:
     assert kline["breakout_20"]["reference_high"] == 101.0
 
 
+def test_real_single_price_session_is_valid_market_data_not_a_fake_shape():
+    rows=[_daily_bar(i) for i in range(65)]
+    rows[-1]=_daily_bar(64,open_=164,high=164,low=164,close=164)
+    value=build_technical_aggregates(_snapshot(daily=rows))['KLINE_PATTERNS']
+    assert value['available'] is True
+    assert value['single_price_session'] is True
+    assert value['range']==0 and value['body']==0
+    assert value['body_ratio'] is None and value['upper_shadow_ratio'] is None
+    assert value['source_bar_time'] is not None
+    assert value['direction']=='FLAT'
+    assert value.get('locked_limit_up') is not True
+
+
 def test_future_bar_fails_both_outputs_closed() -> None:
     rows = (
         OHLCVBar(

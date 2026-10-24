@@ -17,6 +17,7 @@ A3_REASON_LABELS = {
     "A3_THEME_STAGE_UNAVAILABLE": "题材阶段记录不可用",
     "A3_THEME_STAGE_EVIDENCE_INSUFFICIENT": "题材阶段缺少日期、正反证据或来源",
     "FIRST_BOARD_OBSERVE_ONLY": "首板暂列观察，未满足当前龙头接力条件",
+    "SINGLE_PRICE_SESSION_OBSERVE_ONLY": "全天单一成交价，保留观察；不据此假定可成交或涨停锁定",
     "FOUR_PLUS_BOARD_WATCH_ONLY": "四板及以上处于高位观察，不进入次日接力计划",
     "LEADER_THEME_RETREAT_OR_CLIMAX": "题材处于高潮、分化或退潮阶段，龙头策略停止新增计划",
     "HIGHER_TIMEFRAME_BEARISH": "已闭合周线与日线同时偏空",
