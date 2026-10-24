@@ -114,7 +114,7 @@ def collect_eastmoney_capital_flow(
         max_age_seconds=cache_max_age_seconds,
     )
     if cached is not None:
-        return cached
+        return _capital_cache_for_exact_scope(cached, expected_symbols, cutoff)
     historical_recovery = cutoff.date() != current.date()
     if historical_recovery and not allow_historical_recovery:
         return unavailable_capital_flow_snapshot(
@@ -199,7 +199,7 @@ def collect_tencent_capital_flow(
         max_age_seconds=cache_max_age_seconds,
     )
     if cached is not None:
-        return cached
+        return _capital_cache_for_exact_scope(cached, expected_symbols, cutoff)
     historical_recovery = cutoff.date() != current.date()
     if historical_recovery and not allow_historical_recovery:
         return unavailable_capital_flow_snapshot(
@@ -239,6 +239,8 @@ def collect_tencent_capital_flow(
     fetch = fetch_symbol or _tencent_symbol_flow_fetcher
     rows: list[Mapping[str, Any]] = []
     failed_symbols: list[str] = []
+    archive_refs: list[dict[str, Any]] = []
+    archive_failures: list[str] = []
     with ThreadPoolExecutor(max_workers=int(workers), thread_name_prefix="tencent-flow") as executor:
         futures = {executor.submit(fetch, symbol): symbol for symbol in symbols}
         for future in as_completed(futures):
@@ -252,6 +254,20 @@ def collect_tencent_capital_flow(
                 failed_symbols.append(symbol)
                 continue
             row = dict(raw)
+            original = row.pop('_capital_original', None)
+            if isinstance(original, Mapping):
+                try:
+                    from .capital_history import archive_observation, tencent_daily_observation
+                    observation = tencent_daily_observation(original['raw'], symbol=symbol,
+                        provider_timestamp=str(provider_timestamp), received_at=original['received_at'])
+                    archive_refs.append(archive_observation(root/'daily-observations-v1',
+                        raw=original['raw'], observation=observation))
+                except (ValueError, TypeError, KeyError, OSError):
+                    archive_failures.append(symbol)
+            else:
+                # Injected/legacy normalized rows have no original. Never
+                # sign them as if the raw buckets had been observed today.
+                archive_failures.append(symbol)
             row.setdefault("symbol", symbol)
             row["provider_timestamp"] = provider_timestamp
             rows.append(row)
@@ -289,9 +305,34 @@ def collect_tencent_capital_flow(
     snapshot["requested_symbol_count"] = len(symbols)
     snapshot["failed_symbol_count"] = len(failed_symbols)
     snapshot["failed_symbols_sample"] = sorted(failed_symbols)[:100]
+    snapshot['daily_archive'] = dict(schema='capital-daily-archive-references/1',
+        references=sorted(archive_refs, key=lambda r:r['path']),
+        raw_originals_missing_or_failed=sorted(archive_failures),
+        requested_symbol_count=len(symbols), historical_point_in_time_proven=False,
+        formal_factor_eligible=False)
     snapshot["content_hash"] = _content_hash(snapshot)
     write_capital_flow_snapshot(root, snapshot)
     return snapshot
+
+
+def _capital_cache_for_exact_scope(cached, expected_symbols, cutoff):
+    requested = {s for value in expected_symbols if (s := _normalize_symbol(value))}
+    rows = cached.get('by_symbol')
+    if not requested or not isinstance(rows, Mapping) or set(rows) != requested:
+        # A cross-sectional percentile cannot be projected to a different
+        # universe, nor may a date-only filename certify complete coverage.
+        # Preserve the old cache and do not silently recollect/relabel it.
+        result = unavailable_capital_flow_snapshot(as_of=cutoff,
+            reason_code='CAPITAL_FLOW_CACHE_REQUESTED_SCOPE_MISMATCH',
+            expected_symbols=expected_symbols, source_id=cached.get('source_id', CAPITAL_FLOW_PROVIDER))
+        result.pop('content_hash', None)
+        result['rejected_cache_identity'] = dict(content_hash=cached.get('content_hash'),
+            requested_scope_sha256=_content_hash({'symbols':sorted(requested)}),
+            cached_scope_sha256=_content_hash({'symbols':sorted(rows)}) if isinstance(rows, Mapping) else None,
+            requested_count=len(requested), cached_count=len(rows) if isinstance(rows, Mapping) else None)
+        result['content_hash'] = _content_hash(result)
+        return result
+    return cached
 
 
 def build_capital_flow_snapshot(
@@ -1509,7 +1550,9 @@ def _tencent_symbol_flow_fetcher(symbol: str) -> dict[str, Any]:
         payload = response.json()
     except ValueError as exc:
         raise CapitalFlowError("Tencent capital-flow response is not JSON") from exc
-    return _parse_tencent_flow_payload(payload, expected_symbol=symbol)
+    row = _parse_tencent_flow_payload(payload, expected_symbol=symbol)
+    row['_capital_original'] = dict(raw=response.content, received_at=datetime.now(SHANGHAI))
+    return row
 
 
 def _tencent_http_session() -> Any:

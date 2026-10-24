@@ -193,6 +193,8 @@ def _post_policy(raw,snapshot,upstream_output,symbols,lane_id,model,*,policy_aud
     for theme,review in zip(output['active_themes'],raw['theme_reviews'],strict=True):
         theme.update(team_penalty_codes=list(review['penalty_codes']),supporting_evidence=list(review['supporting_refs']),
             contradicting_evidence=list(review['opposing_refs']),what_would_change_my_mind=list(review['what_would_change_my_mind']))
+    from .a2_theme_research import bind_attention_review_times
+    output=bind_attention_review_times(output,snapshot.data,raw['theme_reviews'],attention_hypotheses)
     output['envelope']={**legacy._required_envelope(snapshot,lane_id,model,'A2'),'prompt_version':PROMPT_VERSIONS['A2'],'status':'OK'}
     output.update(handoff_notes=deepcopy(raw['handoff_notes']),what_would_change_my_mind=raw['what_would_change_my_mind'],
         model_nominations=deepcopy(raw['model_nominations']),market_read=deepcopy(raw['market_read']))

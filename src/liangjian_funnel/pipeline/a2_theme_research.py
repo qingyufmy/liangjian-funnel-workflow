@@ -9,6 +9,7 @@ remain explicitly unscored.
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime
+import re
 
 from .feature_store import content_hash
 
@@ -201,6 +202,47 @@ def add_unscored_theme_hypotheses(frozen, contexts, *, additional_hypotheses=Non
             score_basis='NO_THEME_SPECIFIC_QUANT_POPULATION_DO_NOT_COPY_MONTHLY_PRIMARY_SCORE')
     result['independent_theme_hypotheses'] = hypotheses
     result['score_snapshot_sha256'] = content_hash({k: v for k, v in result.items() if k != 'score_snapshot_sha256'})
+    return result
+
+
+def bind_attention_review_times(output, snapshot_data, raw_reviews, hypotheses):
+    """Date outsider-only theme reviews from their actual frozen input.
+
+    Formal-theme proofs are retained unchanged. A caller-supplied current
+    date or an unverified hypothesis can never fill the missing source date.
+    """
+    from ..data.hot100_observation import observe_snapshot_hot100
+    observation = observe_snapshot_hot100(snapshot_data)
+    reference = snapshot_data.get('A2_MARKET_REFERENCE')
+    day = reference.get('market_trade_date') if isinstance(reference, Mapping) else None
+    if (not observation.complete or day != observation.trade_date or not isinstance(day, str)
+            or re.fullmatch(r'\d{4}-\d{2}-\d{2}', day) is None):
+        return output
+    if not isinstance(hypotheses, Mapping):
+        return output
+    by_theme = {}
+    for symbol, rows in (hypotheses or {}).items():
+        for row in rows:
+            if (row.get('symbol') != symbol or row.get('schema') != SCHEMA
+                or row.get('origin') != 'HOT100_ATTENTION_RESEARCH_ONLY'
+                or row.get('execution_authority') is not False
+                or row.get('hypothesis_id') != content_hash({k:v for k,v in row.items() if k != 'hypothesis_id'})):
+                continue
+            by_theme.setdefault(row['theme_id'], {}).setdefault(symbol, []).append(row)
+    result = dict(output)
+    result['active_themes'] = [deepcopy(theme) for theme in output.get('active_themes', [])]
+    originals = {row['theme_id']: row for row in raw_reviews}
+    for theme in result.get('active_themes', []):
+        identity = theme.get('theme_id'); members = by_theme.get(identity)
+        if theme.get('stage_evidence_hash') or not members or identity not in originals:
+            continue
+        inputs = {symbol: {'independent_attention_hypotheses': sorted(rows, key=lambda r:r['hypothesis_id'])}
+                  for symbol, rows in sorted(members.items())}
+        theme.update(stage_observed_as_of=day,
+            stage_evidence_hash=content_hash(dict(review=originals[identity], inputs=inputs, as_of=day)),
+            stage_evidence_origin='EXACT_ATTENTION_A2_REVIEW',
+            source_refs=['A2_ATTENTION_HYPOTHESIS:'+row['hypothesis_id']
+                         for rows in inputs.values() for row in rows['independent_attention_hypotheses']])
     return result
 
 
