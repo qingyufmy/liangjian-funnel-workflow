@@ -381,6 +381,11 @@ def test_explicit_reference_universe_drives_market_denominators() -> None:
     assert snapshot["symbol_count"] == snapshot["candidate_symbol_count"] == 1
     assert snapshot["reference_symbol_count"] == 3
     assert snapshot["denominator_scope"] == "FULL_MARKET_REFERENCE"
+    reference=snapshot['reference_relative_strength']
+    assert reference['available'] is True
+    assert reference['values']=={'600001.SH':100.0,'000002.SZ':50.0,'300003.SZ':0.0}
+    assert reference['reference_symbol_count']==3 and reference['return_window_sessions']==20
+    assert '000002.SZ' not in snapshot['by_symbol']
     # The strongest candidate ranks first among all three reference symbols;
     # a one-symbol candidate-only denominator would incorrectly return 50.
     candidate = snapshot["by_symbol"][reference_symbols[0]]

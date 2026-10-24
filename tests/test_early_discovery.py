@@ -32,7 +32,7 @@ def test_repair_found_before_complete_bull_stack_no_order_authority():
     assert rows == original
     assert result["records"][0]["signals"] == ["REPAIR_WATCH"]
     assert result["records"][0]["execution_permission"] == "BLOCKED"
-    assert result["records"][0]["evidence"]["ma"][5] < result["records"][0]["evidence"]["ma"][20]
+    assert result["records"][0]["evidence"]["ma"]["5"] < result["records"][0]["evidence"]["ma"]["20"]
 
 
 def test_watch_persists_after_cross_and_fails_on_ma20_break():

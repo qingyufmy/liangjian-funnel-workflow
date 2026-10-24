@@ -17,6 +17,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..data.capital_source_policy import capital_weighting_label, inspect_legacy_capital_weighting
+from .feature_store import content_hash
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -770,6 +771,22 @@ def build_a2_feature_snapshot(
             if reference_scope_explicit
             else "CANDIDATE_SCOPE_FALLBACK"
         ),
+        # Keep the already-computed reference ranks visible to research leads
+        # outside the materialized candidate slice. No new return, percentile
+        # population, factor score or admission threshold is computed here.
+        "reference_relative_strength": {
+            "schema_version": "a2-reference-relative-strength/1",
+            "available": (reference_scope_explicit and reference_daily_bar_coverage >= 0.95
+                          and reference_identity_coverage >= 0.95),
+            "as_of": cutoff.isoformat(), "evaluation_trade_date": trade_date.isoformat(),
+            "denominator_scope": "FULL_MARKET_REFERENCE" if reference_scope_explicit else "CANDIDATE_SCOPE_FALLBACK",
+            "reference_symbol_count": reference_symbol_count,
+            "reference_symbols_hash": content_hash(list(reference_symbols)),
+            "observed_symbol_count": len(return_percentiles),
+            "return_window_sessions": 20,
+            "values": return_percentiles,
+            "values_hash": _hash(return_percentiles),
+        },
     }
     payload["content_hash"] = _hash(payload)
     return payload

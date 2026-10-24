@@ -94,7 +94,7 @@ def hot100_research_intake(output, snapshot, g0, *, hard_risks):
         formal_a1_partitions_changed=False, new_model_calls_authorized=False)
 
 
-def attention_theme_hypotheses(candidates):
+def attention_theme_hypotheses(candidates, *, origin='HOT100_ATTENTION_RESEARCH_ONLY'):
     """Reuse exact route validation without pretending attention passed A1/A2."""
     result = {}
     for candidate in candidates:
@@ -104,7 +104,7 @@ def attention_theme_hypotheses(candidates):
             body = dict(schema=SCHEMA, symbol=symbol, theme_id=route['theme_id'],node_id=route['node_id'],
                 decision_id=candidate['candidate_id'], as_of=candidate['capture_as_of'],
                 evidence=deepcopy(route['evidence']),membership_source_hash=binding['source_hash'],
-                monthly_primary_theme_id=None, origin='HOT100_ATTENTION_RESEARCH_ONLY',
+                monthly_primary_theme_id=None, origin=origin,
                 formal_a1_member=False,execution_authority=False,confirms_catalyst=False,confirms_theme_stage=False)
             body['hypothesis_id'] = content_hash(body)
             result.setdefault(symbol, []).append(body)

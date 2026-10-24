@@ -13,6 +13,38 @@ from .feature_store import content_hash
 from .macd_evidence import macd_evidence
 
 VERSION = "early-discovery/1"
+IDENTITY_VERSION = "early-discovery-json/2"
+
+
+def verify_discovery_event_identity(event):
+    """Verify one exact identity format, including persisted legacy v1 MA keys.
+
+    Python integer map keys become strings in JSON. Legacy v1 constructed
+    these two maps with integer keys before hashing; reconstruct only that
+    documented shape. New records hash a JSON-stable evidence representation.
+    Never rewrite a historical ID or try arbitrary representations to match.
+    """
+    try:
+        evidence = deepcopy(event['evidence'])
+        identity = event.get('identity_version')
+        if identity is None:
+            for key in ('ma', 'previous_ma'):
+                values = evidence[key]
+                if (not isinstance(values, Mapping) or len(values) != 3
+                        or {str(k) for k in values} != {'5','20','60'}):
+                    return False
+                evidence[key] = {int(k):v for k,v in values.items()}
+        elif identity != IDENTITY_VERSION:
+            return False
+        elif any(not isinstance(evidence.get(key), Mapping)
+                 or set(evidence[key]) != {'5','20','60'} for key in ('ma','previous_ma')):
+            return False
+        return (event['decision_id'] == content_hash({'version':VERSION,'symbol':event['symbol'],'evidence':evidence})
+            and event['setup_event_id'] == content_hash({'version':VERSION,'symbol':event['symbol'],
+                'signals':event['signals'],'setup_bar_end':evidence['setup_bar_end'],
+                'adjust_mode':evidence['adjust_mode']}))
+    except (KeyError,TypeError,ValueError):
+        return False
 
 
 def scan_cached_universe(cache: Any, symbols: Sequence[str], *, as_of: datetime) -> dict[str, Any]:
@@ -90,7 +122,12 @@ def discover_early_setups(daily_by_symbol: Mapping[str, Any], *, as_of: datetime
                     "setup_bar_end": setup_end.isoformat(), "observation_age_sessions": observation_age,
                     "adjust_mode": bars[-1].adjust_mode,
                     "bar_count": len(bars)}
+        # Stable before and after a persisted JSON round trip. The numerical
+        # signal calculation above retains its original integer-key MA maps.
+        for key in ('ma','previous_ma'):
+            evidence[key] = {str(k):v for k,v in evidence[key].items()}
         leads.append({"symbol": symbol, "signals": signals, "evidence": evidence,
+                      "identity_version": IDENTITY_VERSION,
                       "decision_id": content_hash({"version": VERSION, "symbol": symbol, "evidence": evidence}),
                       "setup_event_id": content_hash({"version": VERSION, "symbol": symbol,
                           "signals": signals, "setup_bar_end": setup_end.isoformat(),

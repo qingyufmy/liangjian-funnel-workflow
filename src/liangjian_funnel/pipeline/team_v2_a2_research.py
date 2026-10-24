@@ -81,7 +81,10 @@ def _attention_plan(snapshot, upstream_output, formal_symbols):
             or supplied.get('candidates')!=expected['candidates']):
         raise ValueError('TEAM_A2_ATTENTION_SOURCE_MISMATCH')
     from .team_v2_nomination_source import nomination_source_candidates
+    from .selected_board_nomination import selected_board_startup_candidates,merge_startup_nominations,ORIGIN
     nomination=nomination_source_candidates(snapshot,formal_symbols)
+    startup=selected_board_startup_candidates(snapshot,upstream_output,formal_symbols)
+    nomination=merge_startup_nominations(nomination,startup)
     slots,owners=_fair_research_slots(nomination['candidates'],expected['candidates'],maximum=30 if formal_symbols else 0)
     selected_evidence=[r for r in expected['candidates'] if r['symbol'] in owners]
     attention_by_symbol={r['symbol']:r for r in selected_evidence}
@@ -124,9 +127,24 @@ def _attention_plan(snapshot, upstream_output, formal_symbols):
             status='PLANNED_EXISTING_A2_CALL' if owner is not None else
                 'DEFERRED_NO_EXISTING_A2_CALL' if not formal_symbols else 'DEFERRED_A2_SIDE_SAMPLE_CAPACITY',
             shared_slot=row['symbol'] in attention_symbols,execution_authority=False))
+    startup_selected=[r for r in startup['candidates'] if r['symbol'] in owners]
+    hypotheses=attention_theme_hypotheses(selected_evidence)
+    for symbol,items in attention_theme_hypotheses(startup_selected,origin=ORIGIN).items():
+        merged={r['hypothesis_id']:r for r in [*hypotheses.get(symbol,[]),*items]}
+        hypotheses[symbol]=sorted(merged.values(),key=lambda r:r['hypothesis_id'])
+    startup_dispositions=[]
+    for original in startup['dispositions']:
+        row=deepcopy(original)
+        if row['status']=='DEFERRED_EXISTING_A2_RESEARCH_BUDGET':
+            row.update(status='PLANNED_EXISTING_A2_CALL' if row['symbol'] in owners else
+                'DEFERRED_NO_EXISTING_A2_CALL' if not formal_symbols else 'DEFERRED_A2_SIDE_SAMPLE_CAPACITY',
+                selected_owner_route=owners.get(row['symbol']))
+        startup_dispositions.append(row)
     body=dict(schema=ATTENTION_SCHEMA,source_snapshot_sha256=snapshot.snapshot_hash,
         candidates=selected,attention_evidence_candidates=selected_evidence,
-        hypotheses=attention_theme_hypotheses(selected_evidence),dispositions=dispositions,
+        hypotheses=hypotheses,dispositions=dispositions,
+        startup_source={k:deepcopy(v) for k,v in startup.items() if k!='candidates'},
+        startup_dispositions=startup_dispositions,startup_selected_candidates=startup_selected,
         nomination_candidates=selected_nomination,nomination_dispositions=nomination_dispositions,
         nomination_source=dict(original_candidate_count=len(nomination['candidates']),
             full_queue_sha256=_hash(nomination['candidates']),source_context_sha256=nomination['source_context_sha256']),
@@ -154,7 +172,7 @@ def _sampling_audit(plan):
         'selected_slots','duplicate_symbols','maximum_side_sample_size','selected_nomination_count',
         'selected_attention_count','transport_nomination_count','transport_attention_only_count',
         'selected_attention_evidence_count','selected_unique_count','selection','formal_candidate_ids_unchanged','new_model_calls_authorized',
-        'count_basis','execution_authority')}
+        'count_basis','execution_authority','startup_source','startup_dispositions','startup_selected_candidates')}
 
 
 def prepare_a2_snapshot(adapter,snapshot,symbols,*,upstream_output=None):
@@ -277,6 +295,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                     projected.setdefault('_theme_review_scope',{}).setdefault(row['theme_id'],[]).append(symbol)
             projected['_hot100_independent_research']={
                 'schema':ATTENTION_SCHEMA,'candidates':attention['candidates'],
+                'selected_board_startup_candidates':attention['startup_selected_candidates'],
                 'shared_nomination_symbols':[r['symbol'] for r in sample if 'independent_attention_research' in r],
                 'hypotheses':attention_hypotheses,'plan_sha256':attention['plan_sha256'],
                 'contract':'Review every exact theme hypothesis, including Hot100 proof embedded in a shared nomination row. Each shared symbol occupies one slot, not two. All these symbols are outside formal A1: never put them in focus_decisions, reject_decisions or the rotation symbol domain. Only the original selected nomination scope may appear in model_nominations. Membership is not a catalyst/stage/entry proof. Missing theme-specific facts remain DATA_LIMITED.',
@@ -297,6 +316,8 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             *[dict(id='A2:QUANT:'+s,category='QUANT',sha256=_hash(projected[s])) for s in sorted(symbols)],
             *([dict(id='A2:ATTENTION:'+r['symbol'],category='QUANT',sha256=_hash(r))
                 for r in attention['attention_evidence_candidates']] if first_attention_batch else []),
+            *([dict(id='A2:STARTUP:'+r['symbol'],category='QUANT',sha256=_hash(r))
+                for r in attention['startup_selected_candidates']] if first_attention_batch else []),
             *[dict(id='A2:NOMINATION:'+r['symbol'],category='QUANT',sha256=_hash(r)) for r in sample]])
         # Missing source is not evidence. Keep the absent catalog entry out.
         if values.get('NEWS_HEAT_SNAPSHOT') is None:
@@ -522,6 +543,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         if first_attention_batch:
             dispositions=deepcopy(attention['dispositions'])
             nominations=deepcopy(attention['nomination_dispositions'])
+            startups=deepcopy(attention['startup_dispositions'])
             for item in dispositions:
                 if item['status']=='PLANNED_EXISTING_A2_CALL':
                     item.update(status='VALIDATED_THEME_RESEARCH' if valid else 'BLOCKED_THEME_RESEARCH',
@@ -533,12 +555,19 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                     item.update(status='DELIVERED_IN_VALIDATED_A2_CALL' if valid else 'BLOCKED_NOMINATION_RESEARCH',
                         team_call_ids=list(ids),input_hash=request.input_hash,model_nominated=item['symbol'] in nominated,
                         reason_codes=[] if valid else list(issues))
+            for item in startups:
+                if item['status']=='PLANNED_EXISTING_A2_CALL':
+                    item.update(status='DELIVERED_IN_VALIDATED_A2_CALL' if valid else 'BLOCKED_STARTUP_RESEARCH',
+                        team_call_ids=list(ids),input_hash=request.input_hash,model_nominated=item['symbol'] in nominated,
+                        reason_codes=[] if valid else list(issues))
             diagnostics['independent_attention_research']=dict(plan_sha256=attention['plan_sha256'],
                 dispositions=dispositions,nomination_dispositions=nominations,sampling_plan=_sampling_audit(attention),
+                startup_dispositions=startups,
                 new_model_calls_authorized=False,formal_candidate_ids_unchanged=True)
             if valid:
                 output['independent_attention_research_dispositions']=dispositions
                 output['independent_nomination_research_dispositions']=nominations
+                output['selected_board_startup_research_dispositions']=startups
                 output['independent_research_sampling_plan']=_sampling_audit(attention)
         from .early_discovery import finalize_a2_discovery_review
         discovery_audit=finalize_a2_discovery_review(snapshot.data,upstream_output,symbols=symbols,

@@ -25,6 +25,11 @@ def _relative(row):
     return number if number.is_finite() and 0<=number<=100 else None
 
 
+def nomination_order(row):
+    return (not row['selected_board_theme_match'],row['relative_strength'] is None,
+            -Decimal(row['relative_strength']) if row['relative_strength'] is not None else 0,row['symbol'])
+
+
 def nomination_source_candidates(snapshot,review_symbols):
     """Pure full queue for the approved shared budget; old ranking unchanged."""
     from .research.common import _jsonable
@@ -54,8 +59,7 @@ def nomination_source_candidates(snapshot,review_symbols):
             source_refs=['A2:FILTERED:'+_hash(row)],original_context_sha256=_hash(row),
             original_decision_id=row.get('decision_id'),source_snapshot_sha256=snapshot.snapshot_hash,
             scope='RESEARCH_ONLY_NOT_A3_OR_EXECUTION'))
-    sample.sort(key=lambda r:(not r['selected_board_theme_match'],r['relative_strength'] is None,
-        -Decimal(r['relative_strength']) if r['relative_strength'] is not None else 0,r['symbol']))
+    sample.sort(key=nomination_order)
     return dict(candidates=sample,excluded_counts=dict(sorted(excluded.items())),
         source_context_sha256=_hash(original))
 
