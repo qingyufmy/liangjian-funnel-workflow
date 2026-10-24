@@ -7,6 +7,8 @@ formal A3 candidates. A separately bound research runner must consume them.
 from collections import defaultdict
 from collections.abc import Mapping
 from copy import deepcopy
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from .a2_theme_research import SCHEMA as A2_SCHEMA, attention_theme_hypotheses, hot100_research_intake
 from .feature_store import content_hash
@@ -211,6 +213,66 @@ def _case_technical_input(data, a1_output, case, local_factors):
     return scoped, upstream, behavior, overlay
 
 
+def technical_source_day_proof(snapshot_data, symbol, source_trade_date):
+    """A closed old bar is not evidence for the requested closed session.
+
+    Validate the three actual source ends independently. Processing as_of,
+    ready flags and a parent snapshot's trade date cannot supply missing bar
+    dates. This is a data check, with no change to strategy thresholds.
+    """
+    from .deterministic import _symbol_scoped_row
+    factor=_symbol_scoped_row(snapshot_data.get('FACTOR_SNAPSHOT',{}),symbol)
+    frames=factor.get('timeframes',{}) if isinstance(factor,Mapping) else {}
+    daily=frames.get('daily',{}) if isinstance(frames,Mapping) else {}
+    latest=daily.get('latest',{}) if isinstance(daily,Mapping) else {}
+    bars=daily.get('bars',[]) if isinstance(daily,Mapping) else []
+    factor_end=latest.get('end') if isinstance(latest,Mapping) else None
+    if factor_end is None and isinstance(bars,(list,tuple)) and bars and isinstance(bars[-1],Mapping):
+        factor_end=bars[-1].get('end')
+    raw=dict(FACTOR_SNAPSHOT=factor_end)
+    for key in ('PRICE_LEVELS','KLINE_PATTERNS'):
+        row=_symbol_scoped_row(snapshot_data.get(key,{}),symbol)
+        raw[key]=row.get('source_bar_time') if isinstance(row,Mapping) else None
+    reasons=[];observed={}
+    for key,value in raw.items():
+        try:
+            stamp=datetime.fromisoformat(value)
+            if stamp.tzinfo is None or stamp.utcoffset() is None:raise ValueError('timezone required')
+            stamp=stamp.astimezone(ZoneInfo('Asia/Shanghai'))
+        except (TypeError,ValueError):
+            observed[key]=dict(source_bar_time=value,source_trade_date=None)
+            reasons.append('A3_DAILY_SOURCE_DATE_UNPROVEN');continue
+        observed[key]=dict(source_bar_time=stamp.isoformat(),source_trade_date=stamp.date().isoformat())
+        if stamp.date().isoformat()!=source_trade_date or stamp.hour<15:
+            reasons.append('A3_DAILY_SOURCE_DATE_MISMATCH')
+    return dict(expected_source_trade_date=source_trade_date,sources=observed,
+        usable=not reasons,reason_codes=list(dict.fromkeys(reasons)))
+
+
+def attention_constraint_summary(decision, *, reviewable):
+    """Separate technical exclusion from reference-price and authority limits.
+
+    This projection explains existing decisions. Neither a reference warning
+    nor this summary grants research admission or changes any A4 comparison.
+    """
+    codes=list(dict.fromkeys(decision.get('reason_codes') or []))
+    status=decision.get('status')
+    category=('NONE' if reviewable else 'DATA_EVIDENCE' if status=='DATA_GAP' else
+        'STRUCTURE_OR_KNOWN_RISK' if status=='HARD_REJECT' else
+        'OBSERVATION_CONDITIONS' if status=='LOCAL_MONITOR' else 'UNRESOLVED')
+    price_codes={'A3_REWARD_RISK_BELOW_MINIMUM','A3_STOP_DISTANCE_OUTSIDE_LIMIT'}
+    confirmation={'A4_RETEST_CONFIRMATION_REQUIRED','A4_WILL_CONFIRM_DAILY_MA5_PULLBACK'}
+    return dict(research_blocked=not reviewable,research_blocker_category=category,
+        original_technical_status=status,
+        original_unmet_conditions=list(decision.get('unmet_conditions') or []),
+        original_veto_conditions=list(decision.get('veto_conditions') or []),
+        reference_price_warnings=[c for c in codes if c in price_codes],
+        intraday_confirmation_required=[c for c in codes if c in confirmation],
+        reference_warning_is_research_veto=False,
+        formal_admission_passed=False,entry_authorized=False,
+        authority_limit='OUTSIDE_A1_RESEARCH_ONLY_NO_AUTOMATIC_PROMOTION')
+
+
 def evaluate_attention_a3_domain(snapshot_data, a1_output, domain):
     """Run ordinary A3 checks for every exact case; zero model/source calls."""
     from . import deterministic as d
@@ -232,8 +294,14 @@ def evaluate_attention_a3_domain(snapshot_data, a1_output, domain):
         _require(len(gate.decisions) == 1 and gate.decisions[0]['symbol'] == case['symbol'], 'TECHNICAL_DOMAIN_DRIFT')
         decision = deepcopy(gate.decisions[0])
         decision.update(execution_permission='BLOCKED', risk_unit='NO_ENTRY', fundamental_admission_passed=False)
+        date_proof=technical_source_day_proof(scoped,case['symbol'],domain['source_trade_date'])
+        decision['technical_source_day_proof']=date_proof
         price = scoped.get('PRICE_LEVELS', {}).get(case['symbol'])
         reviewable = case['symbol'] in gate.review_symbols
+        if not date_proof['usable']:
+            decision.update(status='HARD_REJECT' if decision.get('status')=='HARD_REJECT' else 'DATA_GAP',sent_to_llm=False,
+                reason_codes=list(dict.fromkeys([*decision.get('reason_codes',[]),*date_proof['reason_codes']])))
+            reviewable=False
         # The unchanged final A3 validator requires the explicit source flag.
         # Apply that evidence check before spending a research model request.
         if reviewable and (not isinstance(price, Mapping) or price.get('available') is not True):
@@ -242,7 +310,8 @@ def evaluate_attention_a3_domain(snapshot_data, a1_output, domain):
             reviewable = False
         rows.append(dict(case_id=case['case_id'], symbol=case['symbol'], theme_id=case['theme_id'],
             hypothesis_id=case['hypothesis_id'], source_slot=case['source_slot'],
-            behavior=behavior, technical=decision, sent_to_llm=False,
+            behavior=behavior, technical=decision,
+            constraints=attention_constraint_summary(decision,reviewable=reviewable),sent_to_llm=False,
             model_state='PENDING_AUTHORIZED_MODEL_REVIEW' if reviewable else 'NOT_MODEL_REVIEWED_LOCAL_GATE',
             execution_permission='BLOCKED', risk_unit='NO_ENTRY'))
     eligible = {r['case_id'] for r in rows if r['model_state'] == 'PENDING_AUTHORIZED_MODEL_REVIEW'}

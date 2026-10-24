@@ -16,6 +16,10 @@ def technical(tmp_path):
     for frame in data['FACTOR_SNAPSHOT'][LEAD]['timeframes'].values():frame['latest']={'close':10.5}
     data['FACTOR_SNAPSHOT'][LEAD]['timeframes']['daily'].update(ma_alignment='BULL_STACK',ma_event='NONE',ma_bias={})
     data['PRICE_LEVELS'][LEAD]['available']=True
+    close=NOW.replace(hour=15,minute=0,second=0,microsecond=0).isoformat()
+    data['FACTOR_SNAPSHOT'][LEAD]['timeframes']['daily']['latest']['end']=close
+    data['PRICE_LEVELS'][LEAD]['source_bar_time']=close
+    data['KLINE_PATTERNS'][LEAD]['source_bar_time']=close
     data['TIER_STRUCTURE_SNAPSHOT']={LEAD:dict(available=True,score=100,ladder_height=3,
         source='HITHINK_LIMIT_UP_LADDER',source_refs=['fixture:ladder'])}
     # The actual A2 fixture returns LATENT. Positive setup explicitly has a
@@ -78,3 +82,54 @@ def test_real_by_symbol_factor_envelope_matches_flat_projection_without_losing_t
     nested=evaluate_attention_a3_domain(data,a1,domain)['records'][0]['behavior']
     assert nested==flat
     assert nested['research_route_qualifications']['TREND_MA5']['eligible'] is True
+
+
+@pytest.mark.parametrize('source',['FACTOR_SNAPSHOT','PRICE_LEVELS','KLINE_PATTERNS'])
+def test_old_but_closed_daily_data_cannot_be_reviewed_as_the_bound_source_day(tmp_path,source):
+    data,a1,domain=technical(tmp_path)
+    stale='2026-09-29T15:00:00+08:00'
+    if source=='FACTOR_SNAPSHOT':
+        data[source][LEAD]['timeframes']['daily']['latest']['end']=stale
+    else:data[source][LEAD]['source_bar_time']=stale
+    result=evaluate_attention_a3_domain(data,a1,domain)
+    assert result['first_pass_model_requests']==0
+    assert result['records'][0]['technical']['status']=='DATA_GAP'
+    assert 'A3_DAILY_SOURCE_DATE_MISMATCH' in result['records'][0]['technical']['reason_codes']
+
+
+def test_unproven_source_bar_time_is_not_filled_from_processing_time(tmp_path):
+    data,a1,domain=technical(tmp_path)
+    del data['PRICE_LEVELS'][LEAD]['source_bar_time']
+    result=evaluate_attention_a3_domain(data,a1,domain)
+    assert result['first_pass_model_requests']==0
+    assert 'A3_DAILY_SOURCE_DATE_UNPROVEN' in result['records'][0]['technical']['reason_codes']
+
+
+def test_reference_price_warning_is_not_relabelled_a_technical_research_veto():
+    from liangjian_funnel.pipeline.a3_attention_research import attention_constraint_summary
+    decision=dict(status='REVIEW_CANDIDATE',reason_codes=['A3_STOP_DISTANCE_OUTSIDE_LIMIT',
+        'A3_REWARD_RISK_BELOW_MINIMUM','A4_RETEST_CONFIRMATION_REQUIRED'],unmet_conditions=[],veto_conditions=[])
+    before=deepcopy(decision)
+    value=attention_constraint_summary(decision,reviewable=True)
+    assert value['research_blocker_category']=='NONE'
+    assert value['research_blocked'] is False and value['entry_authorized'] is False
+    assert len(value['reference_price_warnings'])==2 and value['reference_warning_is_research_veto'] is False
+    assert decision==before
+
+
+@pytest.mark.parametrize('status,category',[('DATA_GAP','DATA_EVIDENCE'),
+    ('HARD_REJECT','STRUCTURE_OR_KNOWN_RISK'),('LOCAL_MONITOR','OBSERVATION_CONDITIONS')])
+def test_real_exclusions_remain_visible_without_turning_them_into_strategy_approval(status,category):
+    from liangjian_funnel.pipeline.a3_attention_research import attention_constraint_summary
+    value=attention_constraint_summary(dict(status=status,reason_codes=['FOUR_PLUS_BOARD_WATCH_ONLY'],
+        unmet_conditions=['BOARD_NOT_HIGH_RISK_4_PLUS'],veto_conditions=[]),reviewable=False)
+    assert value['research_blocked'] is True and value['research_blocker_category']==category
+    assert value['original_unmet_conditions']==['BOARD_NOT_HIGH_RISK_4_PLUS']
+    assert value['entry_authorized'] is False
+
+
+@pytest.mark.parametrize('frames',[None,[],0,'unknown'])
+def test_malformed_frame_container_does_not_crash_other_research_cases(frames):
+    from liangjian_funnel.pipeline.a3_attention_research import technical_source_day_proof
+    proof=technical_source_day_proof(dict(FACTOR_SNAPSHOT={LEAD:{'timeframes':frames}}),LEAD,'2026-10-23')
+    assert proof['usable'] is False and 'A3_DAILY_SOURCE_DATE_UNPROVEN' in proof['reason_codes']

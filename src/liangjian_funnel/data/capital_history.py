@@ -41,7 +41,7 @@ def _aware(value):
     parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value)
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError('CAPITAL_TIMEZONE_REQUIRED')
-    return parsed
+    return parsed.astimezone(ZoneInfo('Asia/Shanghai'))
 
 
 def _number(value):
@@ -206,34 +206,118 @@ def research_windows(observations: Sequence[Mapping], *, symbol: str, source_id:
     if (not all(calendar.is_trading_day(day) for day in days)
         or any(calendar.previous_trading_day(current) != prior for prior,current in zip(days,days[1:]))):
         raise ValueError('CAPITAL_NONCONTIGUOUS_EXCHANGE_SESSIONS')
-    rows = {}; conflicts = set(); rejected_receipts = 0
+    if source_id not in {EASTMONEY_HISTORY, TENCENT_DAILY}:
+        raise ValueError('CAPITAL_SOURCE_NAMESPACE_INVALID')
+    rows = {}; units = {}; conflicts = set(); invalid = {}; partial = {}; rejected_receipts = 0
     for observation in observations:
         if observation.get('symbol') != symbol or observation.get('source_id') != source_id:
             raise ValueError('CAPITAL_MIXED_SOURCE_OR_SYMBOL')
         if observation.get('execution_authority') is not False:
             raise ValueError('CAPITAL_ARCHIVE_AUTHORITY_CONFLICT')
-        if _aware(observation['received_at']) > cutoff:
+        received = _aware(observation['received_at'])
+        if received > cutoff:
             rejected_receipts += 1; continue
         for row in observation.get('rows', []):
             day = row['trade_date']
             if day not in sessions:
                 continue
+            reasons = []
+            values = row.get('values')
+            if not isinstance(values, Mapping) or _number(values.get('main_net')) is None:
+                reasons.append('MAIN_NET_INVALID')
+            if row.get('availability_state') != 'OBSERVED_VALUE':
+                reasons.append('SOURCE_VALUE_NOT_OBSERVED')
+            unit = observation.get('amount_unit')
+            if not isinstance(unit, str) or not unit.strip():
+                reasons.append('AMOUNT_UNIT_UNRESOLVED')
+                unit = None
+            if source_id == TENCENT_DAILY:
+                quote = observation.get('provider_quote_timestamp')
+                try:
+                    quoted = datetime.strptime(quote, '%Y%m%d%H%M%S').replace(tzinfo=ZoneInfo('Asia/Shanghai'))
+                except (ValueError, TypeError):
+                    quoted = None
+                if quoted is None or quoted.date().isoformat() != day or quoted > received:
+                    reasons.append('PAIRED_QUOTE_DATE_UNPROVEN')
+                elif quoted.hour < 15:
+                    reasons.append('SESSION_NOT_CLOSED')
+            elif date.fromisoformat(day) == received.date() and received.hour < 15:
+                reasons.append('SESSION_NOT_CLOSED')
+            if 'SESSION_NOT_CLOSED' in reasons:
+                # A forming quote is a different observation scope, not a
+                # revision of a completed session. Retain its rejection in
+                # the audit without poisoning a later genuine close.
+                partial[day] = partial.get(day, 0) + 1
+                continue
+            if reasons:
+                invalid.setdefault(day, set()).update(reasons)
             if day in rows and _json(row) != _json(rows[day]): conflicts.add(day)
+            if day in units and units[day] != unit: conflicts.add(day)
             rows[day] = row
+            units[day] = unit
+    for day in partial:
+        if day not in rows:
+            invalid.setdefault(day,set()).add('SESSION_NOT_CLOSED')
     result = {}
     for count in (1, 3, 5, 10):
         days = list(sessions[-count:]); missing = [d for d in days if d not in rows]
-        bad = [d for d in days if d in conflicts or (d in rows and rows[d].get('availability_state') != 'OBSERVED_VALUE')]
-        complete = len(days) == count and not missing and not bad
+        bad = [d for d in days if d in conflicts or d in invalid]
+        mixed_units = len({units[d] for d in days if d in units}) > 1
+        complete = len(days) == count and not missing and not bad and not mixed_units
         gross_values = [_number(rows[d]['values'].get('compatible_gross_denominator')) for d in days] if complete else []
         gross = sum(gross_values, Decimal(0)) if gross_values and all(n is not None and n > 0 for n in gross_values) else None
         net = sum((_number(rows[d]['values']['main_net']) for d in days), Decimal(0)) if complete else None
         ratio = (str(net/gross*100) if gross else rows[days[0]]['values']['main_ratio'] if complete and count == 1 else None)
         result[str(count)+'d'] = dict(availability_state='OBSERVED_VALUE' if complete else 'SOURCE_UNAVAILABLE',
             sessions=days, missing_sessions=missing, invalid_or_conflicting_sessions=bad,
+            invalid_session_reasons={d:sorted(invalid.get(d,set()) | ({'CONFLICTING_REVISIONS'} if d in conflicts else set())) for d in bad},
+            partial_observations_excluded={d:partial[d] for d in days if d in partial},
+            amount_unit=units.get(days[-1]) if complete else None,
+            window_reason='AMOUNT_UNIT_MISMATCH' if mixed_units else 'OK' if complete else 'INCOMPLETE_OR_INVALID_SESSIONS',
             net_amount_native=str(net) if complete else None,
             net_ratio_percent=ratio,
             ratio_reason=None if ratio is not None else 'COMPATIBLE_GROSS_DENOMINATOR_NOT_OBSERVED')
     return dict(symbol=symbol, source_id=source_id, known_by=cutoff.isoformat(), windows=result,
         late_receipts_rejected=rejected_receipts, scope='RESEARCH_ONLY',
         historical_point_in_time_proven=False, formal_factor_eligible=False, execution_authority=False)
+
+
+def archived_research_windows(root: str | Path, *, symbol: str, source_id: str,
+                              sessions: Sequence[str], known_by: datetime,
+                              maximum_observations: int = 512, calendar=None) -> dict:
+    """Read only exact immutable envelopes for one source and stock.
+
+    This is an explicit research consumer, never a source fallback or a
+    relabeling of legacy normalized caches. All bytes/identities are checked;
+    an untrusted archive is reported rather than silently omitted.
+    """
+    _symbol(symbol)
+    if source_id not in {EASTMONEY_HISTORY,TENCENT_DAILY}:
+        raise ValueError('CAPITAL_SOURCE_NAMESPACE_INVALID')
+    if type(maximum_observations) is not int or not 1 <= maximum_observations <= 2048:
+        raise ValueError('CAPITAL_ARCHIVE_READ_LIMIT_INVALID')
+    namespace={EASTMONEY_HISTORY:'em-history',TENCENT_DAILY:'qq-daily'}[source_id]
+    base=Path(root);folder=base/namespace/symbol
+    if any(p.is_symlink() for p in (base,base/namespace,folder)):
+        raise ValueError('CAPITAL_ARCHIVE_REFERENCE_INVALID')
+    references=[];values=[]
+    if folder.exists():
+        for entry in folder.iterdir():
+            if entry.is_symlink() or not entry.is_dir() or not re.fullmatch('[0-9a-f]{64}',entry.name):
+                raise ValueError('CAPITAL_ARCHIVE_REFERENCE_INVALID')
+            if len(references)>=maximum_observations:
+                raise ValueError('CAPITAL_ARCHIVE_READ_LIMIT_EXCEEDED')
+            references.append(dict(path=str(entry/'observation.json'),sha256=entry.name))
+        references.sort(key=lambda ref:ref['sha256'])
+        for reference in references:
+            value=read_observation(reference)
+            if (value.get('schema')!=SCHEMA or value.get('symbol')!=symbol
+                or value.get('source_id')!=source_id):
+                raise ValueError('CAPITAL_ARCHIVE_ENVELOPE_IDENTITY_MISMATCH')
+            values.append(value)
+    result=research_windows(values,symbol=symbol,source_id=source_id,sessions=sessions,
+        known_by=known_by,calendar=calendar)
+    result['archive_originals']=references
+    result['archive_observation_count']=len(values)
+    result['new_source_http']=0
+    return result
