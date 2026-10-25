@@ -239,8 +239,11 @@ def test_real_valid_pm_watch_only_result_is_saved_but_cannot_replace_old_domain(
     run_morning_stage(settings,'engine',clock=lambda:clock.now,calendar=CAL)
     advance(clock,8,35);run_morning_stage(settings,'risk',clock=lambda:clock.now,calendar=CAL,client=model)
     advance(clock,8,38)
-    with pytest.raises(StateTransitionError,match='NO_ALLOCATABLE_PRIMARY'):
-        run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=model)
+    result=run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=model)
+    assert result['status']=='NOOP' and result['reason_code']=='NATURAL_CANDIDATE_REVIEW_ZERO_ALLOCATION'
+    assert result['old_batch_preserved']
+    again=run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=model)
+    assert again['status']=='NOOP'
     assert current_plans(store)==before and calls==['A6','A3']
     with closing(sqlite3.connect(settings.root/'state/team_v2/model.db')) as db:
         assert db.execute('SELECT validated FROM model_calls WHERE call_id=?',(staged['scope_id']+':PM',)).fetchone()==(1,)

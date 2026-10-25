@@ -1,0 +1,187 @@
+{
+  "schema": "saved-company-a5-real-response-test/1",
+  "original_http_ordinal": 12,
+  "original_result_sha256": "7fb5f201fb47c1bb12bfde9f2af106b2f2eea0a2d3f5b32295d0501e950899d7",
+  "original_output_hash": "ae84ee072f3f159974bb100277eaa91b5026689f4034a074f4943cf938dd467a",
+  "original_input_hash": "33631b65e1f51bdf8b55582047ddb39e62eeb6344a980a72efaeceeaf1c842d8",
+  "response_sha256": "6cf4f0d94fa6fed0e8e2fde56ffc9c45e361e3057228aa8a36ea82a42f8d5d41",
+  "output": {
+    "envelope": {
+      "as_of": "2026-10-25T15:09:29.026561+08:00",
+      "config_hash": "40b41a7326cde68342ed60a28a416b8cdd9dd7a487114d4c2de42aa8083f6b12",
+      "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+      "execution_trade_date": "2026-10-25",
+      "input_snapshot_ids": [
+        "robot-company-pilot-source-20261020"
+      ],
+      "knowledge_cutoff": "2026-10-25T14:23:14.852353+08:00",
+      "market_regime": "ROTATION_NO_MAINLINE",
+      "model_name": "deepseek/deepseek-v4-pro",
+      "prompt_version": "agent-5/2.0.7",
+      "reason_codes": [],
+      "run_id": "robot-company-current-a5-recovery",
+      "schema_version": "team-research-envelope/1",
+      "source_trade_date": "2026-10-20",
+      "stage_id": "A5",
+      "status": "OK"
+    },
+    "schema": "company-chain-audit/1",
+    "observed_at": "2026-10-25T15:09:29.026561+08:00",
+    "source_trade_date": "2026-10-20",
+    "company_reviews": [
+      {
+        "symbol": "003021.SZ",
+        "current_state": {
+          "a1_review_id": "3dd486c763b5bc65150898b4aff3a3b3457eef047a9a6f6a9a44d0d05f9e7b12",
+          "a2_relation": "DEVELOPMENT_OPTIONALITY",
+          "a3_cases": [
+            {
+              "case_id": "32b08dcac54c2cde7f81a7cca863454938a3ace551f805a48681b3184e763ba3",
+              "model_state": "NOT_MODEL_REVIEWED_LOCAL_GATE",
+              "sent_to_llm": false,
+              "stock_behavior_type": "TREND",
+              "technical_status": "DATA_GAP"
+            }
+          ]
+        },
+        "company_quality_vs_theme_strength": "公司质量与主题强度不匹配：兆威机电2026H1归母净利润7464.57万元，同比-34.10%；扣非净利润5418.39万元，同比-43.97%，利润下滑但经营现金流1.33亿元，同比+183.53%。机器人灵巧手及核心驱动模组产品矩阵已披露，但机器人细分收入未单独披露，属发展期权而非当前业务兑现。A2将其定位为DEVELOPMENT_OPTIONALITY是恰当的，未将市场强度误认为利润证明。",
+        "realized_vs_unrealized": "机器人业务收入贡献未核实，灵巧手订单到收入的独立复核缺失，独立同行竞争比较口径不一致无法直接排名。已实现的是微型传动及驱动系统整体业务收入与现金流，机器人细分收入属未实现/未核实状态。",
+        "remaining_blockers": [
+          "机器人细分收入占比尚未核实",
+          "灵巧手订单到收入的独立复核缺失",
+          "独立同行竞争比较口径不一致，无法直接排名",
+          "A3技术门因TRADABILITY_DATA_MISSING、HIGHER_TIMEFRAME_BEARISH、DAILY_TREND_WEAK阻断，未进入模型评审"
+        ],
+        "source_refs": [
+          "A5:COMPANY",
+          "A5:A2",
+          "A5:A3"
+        ]
+      },
+      {
+        "symbol": "300296.SZ",
+        "current_state": {
+          "a1_review_id": "b5f1cf31b0ed0186d38916de06561e189893b4d38012d64210bdff533cac4a92",
+          "a2_relation": "DEVELOPMENT_OPTIONALITY",
+          "a3_cases": [
+            {
+              "case_id": "f08ae6f8b05e9685d585cadb3e57e81706fd412efd89cb2e0b8452663e4b6c5a",
+              "model_state": "NOT_MODEL_REVIEWED_LOCAL_GATE",
+              "sent_to_llm": false,
+              "stock_behavior_type": "UNRESOLVED",
+              "technical_status": "HARD_REJECT"
+            }
+          ]
+        },
+        "company_quality_vs_theme_strength": "公司质量与主题强度不匹配：利亚德2026H1归母净利润6915.21万元，同比-59.74%；扣非净利润1619.77万元，同比-88.81%；经营现金流2.13亿元，同比-49.36%。利润大幅下滑。OptiTrack光学动捕已形成AI与空间计算业务收入，但机器人训练场项目处于中标/调试阶段，属发展期权而非业绩兑现。A2将其定位为DEVELOPMENT_OPTIONALITY是恰当的。",
+        "realized_vs_unrealized": "AI与空间计算业务收入已实现（2026H1营收1.59亿元，同比+7.41%），但机器人训练场项目收入贡献尚未核实，订单到收入的独立复核缺失。机器人细分收入属未实现/未核实状态。",
+        "remaining_blockers": [
+          "机器人训练场项目收入贡献尚未核实",
+          "订单到收入的独立复核缺失",
+          "独立同行竞争比较口径不一致，无法直接排名",
+          "A3技术门因STOCK_BEHAVIOR_UNRESOLVED、NO_APPLICABLE_STRATEGY硬拒绝，未进入模型评审"
+        ],
+        "source_refs": [
+          "A5:COMPANY",
+          "A5:A2",
+          "A5:A3"
+        ]
+      }
+    ],
+    "followup_actions": [
+      {
+        "symbol": "003021.SZ",
+        "owner": "A1",
+        "trigger": "下一份定期报告或重大合同公告披露机器人细分收入",
+        "required_source": "公司定期报告或临时公告中机器人业务收入分项"
+      },
+      {
+        "symbol": "003021.SZ",
+        "owner": "A2",
+        "trigger": "机器人板块出现连续≥2日主力净流入且核心股同步确认",
+        "required_source": "板块资金流快照与涨停梯队数据"
+      },
+      {
+        "symbol": "003021.SZ",
+        "owner": "A3",
+        "trigger": "TRADABILITY数据补齐且日线/周线结构脱离BEAR_STACK",
+        "required_source": "可交易性数据与日线/周线收盘K线"
+      },
+      {
+        "symbol": "300296.SZ",
+        "owner": "A1",
+        "trigger": "下一份定期报告或重大合同公告披露机器人训练场项目收入",
+        "required_source": "公司定期报告或临时公告中机器人训练场项目收入分项"
+      },
+      {
+        "symbol": "300296.SZ",
+        "owner": "A2",
+        "trigger": "机器人训练场项目从调试转为交付并确认收入",
+        "required_source": "公司公告或定期报告中项目交付与收入确认信息"
+      },
+      {
+        "symbol": "300296.SZ",
+        "owner": "A3",
+        "trigger": "股票行为类型解析且出现适用策略路由",
+        "required_source": "股票行为解析数据与策略路由条件"
+      }
+    ],
+    "automatic_changes": false,
+    "entry_profit_proven": false,
+    "execution_authority": false
+  },
+  "legacy_context": {
+    "envelope": {
+      "as_of": "2026-10-25T15:09:29.026561+08:00",
+      "config_hash": "40b41a7326cde68342ed60a28a416b8cdd9dd7a487114d4c2de42aa8083f6b12",
+      "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+      "execution_trade_date": "2026-10-25",
+      "input_snapshot_ids": [
+        "robot-company-pilot-source-20261020"
+      ],
+      "knowledge_cutoff": "2026-10-25T14:23:14.852353+08:00",
+      "market_regime": "ROTATION_NO_MAINLINE",
+      "model_name": "deepseek/deepseek-v4-pro",
+      "prompt_version": "agent-5/2.0.7",
+      "reason_codes": [],
+      "run_id": "robot-company-current-a5-recovery",
+      "schema_version": "team-research-envelope/1",
+      "source_trade_date": "2026-10-20",
+      "stage_id": "A5",
+      "status": "OK"
+    },
+    "symbols": [
+      "003021.SZ",
+      "300296.SZ"
+    ],
+    "current_bindings": {
+      "003021.SZ": {
+        "a1_review_id": "3dd486c763b5bc65150898b4aff3a3b3457eef047a9a6f6a9a44d0d05f9e7b12",
+        "a2_relation": "DEVELOPMENT_OPTIONALITY",
+        "a3_cases": [
+          {
+            "case_id": "32b08dcac54c2cde7f81a7cca863454938a3ace551f805a48681b3184e763ba3",
+            "model_state": "NOT_MODEL_REVIEWED_LOCAL_GATE",
+            "sent_to_llm": false,
+            "stock_behavior_type": "TREND",
+            "technical_status": "DATA_GAP"
+          }
+        ]
+      },
+      "300296.SZ": {
+        "a1_review_id": "b5f1cf31b0ed0186d38916de06561e189893b4d38012d64210bdff533cac4a92",
+        "a2_relation": "DEVELOPMENT_OPTIONALITY",
+        "a3_cases": [
+          {
+            "case_id": "f08ae6f8b05e9685d585cadb3e57e81706fd412efd89cb2e0b8452663e4b6c5a",
+            "model_state": "NOT_MODEL_REVIEWED_LOCAL_GATE",
+            "sent_to_llm": false,
+            "stock_behavior_type": "UNRESOLVED",
+            "technical_status": "HARD_REJECT"
+          }
+        ]
+      }
+    }
+  },
+  "capture_origin": "ACTUAL_SAVED_HTTP_RESPONSE_NOT_NEW_CALL"
+}

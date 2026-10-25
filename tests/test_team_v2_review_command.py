@@ -86,7 +86,7 @@ def test_invalid_team_response_does_not_call_v1_or_retry_model(tmp_path):
     assert len(seen)==1
 
 
-def test_midday_creates_separate_internal_card_and_research_queue(tmp_path):
+def test_midday_keeps_journal_and_internal_card_without_free_text_research_export(tmp_path):
     settings,client,seen,facts=fixture(tmp_path)
     facts.update(review_kind='MIDDAY',cutoff_at='2026-10-19T11:30:00+08:00',operational_cutoff_at='2026-10-19T11:30:00+08:00')
     facts.pop('input_hash');facts=hashed(facts)
@@ -95,20 +95,21 @@ def test_midday_creates_separate_internal_card_and_research_queue(tmp_path):
             ('MIDDAY',facts['input_hash'],canonical(facts),'2026-10-19T11:35:10+08:00'))
     now=NOW.replace(hour=11,minute=36)
     result=run_review_stage(settings,'MIDDAY',clock=lambda:now,calendar=CAL,client=client)
-    assert result['status']=='READY' and result['hypothesis_export']==dict(status='EXPORTED',count=1)
+    assert result['status']=='READY' and result['hypothesis_export']==dict(status='JOURNAL_ADVISORY_ONLY_NOT_EXPORTED',count=0)
     with sqlite3.connect(settings.root/'state/team_v2/team.db') as db:
         card=db.execute('SELECT card_id,body_json FROM team_internal_cards').fetchone()
     assert card[0].startswith('team-midday:') and '午间' in card[1]
     files=list((settings.root/'artifacts/replay-queue/2026-10-19').glob('*.json'))
-    assert len(files)==1 and json.loads(files[0].read_text(encoding='utf-8'))['automatic_production_change'] is False
+    assert files==[]
 
 
-def test_export_conflict_is_visible_and_does_not_recall_model_or_overwrite(tmp_path):
+def test_disabled_export_never_consumes_or_overwrites_old_free_text_queue(tmp_path):
     settings,client,seen,_=fixture(tmp_path)
+    directory=settings.root/'artifacts/replay-queue/2026-10-19';directory.mkdir(parents=True)
+    path=directory/'old-user-owned.json';path.write_text('USER_CHANGED',encoding='utf-8')
     assert run_review_stage(settings,'POST_CLOSE',clock=lambda:NOW,calendar=CAL,client=client)['status']=='READY'
-    path=next((settings.root/'artifacts/replay-queue/2026-10-19').glob('*.json'));path.write_text('USER_CHANGED',encoding='utf-8')
     result=run_review_stage(settings,'POST_CLOSE',clock=lambda:NOW,calendar=CAL,client=client)
-    assert result['status']=='A5_REPLAY_QUEUE_EXPORT_FAILED' and result['report_status']=='READY'
+    assert result['status']=='READY' and result['hypothesis_export']['count']==0
     assert path.read_text(encoding='utf-8')=='USER_CHANGED' and len(seen)==1
 
 

@@ -17,6 +17,50 @@ from .reviewed_batch_switch import canonical, rowset_sha256
 ACCOUNT='local-paper'
 
 
+def stage_formal_empty(store, *, run_id, source_trade_date, target_trade_date,
+                       lane_id, source_evidence, blocked, observed_at, calendar):
+    """Persist a proved zero-candidate result without touching execution rows.
+
+    Only the deterministic formalization entry calls this after the unchanged
+    publication filters. It cannot replace a pending/nonempty candidate or an
+    activated batch. Repeating the same source is an idempotent read.
+    """
+    from datetime import date
+    import re
+    source=date.fromisoformat(source_trade_date);target=date.fromisoformat(target_trade_date)
+    if (calendar.next_trading_day(source)!=target or observed_at.utcoffset() is None
+            or not isinstance(blocked,list) or not blocked or not source_evidence
+            or any(not re.fullmatch('[0-9a-f]{64}',v) for v in source_evidence.values())
+            or any(not isinstance(r,dict) or not r.get('reason') for r in blocked)):
+        raise ValueError('FORMAL_EMPTY_SOURCE_UNPROVEN')
+    source_hash=sha(dict(run_id=run_id,source_trade_date=source_trade_date,
+        target_trade_date=target_trade_date,lane_id=lane_id,source_evidence=source_evidence,blocked=blocked))
+    scope='empty_'+source_hash[:28]
+    body=dict(schema_version='natural-review-empty/1',source_namespace='NATURAL_ZERO_PLAN_SOURCE',
+        scope_id=scope,account_id=ACCOUNT,trade_date=target_trade_date,source_trade_date=source_trade_date,
+        lane_id=lane_id,run_id=run_id,plan_rows=[],blocked=blocked,source_evidence=source_evidence,
+        source_evidence_sha256=source_hash,execution_authority=False,model_http=0)
+    text=canonical(body);digest=sha(body)
+    def operation(db):
+        if db.execute("SELECT 1 FROM execution_plans WHERE lane_id=? AND substr(expires_at,1,10)=? AND status IN ('PENDING_MORNING_REVIEW','ACTIVE_TODAY') LIMIT 1",(lane_id,target_trade_date)).fetchone():
+            raise ValueError('FORMAL_EMPTY_EXISTING_PLANS_PRESERVED')
+        if db.execute('SELECT 1 FROM active_reviewed_batch_scope WHERE account_id=? AND trade_date=?',(ACCOUNT,target_trade_date)).fetchone():
+            raise ValueError('FORMAL_EMPTY_ACTIVE_SCOPE_PRESERVED')
+        head=db.execute('SELECT scope_id,body_sha256,revision FROM natural_review_candidate_head WHERE account_id=? AND trade_date=? AND lane_id=?',(ACCOUNT,target_trade_date,lane_id)).fetchone()
+        if head and (head['scope_id']!=scope or head['body_sha256']!=digest):
+            raise ValueError('FORMAL_EMPTY_EXISTING_CANDIDATE_PRESERVED')
+        prior=db.execute('SELECT body_sha256,body_json,state FROM natural_review_candidates WHERE scope_id=?',(scope,)).fetchone()
+        if prior and (prior['body_sha256']!=digest or prior['body_json']!=text or prior['state']!='EMPTY'):
+            raise ValueError('FORMAL_EMPTY_IMMUTABLE_CONFLICT')
+        if not prior:db.execute('INSERT INTO natural_review_candidates VALUES (?,?,?,?,?,?,?,?,?)',
+            (scope,ACCOUNT,target_trade_date,lane_id,run_id,digest,text,observed_at.isoformat(),'EMPTY'))
+        if not head:db.execute('INSERT INTO natural_review_candidate_head VALUES (?,?,?,?,?,?)',
+            (ACCOUNT,target_trade_date,lane_id,scope,digest,1))
+        return dict(status='FORMAL_EMPTY',reason_code='NATURAL_ZERO_PLAN_SOURCE',scope_id=scope,
+            body_sha256=digest,execution_plans_written=0,plan_ids=[],target_trade_date=target_trade_date)
+    return store._write(operation)
+
+
 def sha(value): return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
@@ -95,8 +139,12 @@ def read_natural_candidate(settings, *, day):
             raise ValueError('NATURAL_CANDIDATE_HEAD_UNPROVEN')
         body=json.loads(row['body_json'])
         if (body.get('scope_id')!=row['scope_id'] or body.get('account_id')!=ACCOUNT or body.get('trade_date')!=day
-                or body.get('lane_id')!=settings.research_primary_lane_id or row['state'] not in {'PENDING','SWITCHED'}):
+                or body.get('lane_id')!=settings.research_primary_lane_id or row['state'] not in {'PENDING','SWITCHED','EMPTY'}):
             raise ValueError('NATURAL_CANDIDATE_SCOPE_CONFLICT')
+        if row['state']=='EMPTY' and (body.get('schema_version')!='natural-review-empty/1'
+                or body.get('source_namespace')!='NATURAL_ZERO_PLAN_SOURCE' or body.get('plan_rows')!=[]
+                or body.get('execution_authority') is not False or body.get('model_http')!=0):
+            raise ValueError('NATURAL_EMPTY_SCOPE_CONFLICT')
         return dict(body=body,scope_id=row['scope_id'],body_sha256=row['body_sha256'],revision=row['revision'],state=row['state'])
 
 
@@ -109,15 +157,28 @@ def candidate_planning_source(settings, candidate, *, now, calendar):
 
 
 def finish_natural_candidate(settings, candidate, *, calendar):
+    if candidate.get('state')=='EMPTY':raise ValueError('NATURAL_EMPTY_CANNOT_SWITCH')
     from .reviewed_batch_evidence import build_reviewed_batch_evidence
-    from .state import RuntimeStore
+    from .state import RuntimeStore, StateTransitionError
     body=candidate['body'];scope=candidate['scope_id']
     rows=[dict(plan_id=r['plan_id'],lane_id=r['lane_id'],symbol=r['symbol'],status=r['status'],
         plan_version=r['plan_version'],valid_from=None,expires_at=r['expires_at'],payload=json.loads(r['payload_json']))
         for r in body['plan_rows']]
-    bundle=build_reviewed_batch_evidence(review_root=Path(settings.root).resolve(),source_namespace='NATURAL_MORNING',
-        workflow_db_path=settings.state_db_path,scope_id=scope,account_id=ACCOUNT,trade_date=body['trade_date'],
-        lane_id=body['lane_id'],run_id=body['run_id'],a6_meeting_id=scope+':risk',pm_meeting_id=scope+':pm',candidate_rows=rows)
+    try:
+        bundle=build_reviewed_batch_evidence(review_root=Path(settings.root).resolve(),source_namespace='NATURAL_MORNING',
+            workflow_db_path=settings.state_db_path,scope_id=scope,account_id=ACCOUNT,trade_date=body['trade_date'],
+            lane_id=body['lane_id'],run_id=body['run_id'],a6_meeting_id=scope+':risk',pm_meeting_id=scope+':pm',candidate_rows=rows)
+    except StateTransitionError as exc:
+        # This exact rejection occurs only after the evidence builder has
+        # revalidated both original replies and all immutable scope bindings.
+        # Legitimate abstention must not fail the scheduler or replace the old
+        # domain. The original PM journal remains the durable zero-allocation
+        # record; never relabel the nonempty source candidate as source EMPTY.
+        if str(exc)!='REVIEWED_BATCH_NO_ALLOCATABLE_PRIMARY':raise
+        return dict(status='NOOP',reason_code='NATURAL_CANDIDATE_REVIEW_ZERO_ALLOCATION',
+            scope_id=scope,candidate_sha256=candidate['body_sha256'],
+            old_batch_preserved=True,execution_plans_written=0,
+            original_a6_call=scope+':A6',original_pm_call=scope+':PM')
     store=RuntimeStore(settings.state_db_path)
     store.stage_reviewed_batch(bundle)
     result=store.commit_reviewed_batch_switch(scope,expected_old_plan_ids=body['expected_old_plan_ids'],

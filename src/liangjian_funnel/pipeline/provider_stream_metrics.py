@@ -56,17 +56,24 @@ class ProviderStreamMetrics(PMStreamMetrics):
                 'reasoning_chars_discarded': self.reasoning_chars,
                 'reasoning_text_saved': False, 'business_content_saved': False}
 
-    def persist(self, settings, *, model, stage, session, input_hash, prompt_hash, status, reason_code=None):
-        value = self.observation(status=status, reason_code=reason_code)
-        value.update(model=model, role=stage, session=session, input_hash=input_hash, prompt_hash=prompt_hash,
-                     captured_at=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat())
+    @staticmethod
+    def owned_directory(settings, *, captured_at=None):
+        """Read-only scope check, also run before the first paid dispatch."""
         root = Path(settings.root).resolve()
         output = Path(settings.workflow_output_dir).resolve()
         if not output.is_relative_to(root):
             raise ValueError('MODEL_STREAM_TELEMETRY_SCOPE_INVALID')
-        directory = output / 'model_stream_telemetry' / value['captured_at'][:10]
-        if directory.resolve() != directory:
+        day=(captured_at or datetime.now(ZoneInfo('Asia/Shanghai')).isoformat())[:10]
+        directory=output/'model_stream_telemetry'/day
+        if directory.resolve()!=directory:
             raise ValueError('MODEL_STREAM_TELEMETRY_SYMLINK_INVALID')
+        return directory
+
+    def persist(self, settings, *, model, stage, session, input_hash, prompt_hash, status, reason_code=None):
+        value = self.observation(status=status, reason_code=reason_code)
+        value.update(model=model, role=stage, session=session, input_hash=input_hash, prompt_hash=prompt_hash,
+                     captured_at=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat())
+        directory = self.owned_directory(settings,captured_at=value['captured_at'])
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = directory / (uuid.uuid4().hex + '.json')
         raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()

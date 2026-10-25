@@ -36,7 +36,7 @@ def observe_http(settings, *, model, role, status, now=None):
         return row
 
 
-def run_daily_availability(settings, *, client=None, now=None):
+def run_daily_availability(settings, *, client=None, now=None, market_adapters=None):
     """Once/day/model, durable attempt before HTTP. No retries or model changes."""
     from ..pipeline.model_client import OpenAICompatibleModelClient,ModelClientError
     from .integrity import verify_integrity
@@ -44,6 +44,8 @@ def run_daily_availability(settings, *, client=None, now=None):
     if (now.hour,now.minute)!=(8,0):raise ValueError('PROVIDER_PROBE_OUTSIDE_0800')
     integrity=verify_integrity(settings.state_db_path)
     root=Path(settings.root)/'state/provider-probes'/now.date().isoformat();root.mkdir(parents=True,exist_ok=True)
+    from .market_source_health import run_market_source_probes
+    market=run_market_source_probes(settings,now=now,root=root,adapters=market_adapters)
     results=[]
     models=dict.fromkeys((*settings.research_models,settings.review_model,settings.monitor_model,settings.team_intraday_model))
     api=client or OpenAICompatibleModelClient(settings,max_attempts=1)
@@ -55,6 +57,9 @@ def run_daily_availability(settings, *, client=None, now=None):
         except FileExistsError:
             receipt=root/(pin+'.json')
             row=json.loads(receipt.read_bytes()) if receipt.exists() else dict(model=model,status='UNKNOWN_INTERRUPTED')
+            if row['status']!='PASS':
+                queue_internal(settings,kind='PROVIDER_PROBE_UNAVAILABLE',source_id='provider-probe:'+now.date().isoformat()+':'+pin,
+                    text='08:00模型探针失败：'+model+'；请盘前核验供应商。',now=now)
             results.append(dict(row,reused=True));continue
         try:
             result=api.complete(model,[{'role':'user','content':'Return only JSON: {"ok":true}'}],
@@ -64,5 +69,8 @@ def run_daily_availability(settings, *, client=None, now=None):
         except ModelClientError as exc:
             row=dict(model=model,status='FAILED',reason_code=exc.reason_code,status_code=exc.status_code)
         atomic_json(root/(pin+'.json'),row);results.append(row)
-    return dict(status='READY' if all(r['status']=='PASS' for r in results) else 'DEGRADED',
-        integrity=integrity,models=results)
+        if row['status']!='PASS':
+            queue_internal(settings,kind='PROVIDER_PROBE_UNAVAILABLE',source_id='provider-probe:'+now.date().isoformat()+':'+pin,
+                text='08:00模型探针失败：'+model+'；请盘前核验供应商。',now=now)
+    return dict(status='READY' if all(r['status']=='PASS' for r in [*results,*market]) else 'DEGRADED',
+        integrity=integrity,models=results,market_sources=market)

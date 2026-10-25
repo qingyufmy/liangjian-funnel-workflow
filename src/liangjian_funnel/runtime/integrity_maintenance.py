@@ -1,6 +1,6 @@
 """Once-per-weekday full verification, separate from models and minute startup."""
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime,timedelta,time as daytime
 import hashlib
 import json
 from pathlib import Path
@@ -23,6 +23,22 @@ def run_integrity_maintenance(settings, *, now=None, timeout_seconds=540):
     if current.weekday()>=5 or (current.hour,current.minute)<(6,50):
         return dict(status='NOT_DUE',reason_code='INTEGRITY_WEEKDAY_0650_OR_LATER_ONLY')
     database=Path(settings.state_db_path).resolve()
+    if daytime(9)<=current.time().replace(tzinfo=None)<daytime(15):
+        # A late Node start must not turn a minute command into a cold full
+        # scan during the session. Check the same identity and the unchanged
+        # 36-hour receipt, with enough remaining life through today's close.
+        # This is reuse, not re-signing or an extension of the old receipt.
+        try:
+            raw=marker_path(database).read_bytes();receipt=json.loads(raw)
+            expires=datetime.fromisoformat(receipt['checked_at'])+timedelta(hours=36)
+            with closing(sqlite3.connect(database.as_uri()+'?mode=ro',uri=True,timeout=1)) as db:
+                db.execute('PRAGMA query_only=ON')
+                valid=verified_identity(database,db) and expires>=current.replace(hour=15,minute=0,second=0,microsecond=0)
+        except (OSError,ValueError,KeyError,TypeError,sqlite3.Error):valid=False
+        return dict(status='PASS' if valid else 'BLOCKED',schema_version='runtime-integrity-maintenance/1',
+            trade_date=current.date().isoformat(),database_path=str(database),reused=True,
+            reason_code='SESSION_EXISTING_RECEIPT_COVERS_CLOSE' if valid else 'SESSION_COLD_SCAN_FORBIDDEN_RECEIPT_UNPROVEN',
+            models_called=0,migrations_run=False,full_scans=0)
     directory=Path(settings.root)/'state/runtime-integrity-maintenance'/current.date().isoformat()
     directory.parent.mkdir(parents=True,exist_ok=True)
     try:

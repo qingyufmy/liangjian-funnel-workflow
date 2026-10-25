@@ -168,6 +168,14 @@ class OpenAICompatibleModelClient:
         metrics = None
         if finpoints:
             from .provider_stream_metrics import ProviderStreamMetrics
+            try:ProviderStreamMetrics.owned_directory(self.settings)
+            except ValueError as exc:
+                # A copied root with an unrebound absolute output path is a
+                # local input failure, before any HTTP or stream is opened.
+                reason=str(exc)
+                if reason not in {'MODEL_STREAM_TELEMETRY_SCOPE_INVALID','MODEL_STREAM_TELEMETRY_SYMLINK_INVALID'}:
+                    reason='MODEL_STREAM_TELEMETRY_SCOPE_INVALID'
+                raise ModelClientError(reason,attempts=0) from exc
             metrics = ProviderStreamMetrics(clock=self.monotonic, started=self.monotonic())
         def observed(status, reason=None):
             if metrics is None or not metrics.dispatched:

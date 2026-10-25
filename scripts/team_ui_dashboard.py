@@ -214,4 +214,14 @@ def project_dashboard(root,query,out,*,project,connect,source,number,scalar):
             latest=max(matching,key=lambda a:a.get('at') or '')
             plan['sizing']={**latest['quantity_audit'],'at':latest['at'],'source':latest['source']}
     from team_ui_presentation import apply
+    from team_ui_formal_source import formal_source
+    try:
+        result['formal_plan_source']=formal_source(root,day,connect)
+    except (OSError,ValueError,KeyError,sqlite3.Error):
+        result['formal_plan_source']=dict(status='UNPROVEN',reason_code='FORMAL_SOURCE_UNAVAILABLE')
+    if result['formal_plan_source'].get('status')=='FORMAL_EMPTY':
+        result['alerts'].append(dict(id='formal-zero-plan-source',severity='info',
+            text='今日正式无候选：既有A3结果未通过原发布门；未激活执行计划。',
+            at=out['observed_at'],provenance=dict(table='natural_review_candidates',
+                sha256=result['formal_plan_source']['source_sha256'])))
     return apply(root,day,result,connect)

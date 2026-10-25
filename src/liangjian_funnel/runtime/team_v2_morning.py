@@ -135,6 +135,20 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     # Source access is always RO, including the dependent stages' binding check.
     from .reviewed_batch_natural import read_natural_candidate,candidate_planning_source
     candidate=read_natural_candidate(settings,day=day)
+    if candidate is not None and candidate.get('state')=='EMPTY':
+        # An audited zero source is a successful no-op, not a failed meeting.
+        # Do not open the broker, run risk meetings or synthesize A6/PM replies.
+        emotion=None
+        if stage=='engine':
+            from .team_v2_emotion_baseline import prepare_emotion_baseline
+            try:emotion=prepare_emotion_baseline(settings,clock=clock,calendar=calendar)
+            except Exception:
+                emotion=dict(status='DATA_LIMITED',reason_code='FORMAL_EMPTY_EMOTION_BASELINE_UNAVAILABLE')
+        return dict(status='NOOP',reason_code='NATURAL_ZERO_PLAN_SOURCE',stage=stage,
+            trade_date=day,scope_id=candidate['scope_id'],body_sha256=candidate['body_sha256'],
+            model_http=0,execution_plans_written=0,account_opened=False,
+            **({'emotion_baseline_status':emotion.get('status'),
+                'emotion_baseline_reason_code':emotion.get('reason_code')} if emotion is not None else {}))
     source=(candidate_planning_source(settings,candidate,now=now,calendar=calendar) if candidate is not None
         else read_planning_scope(settings,now=now,calendar=calendar))
     directory=_directory(settings)
@@ -252,5 +266,8 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
             return dict(status='BLOCKED',reason_code='NATURAL_CANDIDATE_PM_NOT_READY',old_batch_preserved=True,pm=pm)
         from .reviewed_batch_natural import finish_natural_candidate
         switched=finish_natural_candidate(settings,candidate,calendar=calendar)
+        if switched.get('reason_code')=='NATURAL_CANDIDATE_REVIEW_ZERO_ALLOCATION':
+            return dict(status='NOOP',reason_code=switched['reason_code'],
+                old_batch_preserved=True,natural_batch_switch=switched,pm=pm)
         return dict(pm,natural_batch_switch=switched)
     return pm

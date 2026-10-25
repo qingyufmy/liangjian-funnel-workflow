@@ -228,6 +228,9 @@ def coach_projection(full):
 
 def export_hypotheses(settings, *, result):
     """Append-only research queue artifacts; never a production config input."""
+    from .research_feature_policy import RESEARCH_FLAGS
+    if not RESEARCH_FLAGS['a5_free_text_hypothesis_export']:
+        return dict(status='JOURNAL_ADVISORY_ONLY_NOT_EXPORTED',count=0)
     if result.get('report') is None:return dict(status='NOT_APPROVED',count=0)
     directory=settings.root/'artifacts/replay-queue'/result['trade_date']
     if directory.resolve()!=settings.root.resolve()/'artifacts/replay-queue'/result['trade_date']:
