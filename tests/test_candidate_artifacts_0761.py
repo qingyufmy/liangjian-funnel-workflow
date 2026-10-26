@@ -14,9 +14,9 @@ from liangjian_funnel.runtime.state import RuntimeStore
 NOW=datetime(2026,10,26,16,tzinfo=ZoneInfo('Asia/Shanghai'))
 
 
-def fixture(tmp_path):
+def fixture(tmp_path,*,record_slot='close'):
     store=RuntimeStore(tmp_path/'workflow.db')
-    store.record_workflow_run(run_id='natural-close',lane_id='lane_1',trade_date='2026-10-26',slot='close',
+    store.record_workflow_run(run_id='natural-close',lane_id='lane_1',trade_date='2026-10-26',slot=record_slot,
         model='CONTROLLED',status='READY',snapshot_hash='a'*64)
     batch=[dict(plan_id='natural-close:lane_1:p',lane_id='lane_1',symbol='300817.SZ',
         status='PENDING_MORNING_REVIEW',valid_from=None,expires_at='2026-10-27T15:00:00+08:00',
@@ -31,12 +31,23 @@ def test_only_candidate_table_is_never_a_complete_publication(tmp_path):
     assert store._read(lambda db:db.execute('SELECT count(*) FROM natural_review_candidates').fetchone()[0])==0
 
 
-def test_real_archive_summary_native_readback_then_stage(tmp_path):
-    store,batch=fixture(tmp_path); proof=prepare(store,batch,run_id='natural-close',observed_at=NOW)
+@pytest.mark.parametrize('record_slot',['close','CLOSE'])
+def test_real_archive_summary_native_readback_then_stage(tmp_path,record_slot):
+    store,batch=fixture(tmp_path,record_slot=record_slot); proof=prepare(store,batch,run_id='natural-close',observed_at=NOW)
+    # Production ResearchSlot.CLOSE.value is uppercase; older fixtures and
+    # manual workflow records used lowercase for the same close session.
     result=stage_natural_candidate(store,batch,run_id='natural-close',observed_at=NOW,artifact_proof=proof)
     assert result['status']=='CANDIDATE_PENDING_REVIEW' and result['execution_plans_written']==0
     assert verify_candidate_artifacts(batch,run_id='natural-close',proof=proof)['daily_facts']=={
         batch[0]['plan_id']:'READY'}
+
+
+@pytest.mark.parametrize('record_slot',['open','MIDDAY',''])
+def test_non_close_workflow_record_still_cannot_stage(tmp_path,record_slot):
+    store,batch=fixture(tmp_path,record_slot=record_slot);proof=prepare(store,batch,run_id='natural-close',observed_at=NOW)
+    with pytest.raises(ValueError,match='CANDIDATE_WORKFLOW_SOURCE_CONFLICT'):
+        stage_natural_candidate(store,batch,run_id='natural-close',observed_at=NOW,artifact_proof=proof)
+    assert store._read(lambda db:db.execute('SELECT count(*) FROM natural_review_candidates').fetchone()[0])==0
 
 
 @pytest.mark.parametrize('change',['summary_missing','wrong_source','manifest_missing','payload_changed','seed_missing'])

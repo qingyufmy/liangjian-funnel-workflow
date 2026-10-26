@@ -27,6 +27,11 @@ from zoneinfo import ZoneInfo
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 HASH_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 MANIFEST_SCHEMA = "publication-projection-manifest/1"
+# Full publication objects contain the original submitted/normalized plans as
+# well as the small daily projection. A genuine 14-plan production manifest
+# is 2,799,538 bytes, so the old 2MB I/O bound rejected an intact signed object.
+# Keep a finite resource bound; do not remove fields or relax either hash.
+MAX_PUBLICATION_MANIFEST_BYTES = 16 * 1024 * 1024
 ENTRY_CONFIRMATION_FACTS_SCHEMA = "entry-confirmation-daily-facts/1"
 _TRADING_CALENDAR: Any | None = None
 
@@ -335,7 +340,7 @@ def _file_sha256(path: Path) -> str:
 
 def _read_manifest(path: Path) -> tuple[dict[str, Any], str] | None:
     try:
-        if path.stat().st_size > 2_000_000:
+        if path.stat().st_size > MAX_PUBLICATION_MANIFEST_BYTES:
             return None
         raw = path.read_bytes()
         body = json.loads(raw)

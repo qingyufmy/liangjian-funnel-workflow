@@ -101,7 +101,7 @@ def stage_natural_candidate(store, batch, *, run_id, observed_at, regeneration=N
     scope='bd_'+sha([run_id,day,lane])[:28]
     def operation(db):
         record=db.execute('SELECT trade_date,slot FROM workflow_runs WHERE run_id=? AND lane_id=?',(run_id,lane)).fetchone()
-        if not record or record['slot']!='close' or record['trade_date']!=artifact_check['source_trade_date']:
+        if not record or str(record['slot']).lower()!='close' or record['trade_date']!=artifact_check['source_trade_date']:
             raise ValueError('CANDIDATE_WORKFLOW_SOURCE_CONFLICT')
         if source_scope is not None:
             from .close_regeneration import require_regeneration_candidate_scope

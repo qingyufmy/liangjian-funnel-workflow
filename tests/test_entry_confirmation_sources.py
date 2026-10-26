@@ -237,6 +237,34 @@ def write_publication(tmp_path: Path) -> tuple[Path, dict, dict]:
     return manifest_path, snap, manifest
 
 
+def test_complete_large_manifest_keeps_all_hash_and_daily_fact_checks(tmp_path):
+    path,_,manifest=write_publication(tmp_path)
+    # Real 14-plan recovery was 2,799,538 bytes because full authority and
+    # submitted-plan originals coexist with the compact daily projection.
+    manifest['plans'][0]['authority']={'original_evidence':'x'*2_800_000}
+    manifest.pop('manifest_sha256')
+    manifest['manifest_sha256']=object_hash(manifest)
+    path.write_text(json.dumps(manifest,ensure_ascii=False,sort_keys=True),encoding='utf-8')
+    before=path.read_bytes();digest=hashlib.sha256(before).hexdigest()
+    parsed=sources._read_manifest(path)
+    assert parsed is not None and parsed[0]==manifest and parsed[1]==digest
+    facts=read_entry_confirmation_daily_facts_small_batch(path,symbols=['600001.SH'],
+        current_trade_date=TARGET,calendar=WeekdayCalendar(),expected_manifest_file_sha256=digest)
+    assert facts['600001.SH']['status']=='READY'
+    assert len(facts['600001.SH']['daily_closes'])==20
+    manifest['plans'][0]['entry_confirmation_daily_facts']['value']['daily_closes'][0]['close']=999999
+    path.write_text(json.dumps(manifest,ensure_ascii=False,sort_keys=True),encoding='utf-8')
+    assert sources._read_manifest(path) is None
+
+
+def test_manifest_resource_bound_still_refuses_before_reading_bytes(tmp_path,monkeypatch):
+    path=tmp_path/'oversize.json'
+    with path.open('wb') as stream:stream.truncate(sources.MAX_PUBLICATION_MANIFEST_BYTES+1)
+    def forbidden(*args):raise AssertionError('oversize manifest must not be read')
+    monkeypatch.setattr(Path,'read_bytes',forbidden)
+    assert sources._read_manifest(path) is None
+
+
 def test_reader_verifies_manifest_snapshot_chain_and_batch_reads_requested_rows_once(tmp_path):
     path, snap, manifest = write_publication(tmp_path)
     before_manifest = path.read_bytes()
