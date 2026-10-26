@@ -6,14 +6,16 @@ import importlib.util,json,sqlite3
 import pytest
 from liangjian_funnel.runtime.calendar import ExchangeTradingCalendar
 from liangjian_funnel.runtime.state import RuntimeStore
-from liangjian_funnel.runtime.reviewed_batch_natural import stage_formal_empty,read_natural_candidate,finish_natural_candidate,stage_natural_candidate
+from liangjian_funnel.runtime.reviewed_batch_natural import stage_formal_empty,read_natural_candidate,finish_natural_candidate
+from fixture_candidate_artifacts_0761 import stage_natural_candidate
 from liangjian_funnel.runtime.team_v2_morning import run_morning_stage
 
 DAY='2026-10-26';CAL=ExchangeTradingCalendar()
 
 
 def source(tmp_path):
-    settings=SimpleNamespace(root=tmp_path,state_db_path=tmp_path/'state/workflow.sqlite3',research_primary_lane_id='lane_1')
+    settings=SimpleNamespace(root=tmp_path,state_db_path=tmp_path/'state/workflow.sqlite3',research_primary_lane_id='lane_1',
+        workflow_output_dir=tmp_path/'outputs',minute_cache_dir=tmp_path/'outputs/minute')
     store=RuntimeStore(settings.state_db_path)
     args=dict(run_id='controlled-zero-source',source_trade_date='2026-10-23',target_trade_date=DAY,
         lane_id='lane_1',source_evidence={'a1_manifest':'a'*64,'a2_a3_original':'b'*64},

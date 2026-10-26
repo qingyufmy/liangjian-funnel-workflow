@@ -71,24 +71,27 @@ def test_legacy_failure_or_budget_exhaustion_never_starts_team(tmp_path, monkeyp
     assert calls == [] and not (tmp_path / 'state/team_v2/team.db').exists()
 
 
-def test_team_exception_preserves_customer_result_and_latches_record_after_first_day(tmp_path, monkeypatch):
+@pytest.mark.parametrize('reason,persistent',[('PRIVATE_PROVIDER_RESPONSE',False),('ENTRY_PATTERN_PLAN_SOURCE_CONFLICT',True)])
+def test_team_exception_preserves_customer_result_and_only_conflict_latches(tmp_path, monkeypatch,reason,persistent):
     from liangjian_funnel.runtime.team_v2_dual_monitor import run_dual_monitor
     import liangjian_funnel.runtime.team_v2_monitor as team
     app = app_fixture(tmp_path); seen = []; legacy = {'notifications': ['original']}
     app.monitor_once = lambda **kwargs: legacy
-    def broken(*a, **kw): raise RuntimeError('PRIVATE_PROVIDER_RESPONSE')
+    def broken(*a, **kw): raise RuntimeError(reason)
     monkeypatch.setattr(team, 'run_monitor_control', broken)
     first = run_dual_monitor(app, now=NOW)
     assert first['notifications'] == ['original'] and first['mode'] == 'record'
     assert 'PRIVATE' not in json.dumps(first)
-    assert forced_record(app.settings, account_id=ACCOUNT, now=NOW)['reason_code'] == 'TEAM_MONITOR_EXCEPTION'
+    latch=forced_record(app.settings, account_id=ACCOUNT, now=NOW)
+    assert bool(latch)==persistent
+    if persistent:assert latch['reason_code']==reason
     def protected(*a, **kw):
-        seen.append(kw['record_fallback']['reason_code']); return {'status': 'RECORD_FALLBACK_ACTIVE'}
+        seen.append(kw['record_fallback']['reason_code'] if kw['record_fallback'] else None); return {'status': 'RECORD_FALLBACK_ACTIVE'}
     monkeypatch.setattr(team, 'run_monitor_control', protected)
     second = run_dual_monitor(app, now=NOW + timedelta(minutes=1))
-    assert second['notifications'] == ['original'] and seen == ['TEAM_MONITOR_EXCEPTION']
+    assert second['notifications'] == ['original'] and seen == [reason if persistent else None]
     with sqlite3.connect(tmp_path / 'state/team_v2/team.db') as db:
-        assert db.execute('SELECT count(*) FROM control_record_latch').fetchone()[0] == 1
+        if persistent:assert db.execute('SELECT count(*) FROM control_record_latch').fetchone()[0] == 1
         assert db.execute('SELECT count(*) FROM team_notifications').fetchone()[0] == 1
 
 
@@ -217,7 +220,8 @@ def test_failed_alert_enqueue_is_repaired_once_without_automatic_record_unlock(t
     app=app_fixture(tmp_path);app.monitor_once=lambda **kw:{'notifications':['original']}
     enqueue=InternalOutbox.enqueue
     def broken(*a, **kw):raise RuntimeError('PRIVATE')
-    monkeypatch.setattr(team,'run_monitor_control',broken)
+    def identity_conflict(*a, **kw):raise ValueError('ENTRY_PATTERN_PLAN_SOURCE_CONFLICT')
+    monkeypatch.setattr(team,'run_monitor_control',identity_conflict)
     monkeypatch.setattr(InternalOutbox,'enqueue',broken)
     result=run_dual_monitor(app,now=NOW)
     assert result['team_control_fallback']['internal_alert']=='PENDING_ENQUEUE_REPAIR'
@@ -283,14 +287,15 @@ def test_dispatch_into_actual_team_collector_reuses_original_fetch_results(tmp_p
     assert 'packet_sha256' in result['team']
 
 
-def test_record_required_receipt_outside_first_day_still_creates_durable_latch(tmp_path,monkeypatch):
+def test_record_required_receipt_without_proven_conflict_blocks_only_tick(tmp_path,monkeypatch):
     from liangjian_funnel.runtime.team_v2_dual_monitor import run_dual_monitor
     import liangjian_funnel.runtime.team_v2_monitor as team
     app=app_fixture(tmp_path);app.monitor_once=lambda **kw:{'notifications':['customer-finished']}
     monkeypatch.setattr(team,'run_monitor_control',lambda *a,**kw:{
         'status':'CONTROL_RECORD_REQUIRED','mode':'record'})
     result=run_dual_monitor(app,now=NOW)
-    assert result['mode']=='record' and forced_record(app.settings,account_id=ACCOUNT,now=NOW)
+    assert result['mode']=='record' and forced_record(app.settings,account_id=ACCOUNT,now=NOW) is None
+    assert result['team_control_fallback']['record_required'] and not result['team_control_fallback']['persistent_record']
 
 
 def test_next_round_reuses_exact_customer_market_cache_without_fetch_or_reobservation(tmp_path,monkeypatch):
@@ -341,7 +346,7 @@ def test_uncooperative_model_transport_cannot_consume_the_post_review_reserve(tm
         assert db.execute('SELECT count(*) FROM paper_orders').fetchone()[0]==0
 
 
-def test_invalid_team_model_vote_latches_record_without_dropping_customer_receipt(tmp_path,monkeypatch):
+def test_invalid_team_model_vote_blocks_entry_without_unsupported_account_lock(tmp_path,monkeypatch):
     from liangjian_funnel.runtime.team_v2_dual_monitor import run_dual_monitor
     import liangjian_funnel.runtime.team_v2_monitor as team
     app=app_fixture(tmp_path);app.monitor_once=lambda **kw:{'notifications':['customer-finished']}
@@ -349,4 +354,5 @@ def test_invalid_team_model_vote_latches_record_without_dropping_customer_receip
         'result':{'trader':{'model_validated':False,'status':'CANDIDATE_REVIEW_FAILED_ENTRIES_BLOCKED'}}})
     result=run_dual_monitor(app,now=NOW)
     assert result['mode']=='record' and result['notifications']==['customer-finished']
-    assert forced_record(app.settings,account_id=ACCOUNT,now=NOW)
+    assert forced_record(app.settings,account_id=ACCOUNT,now=NOW) is None
+    assert result['team_control_fallback']['record_required']

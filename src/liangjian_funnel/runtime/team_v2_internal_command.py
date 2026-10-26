@@ -21,6 +21,12 @@ def run_internal_delivery(settings, *, clock=None, calendar=None, sender=None):
     if not (directory/'team.db').is_file():
         return dict(status='NOOP', reason_code='TEAM_ACCOUNT_NOT_INITIALIZED')
     store = TeamMeetingStore(directory/'team.db'); outbox = InternalOutbox(store)
+    from .node_identity import observe_node_identity
+    try:node_identity=observe_node_identity(settings,store,now=now)
+    except (OSError,ValueError):node_identity=dict(status='UNAVAILABLE',reason_code='NODE_IDENTITY_OBSERVATION_UNAVAILABLE')
+    from .monitor_slow_warning import project_slow_warning
+    try:slow_warning=project_slow_warning(settings,now=now)
+    except (OSError,ValueError,KeyError,TypeError):slow_warning=dict(status='UNAVAILABLE',reason_code='MONITOR_WARNING_UNPROVEN')
     projector = InternalEventProjector(outbox)
     projection = projector.project(paper_path=directory/'paper.db', account_id=ACCOUNT, now=now,
         rule_alert_path=directory/'rules'/(now.date().isoformat()+'.alert.json'))
@@ -33,4 +39,4 @@ def run_internal_delivery(settings, *, clock=None, calendar=None, sender=None):
         attempted=delivery['attempted'], sent=delivery['sent'],
         pending=delivery.get('pending'),unconfirmed=delivery.get('unconfirmed'),
         delivery_health='UNCONFIRMED' if delivery.get('unconfirmed') else 'CONFIRMED',
-        new_failure_notices=delivery.get('new_failure_notices',0))
+        new_failure_notices=delivery.get('new_failure_notices',0),node_identity=node_identity,slow_warning=slow_warning)

@@ -81,16 +81,16 @@ def _run_monitor_control(application,*,now=None,clock=None,client=None,tradabili
     try:quote_archive=archive_monitor_quotes(settings,packet,used_at=stamp(clock()))
     except Exception:
         quote_archive=dict(status='FAILED',reason_code='CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED')
+    protection=None
     if record_fallback is not None:
         from .team_v2_record_protection import protect_packet
         protection=protect_packet(settings,scope=scope,packet=packet,broker=broker,store=store,clock=clock,
             account_id=ACCOUNT,deadline_monotonic=deadline,reason_code=record_fallback['reason_code'],
             tradability_loader=tradability_loader)
-        return {**protection, 'original_quote_archive': quote_archive}
     from .team_v2_first_day import load_first_day_policy,observe_first_day_packet,latch_record,first_day_limits
     first_policy=load_first_day_policy(settings.root/'config/risk_limits.yaml')
-    first_observation=observe_first_day_packet(store,first_policy,account_id=ACCOUNT,packet=packet,now=stamp(clock()),
-        guard_anomaly=quote_archive['status']!='ARCHIVED' or any(
+    first_observation=dict(record_required=False) if record_fallback is not None else observe_first_day_packet(store,first_policy,account_id=ACCOUNT,packet=packet,now=stamp(clock()),
+        guard_anomaly=any(
             p.get('quote',{}).get('reason_code')=='CONTROL_REPLAY_QUOTE_FORBIDDEN' for p in packet['sources'].values()))
     if first_observation['record_required']:
         from .team_v2_record_protection import protect_packet
@@ -107,7 +107,7 @@ def _run_monitor_control(application,*,now=None,clock=None,client=None,tradabili
     # Full-market collector is the existing durable five-minute bucket. Missing
     # current data is never replaced with yesterday's regime or a fake ALLOW.
     market_deadline=min(deadline,time.monotonic()+A4_MARKET_STATE_BUDGET_SECONDS)
-    market_work=_MARKET.call(lambda:minute_sources.team_market(settings,clock=clock,calendar=calendar,deadline=market_deadline)
+    market_work=None if record_fallback is not None and (minute_sources is None or minute_sources.allow_market_collection) else _MARKET.call(lambda:minute_sources.team_market(settings,clock=clock,calendar=calendar,deadline=market_deadline)
         if minute_sources is not None else load_or_refresh_live_market_state(settings,application.market_data,as_of=stamp(clock()),
         minimum_source_as_of=cutoff.replace(minute=cutoff.minute-cutoff.minute%5,second=0,microsecond=0),
         snapshot_observer=lambda result:observe_full_market(settings,result,observed_at=stamp(clock()),
@@ -132,7 +132,7 @@ def _run_monitor_control(application,*,now=None,clock=None,client=None,tradabili
     live={**live,'team_v2_regime':current_state or {'status':'DATA_BLOCK','reason_code':'LIVE_REGIME_TICK_NOT_YET_OBSERVED'}}
     # A retry reuses the first captured market view, not a second same-minute
     # query relabelled as the original model input. A changed packet is rejected.
-    market=store.freeze_control_context('market:'+decision,source_sha256=packet['packet_sha256'],
+    market=store.freeze_control_context(('shadow-market:' if record_fallback is not None else 'market:')+decision,source_sha256=packet['packet_sha256'],
         body=dict(live=live,regime=regime))
     live=market['live'];regime=market['regime']
     projections=project_packet_sources(packet)
@@ -222,6 +222,9 @@ def _run_monitor_control(application,*,now=None,clock=None,client=None,tradabili
         projections=projections,symbol_failures=symbol_failures)
     if health['account_record_required']:
         entry_proven={pid:False for pid in entry_proven}
+    if morning is None and record_fallback is not None:
+        return {**protection,'original_quote_archive':quote_archive,'deterministic_shadow':dict(
+            status='BLOCKED',reason_code='CONTROL_MORNING_ENGINE_MISSING',model_authority=False,fill_status='UNKNOWN')}
     if morning is None:
         result=run_control_minute(session_kwargs=dict(broker=broker,store=store,clock=clock,account_id=ACCOUNT,all_plans=plans),
             closed_bars=paper,deadline_monotonic=deadline,model_enabled=False)
@@ -235,7 +238,7 @@ def _run_monitor_control(application,*,now=None,clock=None,client=None,tradabili
     limits=RiskLimits.from_yaml(settings.root/'config/risk_limits.yaml')
     limits=first_day_limits(limits,first_policy,now=current)
     exception_runtime=RiskExceptionRuntime(store)
-    exception_runtime.expire_pending(ACCOUNT,day,now=stamp(clock()))
+    if record_fallback is None:exception_runtime.expire_pending(ACCOUNT,day,now=stamp(clock()))
     restrictions=exception_runtime.restrictions(ACCOUNT,day)
     utilization_cap=reviewed.utilization_cap if reviewed is not None else D(morning['engine_utilization_cap'])
     pm_upper=store.load_pm_target_upper(store.pm_meeting_id,account_id=ACCOUNT,trade_date=day)
@@ -264,6 +267,20 @@ def _run_monitor_control(application,*,now=None,clock=None,client=None,tradabili
     # match and marks update; never used for new entry admission before refresh.
     envelopes={pid:replace(_envelopes(morning['envelopes'])[0],plan_id=pid,symbol=p.symbol,
         purpose='EXECUTION',eligible=False,max_shares_cap=0,risk_unit='NONE') for pid,p in plans.items()}
+    if record_fallback is not None:
+        from .team_v2_record_shadow import build_shadow
+        try:
+            shadow=build_shadow(store=store,broker=broker,plans=plans,evaluations=evaluations,
+                envelopes=refresh(),active=active,limits=limits,clock=clock,cutoff=cutoff,
+                regime=regime,live_market_ready=not health['account_record_required'] and regime!='DATA_BLOCK'
+                    and live.get('status') in {'READY','READY_DEGRADED'},calendar=calendar,
+                packet=packet,utilization_cap=utilization_cap,pattern_bindings=pattern_bindings,
+                deadline=deadline,decision=decision)
+        except Exception as exc:
+            shadow=dict(status='UNPROVEN',reason_code='RECORD_SHADOW_EVALUATION_FAILED',
+                exception_type=type(exc).__name__,model_authority=False,fill_status='UNKNOWN')
+        return {**protection,'original_quote_archive':quote_archive,'deterministic_shadow':shadow,
+            'deterministic_reference':evaluations,'total_ms':(time.monotonic()-started)*1000}
     repository=TeamPromptRepository(settings.root/'prompts/team_v2')
     catalog={'categories':['MARKET','STOCK_TECH','PLAN'],'items':[{'id':'LIVE:MARKET','category':'MARKET','value':live},
         *({'id':'PLAN:'+pid,'category':'PLAN','value':raw_rows[pid]} for pid in sorted(plans)),
@@ -307,13 +324,18 @@ def _run_monitor_control(application,*,now=None,clock=None,client=None,tradabili
         store.ensure_current()
     except ReviewScopeError:
         raise
-    except Exception:
-        latch_record(store,first_policy,account_id=ACCOUNT,now=stamp(clock()),
-            reason_code='CONTROL_FIRST_DAY_EXECUTION_EXCEPTION',packet_sha256=packet['packet_sha256'])
+    except Exception as exc:
+        from .record_failure_policy import exception_reason,requires_persistent_record
+        reason=exception_reason(exc)
+        if requires_persistent_record(reason):
+            latch_record(store,first_policy,account_id=ACCOUNT,now=stamp(clock()),
+                reason_code=reason,packet_sha256=packet['packet_sha256'])
         raise
-    if any(e.get('reason_code') in {'CONTROL_PAPER_BAR_FAILED','CONTROL_HARD_EXIT_FAILED'} for e in result.get('errors',[])):
+    from .record_failure_policy import receipt_reason,requires_persistent_record
+    conflict=receipt_reason(result)
+    if requires_persistent_record(conflict):
         first_observation=latch_record(store,first_policy,account_id=ACCOUNT,now=stamp(clock()),
-            reason_code='CONTROL_FIRST_DAY_GUARD_ANOMALY',packet_sha256=packet['packet_sha256'])
+            reason_code=conflict,packet_sha256=packet['packet_sha256'])
     # Held exposure without a current symbol bar remains explicitly unproven;
     # it is not a permission to fabricate a fill or to lock unrelated symbols.
     local_held_gaps=bool(result.get('errors')) and all(

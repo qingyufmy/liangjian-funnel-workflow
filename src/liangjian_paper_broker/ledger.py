@@ -206,6 +206,21 @@ class LocalPaperBroker:
             self._event(c,'risk-open:'+trade_date,'RISK_DAY_OPEN',basis)
             return {**basis,'halt_reason_codes':[]}
 
+    def decision_snapshot(self):
+        """Identical admission input under a read transaction; no reservation."""
+        with self._tx(readonly=True) as c:
+            return self._decision_snapshot(c,local_time(self.clock()))
+
+    def _decision_snapshot(self,c,now):
+        day=now.date().isoformat()
+        return {"observed_at":now.isoformat(),"account":self._account(c,day),
+            "positions":self._positions(c,day),
+            "open_orders":tuple({**json.loads(r["body_json"]),"status":r["status"]} for r in self._open(c)),
+            "admissions":self._admissions(c,day),"risk_day":self._risk_day(c,day),
+            "peak_nav":str(self._meta(c,'risk_peak_nav')),
+            "global_halt":c.execute("SELECT value FROM paper_meta WHERE key='risk_halt_reason'").fetchone()[0],
+            "fills_today":tuple(dict(r) for r in c.execute("SELECT * FROM paper_fills WHERE substr(minute_end,1,10)=? ORDER BY fill_id",(day,)))}
+
     def admit_signal(self,signal_id,*,binding,decide,mode="control"):
         """Trusted pure risk callback under the same lock as paper reservation.
 
@@ -229,13 +244,7 @@ class LocalPaperBroker:
             if old:
                 if old[0]!=bhash:raise ValueError("PAPER_ADMISSION_BINDING_CONFLICT")
                 return json.loads(old[1])
-            snapshot={"observed_at":now.isoformat(),"account":self._account(c,day),
-                "positions":self._positions(c,day),
-                "open_orders":tuple({**json.loads(r["body_json"]),"status":r["status"]} for r in self._open(c)),
-                "admissions":self._admissions(c,day),"risk_day":self._risk_day(c,day),
-                "peak_nav":str(self._meta(c,'risk_peak_nav')),
-                "global_halt":c.execute("SELECT value FROM paper_meta WHERE key='risk_halt_reason'").fetchone()[0],
-                "fills_today":tuple(dict(r) for r in c.execute("SELECT * FROM paper_fills WHERE substr(minute_end,1,10)=? ORDER BY fill_id",(day,)))}
+            snapshot=self._decision_snapshot(c,now)
             response=decide(snapshot)
             if (not isinstance(response,dict) or not {'judgment','order'}.issubset(response)
                     or set(response)-{'judgment','order','halt_reason','cancel_order_ids'} or not isinstance(response["judgment"],dict)):

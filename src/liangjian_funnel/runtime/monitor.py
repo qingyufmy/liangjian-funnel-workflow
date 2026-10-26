@@ -67,6 +67,7 @@ class MonitorEngine:
         llm_batch: VetoCallback | None = None,
         effective_md_path: str | Path | None = None,
         max_seconds: float = 50.0,
+        model_max_seconds: float | None = None,
         deadline_monotonic: float | None = None,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], datetime] | None = None,
@@ -83,6 +84,8 @@ class MonitorEngine:
         self.llm_veto = llm_veto or llm_batch
         self.effective_md_path = Path(effective_md_path) if effective_md_path is not None else None
         self.max_seconds = max_seconds
+        if model_max_seconds is not None and model_max_seconds<=0:raise ValueError('model_max_seconds must be positive')
+        self.model_max_seconds=model_max_seconds
         self.deadline_monotonic = deadline_monotonic
         self._clock = clock
         self._wall_clock = wall_clock or (lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
@@ -179,7 +182,8 @@ class MonitorEngine:
             scoped_symbols.add(symbol)
         plans = tuple(plans)
         events: list[MonitorEvent] = []
-        durable_events = self.store.list_monitor_events(lane_id=lane_id)
+        durable_events = self.store.list_monitor_decision_history(lane_id=lane_id,
+            plan_ids=[str(row['plan_id']) for row in plans],symbols=list(scoped_symbols),minute=minute)
         if not self._in_session(minute):
             return MonitorBatchResult(lane_id=lane_id, minute_snapshot_id=minute_snapshot_id, events=(), model_called=False)
 
@@ -631,6 +635,8 @@ class MonitorEngine:
         llm_failed = False
         llm_error_code: str | None = None
         review_request = None
+        model_started = None
+        model_elapsed_seconds = 0.0
         if self.llm_veto is not None and pending_veto:
             model_called = True
             try:
@@ -681,6 +687,7 @@ class MonitorEngine:
                     "plans": tuple(trigger_results),
                     "review_contract": review_request.to_mapping() if review_request is not None else None,
                 }
+                model_started = self._clock()
                 response = self.llm_veto(context)
                 if review_request is not None:
                     validated = validate_llm_review_response(
@@ -735,8 +742,11 @@ class MonitorEngine:
                         for item in pending_veto
                     }
 
+            finally:
+                if model_started is not None:model_elapsed_seconds=max(0.0,self._clock()-model_started)
         overrun = model_called and (
             self._clock() - started > self.max_seconds
+            or (self.model_max_seconds is not None and model_elapsed_seconds>self.model_max_seconds)
             or (
                 self.deadline_monotonic is not None
                 and self._clock() >= self.deadline_monotonic
@@ -1107,7 +1117,8 @@ class MonitorEngine:
 
         expected = minute - timedelta(minutes=1)
         count = 0
-        events = self.store.list_monitor_events(lane_id=lane_id)
+        events = self.store.list_monitor_events(lane_id=lane_id,
+            actions=(MonitorAction.START_CONFIRMATION.value,),plan_id=plan_id)
         for event in reversed(events):
             if event.get("action") != MonitorAction.START_CONFIRMATION.value:
                 continue

@@ -1655,6 +1655,12 @@ def build_a5_fact_snapshot(
         minute_store=getattr(independent_verifier, "minute_store", None), cutoff=cutoff,
         market_state_dir=getattr(independent_verifier, "market_state_dir", None),
     )
+    activation_reader=getattr(store,'list_plan_activation_evidence',None)
+    activation_rows=activation_reader(limit=1000) if callable(activation_reader) else ()
+    snapshot['activation_decisions']=dict(status='AVAILABLE' if activation_rows else 'NO_SAVED_ACTIVATION_EVIDENCE',
+        scan_limit=1000,scan_truncated=len(activation_rows)>=1000,
+        rows=[dict(event_id=row['event_id'],body_sha256=row['body_sha256'],evidence=json.loads(row['body_json']))
+            for row in activation_rows if session_start<=datetime.fromisoformat(row['observed_at'])<=operation_cutoff])
     if independent_verifier is not None:
         try:
             independent = independent_verifier.verify(

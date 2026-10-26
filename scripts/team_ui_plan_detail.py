@@ -35,6 +35,23 @@ def condition_source(value,event_at):
 
 def project_detail(db,day,plan_id,*,root=None,connect=None):
     result={'bars':[],'conditions':[],'timeline':[],'detail_coverage':'MISSING_EXISTING_MONITOR_FACTS','rr':None,'condition_as_of':None,'price':None,'in_zone':None}
+    result['activation_decisions']=[]
+    try:
+        for row in db.execute('SELECT event_id,body_json,body_sha256 FROM plan_activation_evidence '
+                'WHERE plan_id=? AND observed_at>=? AND observed_at<? ORDER BY observed_at DESC LIMIT 100',
+                (plan_id,day+'T00:00:00',day+'T23:59:59.999999+08:00')):
+            if hashlib.sha256(row['body_json'].encode()).hexdigest()!=row['body_sha256']:
+                result['activation_evidence_status']='HASH_CONFLICT';continue
+            body=json.loads(row['body_json']);quote=body.get('quote') or {}
+            result['activation_decisions'].append(dict(action=body['action'],reason_code=body['reason_code'],
+                observed_at=body.get('decision_recorded_at',body['observed_at']),decision_reference_at=body['observed_at'],
+                entrypoint=body['entrypoint'],before_status=body['before_status'],
+                after_status=body['after_status'],price=quote.get('price'),quote_as_of=quote.get('quote_time'),
+                quote_source=quote.get('source_id'),quote_sha256=body.get('quote_sha256'),
+                thresholds=body.get('effective_thresholds'),quote_evidence=body['quote_evidence'],
+                source_id=row['event_id'],sha256=row['body_sha256']))
+    except sqlite3.OperationalError as error:
+        if 'no such table' not in str(error):raise
     try:
         # Bound row IDs BEFORE JSON/date evaluation. No historical full scan or
         # assumption of a non-existent JSON/plan index on the trading database.

@@ -191,7 +191,7 @@ def _pm(team, models, *, meeting_id, scope_id, account_id, day, engine, risk, re
 
 
 def build_reviewed_batch_evidence(*, isolated_root=None, review_root=None, source_namespace='ISOLATED',
-        workflow_db_path=None, scope_id, account_id, trade_date, lane_id, run_id,
+        workflow_db_path=None, workflow_output_dir=None, minute_cache_dir=None, scope_id, account_id, trade_date, lane_id, run_id,
         a6_meeting_id, pm_meeting_id, candidate_rows):
     """Return a bundle only after actual read-only originals prove both reviews.
 
@@ -226,7 +226,9 @@ def build_reviewed_batch_evidence(*, isolated_root=None, review_root=None, sourc
                 from .reviewed_batch_natural import read_natural_candidate
                 path=Path(workflow_db_path)
                 _require(path.resolve().is_relative_to(root), 'NATURAL_WORKFLOW_OUTSIDE_ROOT')
-                natural=read_natural_candidate(SimpleNamespace(state_db_path=path,research_primary_lane_id=lane_id),day=trade_date)
+                natural=read_natural_candidate(SimpleNamespace(state_db_path=path,research_primary_lane_id=lane_id,
+                    workflow_output_dir=Path(workflow_output_dir or Path(review_root)/'outputs'),
+                    minute_cache_dir=Path(minute_cache_dir or Path(review_root)/'storage/minute')),day=trade_date)
                 _require(natural is not None and natural['scope_id']==scope_id
                     and source.get('source_namespace')=='NATURAL_MORNING_CANDIDATE'
                     and source.get('candidate_scope_id')==scope_id

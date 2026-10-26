@@ -265,6 +265,7 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
         a2=legacy_facts.get('a2',{'status':'UNAVAILABLE'}),a3=legacy_facts.get('a3',{'status':'UNAVAILABLE'}),
         a4=dict(legacy=legacy_facts.get('a4',{'status':'UNAVAILABLE'}),team=rows.get('trader_sessions')),
         a6=team,paper_broker=dict(snapshot=paper_snapshot,settlement=settlement),
+        activation_decisions=legacy_facts.get('activation_decisions',{'status':'UNAVAILABLE','rows':[]}),
         outcomes=legacy_facts.get('outcomes',{'status':'UNAVAILABLE'}),
         independent_verification=legacy_facts.get('independent_verification',{'status':'UNAVAILABLE'}),
         counterexamples=legacy_facts.get('counterexamples',

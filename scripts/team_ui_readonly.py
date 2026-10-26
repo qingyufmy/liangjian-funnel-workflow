@@ -159,6 +159,8 @@ def project(root, query):
                 from team_ui_plan_detail import project_detail
                 rows[0].update(project_detail(db,day,query['plan_id'],root=root,connect=connect))
             # This table holds latest plan state, not a historical status-transition journal.
+            from team_ui_pm import annotate_pm
+            annotate_pm(root,day,rows,connect)
             out["state_scope"] = "CURRENT_PERSISTED_STATUS_NOT_HISTORICAL_RECONSTRUCTION"
         finally:
             db.close()

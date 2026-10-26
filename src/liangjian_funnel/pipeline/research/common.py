@@ -1039,10 +1039,11 @@ class ResearchPipeline:
                     (stage.prompt_hash for stage in reversed(lane.stages) if stage.prompt_hash),
                     None,
                 )
+                from ...runtime.research_source_date import runtime_trade_date
                 self.runtime_store.record_workflow_run(
                     run_id=effective_run_id,
                     lane_id=lane.lane,
-                    trade_date=current.date().isoformat(),
+                    trade_date=runtime_trade_date(frozen,generated_at=current,slot=self.slot),
                     slot=self.slot,
                     model=lane.model,
                     status=(

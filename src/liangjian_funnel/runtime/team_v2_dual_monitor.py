@@ -211,6 +211,8 @@ def _legacy_failed(result):
 
 def _runtime_failure(settings, *, now, reason):
     try:
+        from .record_failure_policy import requires_persistent_record,queue_temporary_failure
+        if not requires_persistent_record(reason):return queue_temporary_failure(settings,now=now,reason=reason)
         from .team_v2_morning import ACCOUNT, _directory
         from .team_v2_store import TeamMeetingStore
         from .team_v2_first_day import POLICY, latch_record
@@ -265,7 +267,9 @@ def run_dual_monitor(application, *, now=None, monotonic=None):
                 detail = dict(reason_code='TEAM_OWNED_EXPOSURE_CHECK_FAILED', internal_alert=alert)
                 return finish(dict(status='SKIPPED', **detail), team_record_exposure=detail)
             if not owned:
-                return finish(dict(status='NOT_REQUESTED', reason_code='EXPLICIT_RECORD_NO_EXPOSURE'))
+                from .team_v2_record_shadow import has_shadow_scope
+                if not has_shadow_scope(application.settings,now=current):
+                    return finish(dict(status='NOT_REQUESTED', reason_code='EXPLICIT_RECORD_NO_EXPOSURE'))
             fallback = {'reason_code': 'EXPLICIT_RECORD_MODE'}
         if application.settings.broker_adapter != 'local_paper':
             reason='TEAM_BROKER_ADAPTER_NOT_ENABLED'
@@ -277,11 +281,14 @@ def run_dual_monitor(application, *, now=None, monotonic=None):
         trader = (result.get('result') or {}).get('trader') or {}
         if (result.get('status') in {'FAILED', 'ERROR', 'DEGRADED', 'DATA_BLOCKED', 'CONTROL_RECORD_REQUIRED'}
                 or trader.get('model_validated') is False):
-            failure = _runtime_failure(application.settings, now=current, reason='TEAM_MONITOR_DEGRADED')
+            from .record_failure_policy import receipt_reason
+            failure = _runtime_failure(application.settings, now=current, reason=receipt_reason(result))
             return finish(result, effective_mode='record', team_control_fallback=failure)
         return finish(result, effective_mode='record' if fallback is not None or result.get('mode') == 'record' else mode,
             **({'team_control_fallback': latch} if latch is not None else {}))
-    except Exception:
-        failure = _runtime_failure(application.settings, now=current, reason='TEAM_MONITOR_EXCEPTION')
-        return finish(dict(status='FAILED', reason_code='TEAM_MONITOR_EXCEPTION'),
+    except Exception as exc:
+        from .record_failure_policy import exception_reason
+        reason=exception_reason(exc)
+        failure = _runtime_failure(application.settings, now=current, reason=reason)
+        return finish(dict(status='FAILED', reason_code=reason),
             effective_mode='record', team_control_fallback=failure)

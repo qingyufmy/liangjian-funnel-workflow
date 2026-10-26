@@ -14,7 +14,8 @@ from test_team_v2_risk_schema import output as risk_output
 from test_team_v2_pm_session import response as pm_output
 from liangjian_funnel.pipeline.model_client import OpenAICompatibleModelClient
 from liangjian_funnel.runtime.state import RuntimeStore, StateTransitionError
-from liangjian_funnel.runtime.reviewed_batch_natural import stage_natural_candidate, read_natural_candidate
+from fixture_candidate_artifacts_0761 import stage_natural_candidate
+from liangjian_funnel.runtime.reviewed_batch_natural import  read_natural_candidate
 from liangjian_funnel.runtime.reviewed_batch_switch import load_active_reviewed_batch
 from liangjian_funnel.runtime.team_v2_morning import run_morning_stage
 
@@ -36,7 +37,7 @@ def setup(tmp_path, monkeypatch, *, old=True):
     batch=[dict(plan_id='p1',lane_id=settings.research_primary_lane_id,symbol=raw['symbol'],
         status='PENDING_MORNING_REVIEW',valid_from=None,expires_at=DAY+'T15:00:00+08:00',payload=raw)]
     store.record_workflow_run(run_id='new-close',lane_id=settings.research_primary_lane_id,
-        trade_date=DAY,slot='close',model='controlled',status='READY_TO_PUBLISH',snapshot_hash='a'*64)
+        trade_date=CAL.previous_trading_day(datetime.fromisoformat(DAY).date()).isoformat(),slot='close',model='controlled',status='READY_TO_PUBLISH',snapshot_hash='a'*64)
     stage=stage_natural_candidate(store,batch,run_id='new-close',observed_at=datetime.fromisoformat('2026-10-16T16:00:00+08:00'))
     monkeypatch.setattr('liangjian_funnel.runtime.reviewed_batch_switch._now',lambda:clock.now)
     return settings,clock,store,batch,stage
@@ -185,27 +186,40 @@ def test_real_workflow_team_publication_stages_only_candidate_and_candidate_proo
     from types import SimpleNamespace
     from test_w2_shadow_inputs_publication import publisher_fixture,AT,TARGET
     from liangjian_funnel.workflow import WorkflowApplication
+    from liangjian_funnel.pipeline.research import StageAudit
+    from liangjian_funnel.runtime.publication_receipt import object_hash
+    from liangjian_funnel.runtime.history_freshness import session_grid
+    from liangjian_funnel.data.cache import MinuteBarStore
+    from liangjian_funnel.data.mootdx import MinuteBar
     app,result,data,raw=publisher_fixture()
     app.store=RuntimeStore(tmp_path/'workflow.sqlite3')
     app.settings=SimpleNamespace(root=tmp_path,workflow_output_dir=tmp_path,
-        research_primary_lane_id='lane_1',publish_comparison_lanes=False)
-    audit=SimpleNamespace(stage='A3',thinking_variant='team_v2',output={},audit_path=None)
-    result=replace(result,lanes=(replace(result.lanes[0],stages=(audit,),audit_path=tmp_path/'a3.json'),))
+        minute_cache_dir=tmp_path/'minute',research_primary_lane_id='lane_1',publish_comparison_lanes=False)
     raw['first_resistance']=20;data['MIN_REWARD_RISK']=2.5
-    proof_calls=[]
-    def capture(**kwargs):
-        proof_calls.append(kwargs);return dict(status='CAPTURED_NOT_VALIDATED',path='controlled-capture')
-    monkeypatch.setattr('liangjian_funnel.runtime.publication_archive.write_publication_manifest',capture)
-    app.store.record_workflow_run(run_id=result.run_id,lane_id='lane_1',trade_date=TARGET.isoformat(),
+    source_rows=app.fact_cache.query_daily_bars(raw['symbol'])
+    data['RECENT_DAILY_BARS']={raw['symbol']:[row['payload'] for row in source_rows[::-1]]}
+    audit=StageAudit(lane='lane_1',model='fixture',stage='A3',status='VALIDATED',snapshot_id=result.snapshot_id,
+        prompt_hash=None,input_hash=None,output_hash=object_hash(result.lanes[0].final_output),latency_ms=0,
+        attempts=1,thinking_variant='team_v2',symbols=(raw['symbol'],),reason_codes=(),output=result.lanes[0].final_output)
+    lane=replace(result.lanes[0],stages=(audit,),audit_path=tmp_path/'a3.json')
+    lane.audit_path.write_text(json.dumps(lane.as_dict()),encoding='utf-8')
+    result=replace(result,snapshot_hash=object_hash(data),lanes=(lane,))
+    (tmp_path/'snapshot.json').write_text(json.dumps(dict(snapshot_id=result.snapshot_id,
+        snapshot_hash=result.snapshot_hash,as_of=AT.isoformat(),data=data)),encoding='utf-8')
+    app.minute_store=MinuteBarStore(app.settings.minute_cache_dir)
+    app.minute_store.write([MinuteBar(symbol=raw['symbol'],interval='5m',bar_end=t,open=10,high=11,low=9,
+        close=10,volume=1000,amount=10000,source_id='CONTROLLED_TENCENT') for t in session_grid(AT.date())])
+    app.market_data=SimpleNamespace(fetch_bars=lambda *a,**kw:pytest.fail('native cache must be reused'))
+    app.store.record_workflow_run(run_id=result.run_id,lane_id='lane_1',trade_date=AT.date().isoformat(),
         slot='close',model='controlled',status='READY_TO_PUBLISH',snapshot_hash='a'*64)
     summary=WorkflowApplication._publish_plans(app,result,'close',AT,snapshot_data=data,
         minimum_trade_date=TARGET,publication_snapshot_path=tmp_path/'snapshot.json')
     assert summary['publication_state']=='CANDIDATE_PENDING_REVIEW'
     assert summary['created']==summary['activated']==[] and current_plans(app.store)==[]
     assert app.store.get_workflow_run(result.run_id,'lane_1')['status']=='READY_TO_PUBLISH'
-    assert proof_calls[0]['publication_mode']=='CANDIDATE_PENDING_REVIEW'
     assert summary['projection_manifests'][0]['publication_state']=='UNREVIEWED_CANDIDATE_NOT_EXECUTION_PLANS'
-    candidate=read_natural_candidate(SimpleNamespace(state_db_path=app.store.path,research_primary_lane_id='lane_1'),day=TARGET.isoformat())
+    candidate=read_natural_candidate(SimpleNamespace(state_db_path=app.store.path,research_primary_lane_id='lane_1',
+        workflow_output_dir=tmp_path,minute_cache_dir=tmp_path/'minute'),day=TARGET.isoformat())
     assert candidate['state']=='PENDING' and len(candidate['body']['plan_rows'])==1
 
 

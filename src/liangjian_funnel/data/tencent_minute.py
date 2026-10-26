@@ -322,7 +322,9 @@ class TencentIntradayAdapter:
 class ResilientIntradayAdapter:
     """Tencent-first intraday reads with MootDX as the independent fallback.
 
-    Long-history requests still go directly to MootDX.  This ordering avoids
+    Long-history shortages retain a bounded native Tencent tail. This is
+    explicitly partial; the existing history-cache grid owns completeness.
+    This ordering avoids
     spending most of the one-minute A4 deadline waiting for currently
     unreachable public TDX nodes when the bounded Tencent window is healthy.
     """
@@ -336,7 +338,24 @@ class ResilientIntradayAdapter:
             tencent = self.fallback.fetch_bars(symbol, interval, required_bars, as_of=as_of)
             if tencent.complete:
                 return tencent
-        return self.primary.fetch_bars(symbol, interval, required_bars, as_of=as_of)
+        primary=self.primary.fetch_bars(symbol, interval, required_bars, as_of=as_of)
+        if (primary.complete or type(required_bars) is not int or required_bars<=TENCENT_MAX_BARS
+                or interval not in {'1m','5m'}):return primary
+        tail=self.fallback.fetch_bars(symbol,interval,TENCENT_MAX_BARS,as_of=as_of)
+        if not tail.bars:return primary
+        merged={bar.bar_end:bar for bar in primary.bars}
+        for bar in tail.bars:
+            previous=merged.get(bar.bar_end)
+            if previous is not None and previous.model_dump(exclude={'source_id'})!=bar.model_dump(exclude={'source_id'}):
+                return primary.model_copy(update={'reason_code':'LONG_HISTORY_PROVIDER_BAR_CONFLICT','complete':False})
+            if previous is None:merged[bar.bar_end]=bar
+        bars=tuple(merged[key] for key in sorted(merged))[-required_bars:]
+        return FetchResult(symbol=symbol,interval=interval,requested_bars=required_bars,
+            returned_bars=len(bars),bars=bars,server=tail.server,attempts=primary.attempts+tail.attempts,
+            source_attempts=primary.source_attempts+tail.source_attempts,
+            request_started_at=primary.request_started_at or tail.request_started_at,
+            response_received_at=tail.response_received_at,
+            reason_code='LONG_HISTORY_PARTIAL_TENCENT_WINDOW',complete=False)
 
     def fetch_quote(self, symbol: str, *, as_of: datetime | None = None, max_age_seconds: float = 180.0) -> QuoteResult:
         return self.fallback.fetch_quote(symbol, as_of=as_of, max_age_seconds=max_age_seconds)

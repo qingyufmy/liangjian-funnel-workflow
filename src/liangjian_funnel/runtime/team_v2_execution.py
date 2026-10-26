@@ -57,7 +57,7 @@ def _views(snapshot,*,plan,all_plans,mark_as_of,entry):
 def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans,now,closed_5m_end,
                         mark_as_of,regime,live_market_ready,snapshot_ready,mode,calendar,input_sha256,pm_allocation=None,
                         deadline_monotonic=None,monotonic=time.monotonic,utilization_cap_pct=None,
-                        entry_pattern_binding=None):
+                        entry_pattern_binding=None,preview_only=False):
     if (not isinstance(now,datetime) or now.utcoffset() is None or not isinstance(mark_as_of,datetime)
             or mark_as_of.utcoffset() is None or not re.fullmatch(r'[a-f0-9]{64}',input_sha256)
             or plan.plan_id not in all_plans or all_plans[plan.plan_id]!=plan):
@@ -149,4 +149,12 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
         if result['order'] is not None and deadline_monotonic is not None and monotonic()>=deadline_monotonic:
             return block('TRADER_GLOBAL_DEADLINE_EXCEEDED')
         return result
+    if preview_only:
+        if mode!='record':raise ValueError('SHADOW_REQUIRES_RECORD_MODE')
+        snapshot=broker.decision_snapshot()
+        response=decide(snapshot)
+        if response.get('order') is not None:raise ValueError('SHADOW_ORDER_FORBIDDEN')
+        return dict(judgment=response['judgment'],dispatched=False,order=None,
+            input_sha256=__import__('hashlib').sha256(dump(dict(binding=binding,snapshot=snapshot)).encode()).hexdigest(),
+            status='DETERMINISTIC_PRE_MODEL_ONLY',model_authority=False,fill_status='UNKNOWN')
     return broker.admit_signal(signal_id,binding=binding,decide=decide,mode=mode)

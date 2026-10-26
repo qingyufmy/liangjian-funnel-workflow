@@ -7,7 +7,8 @@ import test_team_v2_morning as morning_fixture
 from test_natural_reviewed_batch_0595 import api
 from liangjian_funnel.runtime.calendar import ExchangeTradingCalendar
 from liangjian_funnel.runtime.state import RuntimeStore
-from liangjian_funnel.runtime.reviewed_batch_natural import stage_natural_candidate,read_natural_candidate
+from fixture_candidate_artifacts_0761 import stage_natural_candidate
+from liangjian_funnel.runtime.reviewed_batch_natural import read_natural_candidate
 from liangjian_funnel.runtime.team_v2_morning import run_morning_stage
 from liangjian_funnel.runtime.reviewed_batch_switch import load_active_reviewed_batch
 

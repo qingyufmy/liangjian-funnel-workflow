@@ -187,6 +187,7 @@ def coach_projection(full):
         else:
             team[table]=[{k:(json.loads(v) if k=='result_json' else v) for k,v in r.items()
                 if k not in {'input_json','body_json'}} for r in rows]
+    projected['activation_decisions']=full.get('activation_decisions',{'status':'UNAVAILABLE','rows':[]})
     projected['a6']=dict(status=full['a6']['status'],rows=team)
     fallback=team.get('record_fallback_state',[])
     projected['record_fallback']=dict(status=('RECORD_FALLBACK_ACTIVE' if fallback else 'INACTIVE')
@@ -209,6 +210,7 @@ def coach_projection(full):
         current_day_row_counts={k:len(v) for k,v in snapshot.get('rows',{}).items()})
     catalog=json.loads(canonical(full['citation_catalog']))
     catalog['categories'].append('SIGNAL')
+    catalog['items'].append(dict(id='A5:ACTIVATION',category='SIGNAL',sha256=_hash(projected['activation_decisions'])))
     catalog['items'].extend(dict(id=e['decision_id'],category='SIGNAL',summary={k:v for k,v in e.items() if k!='evidence'},
         sha256=_hash(e)) for e in events)
     extra=counterexample_citations(projected['counterexamples'])

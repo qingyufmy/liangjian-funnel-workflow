@@ -131,7 +131,9 @@ def test_original_quote_archive_failure_cannot_grant_entry_or_call_legacy(tmp_pa
     monkeypatch.setattr(archive,'archive_monitor_quotes',broken)
     result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
     assert result['original_quote_archive']['status']=='FAILED'
-    assert result['status']=='CONTROL_RECORD_REQUIRED' and result['record_effective_next_tick']
+    assert result['status']=='DEGRADED'
+    from liangjian_funnel.runtime.team_v2_first_day import forced_record
+    assert forced_record(app.settings,account_id='local-paper',now=clock.now) is None
     assert not seen
     assert source_bytes(app.settings)==before and 'PRIVATE' not in json.dumps(result)
 

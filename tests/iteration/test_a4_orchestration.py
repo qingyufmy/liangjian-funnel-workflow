@@ -186,11 +186,18 @@ def test_a4_06_morning_recovery_cannot_mutate_after_round_deadline(
             "no_chase": 11.2,
         },
     )
+    from liangjian_funnel.runtime.calendar import ExchangeTradingCalendar
+    calendar=ExchangeTradingCalendar()
+    store.record_workflow_run(run_id='published-a3',lane_id='lane_1',
+        trade_date=calendar.previous_trading_day(current.date()).isoformat(),slot='close',
+        status='READY',model='CONTROLLED',snapshot_hash='a'*64)
     ticks = iter((0.0, 2.0))
     monkeypatch.setattr("liangjian_funnel.workflow.time.monotonic", lambda: next(ticks))
     app = SimpleNamespace(
         store=store,
         brokers={"lane_1": object()},
+        settings=SimpleNamespace(root=tmp_path,workflow_output_dir=tmp_path/'outputs',research_primary_lane_id='lane_1'),
+        trading_calendar=calendar,
         _fetch_live_quote=lambda *_args, **_kwargs: quote("600519.SH", price=10.0, at=current),
     )
     result = WorkflowApplication.activate_latest_a3_for_monitor(

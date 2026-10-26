@@ -23,6 +23,7 @@ class LocalPaperAdapter:
 
     def get_account(self):return self.ledger.get_account()
     def get_positions(self):return self.ledger.get_positions()
+    def decision_snapshot(self):return self.ledger.decision_snapshot()
     def planning_snapshot(self):return self.ledger.planning_snapshot()
     def get_orders(self,trade_date):return self.ledger.get_orders(trade_date)
     def get_fills(self,trade_date):return self.ledger.get_fills(trade_date)

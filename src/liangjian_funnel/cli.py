@@ -354,6 +354,12 @@ def _integrity_timeout(value: str, maximum: int) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="liangjian-funnel")
     sub = parser.add_subparsers(dest="command", required=True)
+    unlock = sub.add_parser('unlock-record', help='explicit audited release of the current local-paper day latch')
+    unlock.add_argument('--approval-id', required=True)
+    unlock.add_argument('--reason', required=True)
+    unlock.add_argument('--expected-latch-sha256', required=True)
+    unlock.add_argument('--expected-authorization-sha256', default=None,
+        help='required after a new conflict relocks; pin its latest audit, never reuse an old approval')
     sub.add_parser("doctor", help="offline configuration and directory check")
     verify_integrity = sub.add_parser("verify-runtime-integrity", help="bounded full SQLite check outside minute hot path")
     verify_integrity.add_argument('--timeout-seconds',type=lambda v:_integrity_timeout(v,1200),default=1200)
@@ -686,6 +692,15 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         sys.stdout.reconfigure(encoding="utf-8", errors="strict")
     args = build_parser().parse_args(argv)
     active = settings or Settings.from_env()
+    if args.command=='unlock-record':
+        from .runtime.record_unlock import unlock_record
+        try:
+            result=unlock_record(active,approval_id=args.approval_id,reason=args.reason,
+                expected_latch_sha256=args.expected_latch_sha256,
+                expected_authorization_sha256=args.expected_authorization_sha256)
+        except (ValueError, RuntimeError) as exc:
+            print(json.dumps(dict(status='BLOCKED',reason_code=str(exc)),ensure_ascii=False));return 2
+        print(json.dumps(result,ensure_ascii=False));return 0
     if args.command=='run-runtime-integrity':
         from .runtime.integrity_maintenance import run_integrity_maintenance
         result=run_integrity_maintenance(active,timeout_seconds=args.timeout_seconds)

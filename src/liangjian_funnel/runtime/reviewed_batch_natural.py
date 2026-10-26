@@ -64,7 +64,7 @@ def stage_formal_empty(store, *, run_id, source_trade_date, target_trade_date,
 def sha(value): return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
-def stage_natural_candidate(store, batch, *, run_id, observed_at, regeneration=None):
+def stage_natural_candidate(store, batch, *, run_id, observed_at, regeneration=None, artifact_proof=None):
     """Persist original intended rows and old-target CAS, never publish them."""
     source_scope=getattr(regeneration,'source_scope',None)
     if source_scope is not None:
@@ -96,8 +96,13 @@ def stage_natural_candidate(store, batch, *, run_id, observed_at, regeneration=N
     day,lane=next(iter(days)),next(iter(lanes));rows.sort(key=lambda r:(r['symbol'],r['plan_id']))
     if source_scope is not None and (day!=source_scope['target_trade_date'] or lane!=source_scope['lane_id']):
         raise ValueError('REGEN_TARGET_CANDIDATE_SCOPE_CHANGED')
+    from .candidate_artifacts import verify_candidate_artifacts
+    artifact_check=verify_candidate_artifacts(batch,run_id=run_id,proof=artifact_proof)
     scope='bd_'+sha([run_id,day,lane])[:28]
     def operation(db):
+        record=db.execute('SELECT trade_date,slot FROM workflow_runs WHERE run_id=? AND lane_id=?',(run_id,lane)).fetchone()
+        if not record or record['slot']!='close' or record['trade_date']!=artifact_check['source_trade_date']:
+            raise ValueError('CANDIDATE_WORKFLOW_SOURCE_CONFLICT')
         if source_scope is not None:
             from .close_regeneration import require_regeneration_candidate_scope
             require_regeneration_candidate_scope(db,source_scope)
@@ -106,7 +111,7 @@ def stage_natural_candidate(store, batch, *, run_id, observed_at, regeneration=N
         body=dict(schema_version='natural-review-candidate/1',source_namespace='NATURAL_MORNING_CANDIDATE',
             scope_id=scope,account_id=ACCOUNT,trade_date=day,lane_id=lane,run_id=run_id,plan_rows=rows,
             expected_old_plan_ids=[r['plan_id'] for r in old],expected_old_rows_sha256=rowset_sha256(old),
-            expected_pointer_revision=pointer['revision'] if pointer else None)
+            expected_pointer_revision=pointer['revision'] if pointer else None,artifact_contract=artifact_proof)
         text=canonical(body);digest=sha(body)
         prior=db.execute('SELECT body_sha256,body_json,state FROM natural_review_candidates WHERE scope_id=?',(scope,)).fetchone()
         if prior is not None:
@@ -145,6 +150,19 @@ def read_natural_candidate(settings, *, day):
                 or body.get('source_namespace')!='NATURAL_ZERO_PLAN_SOURCE' or body.get('plan_rows')!=[]
                 or body.get('execution_authority') is not False or body.get('model_http')!=0):
             raise ValueError('NATURAL_EMPTY_SCOPE_CONFLICT')
+        if row['state']!='EMPTY':
+            from .candidate_artifacts import verify_candidate_artifacts,discover_existing_candidate
+            plans=body['plan_rows'];proof=body.get('artifact_contract')
+            if proof is not None and Path(proof['workflow_output_dir']).resolve()!=Path(settings.workflow_output_dir).resolve():
+                raise ValueError('CANDIDATE_PUBLICATION_ROOT_CHANGED')
+            if proof is None:
+                proof=discover_existing_candidate(settings,plans,run_id=body['run_id'],
+                    observed_at=datetime.now(ZoneInfo('Asia/Shanghai')))
+            checked=verify_candidate_artifacts(plans,run_id=body['run_id'],proof=proof,verify_original_files=False)
+            record=db.execute('SELECT trade_date,slot FROM workflow_runs WHERE run_id=? AND lane_id=?',
+                (body['run_id'],body['lane_id'])).fetchone()
+            if not record or record['trade_date']!=checked['source_trade_date'] or record['slot']!='close':
+                raise ValueError('CANDIDATE_WORKFLOW_SOURCE_CONFLICT')
         return dict(body=body,scope_id=row['scope_id'],body_sha256=row['body_sha256'],revision=row['revision'],state=row['state'])
 
 
@@ -166,7 +184,8 @@ def finish_natural_candidate(settings, candidate, *, calendar):
         for r in body['plan_rows']]
     try:
         bundle=build_reviewed_batch_evidence(review_root=Path(settings.root).resolve(),source_namespace='NATURAL_MORNING',
-            workflow_db_path=settings.state_db_path,scope_id=scope,account_id=ACCOUNT,trade_date=body['trade_date'],
+            workflow_db_path=settings.state_db_path,workflow_output_dir=settings.workflow_output_dir,
+            minute_cache_dir=settings.minute_cache_dir,scope_id=scope,account_id=ACCOUNT,trade_date=body['trade_date'],
             lane_id=body['lane_id'],run_id=body['run_id'],a6_meeting_id=scope+':risk',pm_meeting_id=scope+':pm',candidate_rows=rows)
     except StateTransitionError as exc:
         # This exact rejection occurs only after the evidence builder has

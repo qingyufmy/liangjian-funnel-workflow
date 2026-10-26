@@ -80,6 +80,13 @@ def forced_record(settings,*,account_id,now):
     body=json.loads(row[0])
     if body.get('account_id')!=account_id or body.get('trade_date')!=stamp(now).date().isoformat() or body.get('mode')!='record':
         raise ValueError('CONTROL_RECORD_LATCH_BINDING_INVALID')
+    from .record_unlock import read_release
+    with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True,timeout=.2)) as db:
+        db.execute('PRAGMA query_only=ON')
+        release=read_release(db,account_id=account_id,day=stamp(now).date().isoformat(),latch_sha256=row[1])
+    if release and release['body']['action']=='UNLOCK':return None
+    if release:body.update(authorization_audit_sha256=release['audit_sha256'],
+        latest_conflict_reason=release['body'].get('reason'))
     return body
 
 
@@ -107,7 +114,11 @@ def latch_record(store,policy,*,account_id,now,reason_code,packet_sha256=None,fi
     with closing(store._connect()) as db,db:
         db.execute('BEGIN IMMEDIATE')
         old=db.execute('SELECT body_json FROM control_record_latch WHERE account_id=? AND trade_date=?',(account_id,day)).fetchone()
-        if old:body=json.loads(old[0])
+        if old:
+            body=json.loads(old[0])
+            from .record_unlock import relock_if_released
+            relock_if_released(db,account_id=account_id,day=day,
+                latch_sha256=hashlib.sha256(old[0].encode()).hexdigest(),now=now,reason_code=reason_code)
         else:
             total,bad=db.execute('SELECT count(*),coalesce(sum(1-fresh),0) FROM control_first_day_observations WHERE account_id=? AND trade_date=?',
                 (account_id,day)).fetchone()
@@ -127,7 +138,11 @@ def observe_first_day_packet(store,policy,*,account_id,packet,now,guard_anomaly=
     if not active(policy,now):return dict(status='NOT_FIRST_DAY',record_required=False)
     _tables(store)
     with closing(store._connect()) as db:
-        old=db.execute('SELECT 1 FROM control_record_latch WHERE account_id=? AND trade_date=?',(account_id,day)).fetchone()
+        old=db.execute('SELECT body_sha256 FROM control_record_latch WHERE account_id=? AND trade_date=?',(account_id,day)).fetchone()
+        if old:
+            from .record_unlock import read_release
+            release=read_release(db,account_id=account_id,day=day,latch_sha256=old[0])
+            if release and release['body']['action']=='UNLOCK':old=None
     if old:return latch_record(store,policy,account_id=account_id,now=now,reason_code='ALREADY_LATCHED')
     if guard_anomaly:return latch_record(store,policy,account_id=account_id,now=now,
         reason_code='CONTROL_FIRST_DAY_GUARD_ANOMALY',packet_sha256=packet.get('packet_sha256'))

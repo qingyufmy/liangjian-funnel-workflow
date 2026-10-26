@@ -3774,6 +3774,14 @@ class WorkflowApplication:
             from .runtime.research_update import load_bound_seed, require_active_generation
             load_bound_seed(self, _research_update, now=datetime.now(SHANGHAI), prepared=prepared)
             require_active_generation(self, _research_update)
+        summary_calendar = getattr(self, "trading_calendar", None)
+        closed_market_trade_date = (
+            market_data_as_of.astimezone(SHANGHAI).date()
+            if market_data_as_of is not None
+            else _latest_closed_market_trade_date(current, summary_calendar)
+            if summary_calendar is not None
+            else current.date()
+        )
         publication = (
             self._publish_plans(
                 result,
@@ -3786,6 +3794,7 @@ class WorkflowApplication:
                                     if normalized_slot == "close" else current.date())),
                 same_day_recovery=same_day_recovery,
                 publication_snapshot_path=prepared.path,
+                source_trade_date=closed_market_trade_date,
                 **({'regeneration':regeneration} if regeneration is not None else {}),
             )
             if publish_plans and regeneration_raw_pass
@@ -3801,14 +3810,6 @@ class WorkflowApplication:
         if regeneration is not None and not regeneration_raw_pass:
             publication.update(publication='REGEN_OLD_BATCH_PRESERVED',
                 blocked=[{'reason':'REGEN_A2_RAW_NOT_VALIDATED'}])
-        summary_calendar = getattr(self, "trading_calendar", None)
-        closed_market_trade_date = (
-            market_data_as_of.astimezone(SHANGHAI).date()
-            if market_data_as_of is not None
-            else _latest_closed_market_trade_date(current, summary_calendar)
-            if summary_calendar is not None
-            else current.date()
-        )
         summary = {
             "run_id": run_id,
             "slot": normalized_slot,
@@ -4688,8 +4689,24 @@ class WorkflowApplication:
                 "invalidated": [],
             }
 
+        # Recovery is another consumer of the morning contract, not an
+        # alternative source-authority path. Reject before fetching quotes.
+        from .runtime.morning_research_contract import morning_research_diagnostic
+        research_contract = morning_research_diagnostic(self, [item['plan'] for item in candidates], now=current)
+        source_rejections = {row['plan_id']: row['reason_code'] for row in research_contract['rejected_plans']}
+        quote_failures = [dict(plan_id=str(item['plan']['plan_id']), symbol=str(item['plan']['symbol']),
+            reason_code=source_rejections[str(item['plan']['plan_id'])])
+            for item in candidates if str(item['plan']['plan_id']) in source_rejections]
+        from .runtime.activation_evidence import batch_decisions
+        rejected_rows=[item['plan'] for item in candidates if str(item['plan']['plan_id']) in source_rejections]
+        if rejected_rows:
+            self.store.record_activation_blocks(batch_decisions(rejected_rows,{},quote_failures,
+                now=current,entrypoint='MONITOR_RECOVERY'))
+        candidates = [item for item in candidates if str(item['plan']['plan_id']) not in source_rejections]
+        if not candidates:
+            return dict(status='BLOCKED', reason_code='MORNING_PLAN_SOURCE_UNPROVEN', as_of=current.isoformat(),
+                activated=[], invalidated=[], failures=quote_failures, research_contract=research_contract)
         quote_by_symbol: dict[str, Any] = {}
-        quote_failures: list[dict[str, str]] = []
         for symbol in sorted({str(item["plan"]["symbol"]) for item in candidates}):
             if deadline is not None and time.monotonic() >= deadline:
                 return {
@@ -4752,6 +4769,8 @@ class WorkflowApplication:
                 valid_by_group.setdefault(group, []).append(plan_id)
 
         if not valid_by_group and not invalidated_by_group:
+            self.store.record_activation_blocks(batch_decisions([item['plan'] for item in candidates],
+                quote_by_symbol,quote_failures,now=current,entrypoint='MONITOR_RECOVERY'))
             return {
                 "status": "BLOCKED",
                 "reason_code": "A3_QUOTE_UNAVAILABLE",
@@ -4764,6 +4783,10 @@ class WorkflowApplication:
         activated: list[str] = []
         invalidated: list[str] = []
         source_ids: list[str] = []
+        missing_quotes=[item['plan'] for item in candidates if item['plan']['symbol'] not in quote_by_symbol]
+        if missing_quotes:
+            self.store.record_activation_blocks(batch_decisions(missing_quotes,quote_by_symbol,
+                quote_failures,now=current,entrypoint='MONITOR_RECOVERY'))
         if deadline is not None and time.monotonic() >= deadline:
             return {
                 "status": "BLOCKED",
@@ -4792,6 +4815,8 @@ class WorkflowApplication:
                 valid_from=max(current, _at_time(current, 9, 32)),
                 as_of=current,
                 source_run_id=source,
+                decision_evidence=batch_decisions([item['plan'] for item in candidates],quote_by_symbol,
+                    quote_failures+invalidated_reasons,now=current,entrypoint='MONITOR_RECOVERY'),
             )
             row_by_id = {str(row["plan_id"]): row for row in rows}
             activated.extend(
@@ -4813,6 +4838,7 @@ class WorkflowApplication:
             "activated": activated,
             "invalidated": invalidated,
             "failures": quote_failures + invalidated_reasons,
+            "research_contract": research_contract,
         }
 
     def activate_latest_a3_for_a4(self, *, now: datetime | None = None) -> dict[str, Any]:
@@ -4959,6 +4985,7 @@ class WorkflowApplication:
 
         activated: list[str] = []
         invalidated: list[str] = []
+        from .runtime.activation_evidence import batch_decisions
         session_expiry = current.replace(hour=15, minute=0)
         for group in sorted(set(valid_by_group) | set(invalidated_by_group)):
             _lane_id, source = group
@@ -4971,6 +4998,8 @@ class WorkflowApplication:
                 as_of=current,
                 session_expires_at=session_expiry,
                 source_run_id=source,
+                decision_evidence=batch_decisions([item['plan'] for item in candidates],quote_by_symbol,
+                    failures+invalidation_reasons,now=current,entrypoint='EXPLICIT_A4_RECOVERY'),
             )
             by_id = {str(row["plan_id"]): row for row in rows}
             activated.extend(
@@ -5677,7 +5706,10 @@ class WorkflowApplication:
                 self.store,
                 llm_veto=observed_callback,
                 runtime_policy={"STRUCTURE_FAIL_CONFIRM_BARS_15M": 2},
-                max_seconds=model_budget,
+                # The lane remainder includes deterministic work. The 15s
+                # model cap is separate and is never increased by that work.
+                max_seconds=remaining,
+                model_max_seconds=model_budget,
                 deadline_monotonic=round_deadline,
                 strict_llm_review=strict_review,
                 llm_model_identity=(self.settings.monitor_model if strict_review else None),
@@ -6189,6 +6221,12 @@ class WorkflowApplication:
                     self.store.invalidate_plan(str(plan["plan_id"]), status=PlanStatus.EXPIRED)
             else:
                 eligible.append(plan)
+        from .runtime.activation_evidence import batch_decisions
+        rejected_rows=[row for row in pending if str(row['plan_id']) in source_rejections]
+        if rejected_rows:
+            self.store.record_activation_blocks(batch_decisions(rejected_rows,{},
+                [dict(plan_id=key,reason_code=value) for key,value in source_rejections.items()],
+                now=current,entrypoint='MORNING_REVIEW'))
         pending = tuple(eligible)
         if not pending:
             payload = {"status": "BLOCKED", "reason_code": "NO_CURRENT_A3_PLANS",
@@ -6228,19 +6266,21 @@ class WorkflowApplication:
                 if not _a4_price_contract_valid(price, stop_level, trigger_high, no_chase):
                     raise ValueError("invalid morning price contract")
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-                failures.append({"symbol": symbol, "reason_code": "PLAN_PRICE_CONTRACT_INVALID"})
+                failures.append({"plan_id":str(plan['plan_id']),"symbol": symbol, "reason_code": "PLAN_PRICE_CONTRACT_INVALID"})
                 invalidation_ids.append(str(plan["plan_id"]))
                 continue
             if price <= stop_level:
-                failures.append({"symbol": symbol, "reason_code": "PLAN_INVALIDATED_AT_OPEN"})
+                failures.append({"plan_id":str(plan['plan_id']),"symbol": symbol, "reason_code": "PLAN_INVALIDATED_AT_OPEN"})
                 invalidation_ids.append(str(plan["plan_id"]))
             elif price > no_chase:
-                failures.append({"symbol": symbol, "reason_code": "OPEN_PRICE_CHASE_BLOCK"})
+                failures.append({"plan_id":str(plan['plan_id']),"symbol": symbol, "reason_code": "OPEN_PRICE_CHASE_BLOCK"})
                 invalidation_ids.append(str(plan["plan_id"]))
             else:
                 activation_ids.append(str(plan["plan_id"]))
 
         if failures and not activation_ids and not invalidation_ids:
+            self.store.record_activation_blocks(batch_decisions(pending,evidence,failures,
+                now=current,entrypoint='MORNING_REVIEW'))
             payload = {
                 "status": "BLOCKED",
                 "research_contract": research_contract,
@@ -6253,10 +6293,16 @@ class WorkflowApplication:
                 payload,
             )
             return payload
+        from .runtime.activation_evidence import batch_decisions
+        missing_quotes=[row for row in pending if row['symbol'] not in evidence]
+        if missing_quotes:
+            self.store.record_activation_blocks(batch_decisions(missing_quotes,evidence,failures,
+                now=current,entrypoint='MORNING_REVIEW'))
         activated = self.store.activate_pending_plan_batch(
             activation_ids,
             valid_from=activation_at,
             invalidated_plan_ids=invalidation_ids,
+            decision_evidence=batch_decisions(pending,evidence,failures,now=current,entrypoint='MORNING_REVIEW'),
         )
         primary_lane_id = getattr(self.settings, "research_primary_lane_id", "lane_1")
         primary_activated = [
@@ -7288,6 +7334,7 @@ class WorkflowApplication:
         minimum_trade_date: date | None = None,
         same_day_recovery: bool = False,
         publication_snapshot_path: Path | None = None,
+        source_trade_date: date | None = None,
         regeneration=None,
     ) -> dict[str, Any]:
         batch: list[dict[str, Any]] = []
@@ -7657,14 +7704,17 @@ class WorkflowApplication:
         from .runtime.state import RuntimeStore
         natural_candidate = slot=='close' and (bool(team_geometry_lanes)
             or getattr(regeneration,'source_scope',None) is not None) and isinstance(self.store,RuntimeStore)
+        # Every production close publisher has the same pre-publication
+        # discovery contract, including the legacy role path. Lightweight
+        # adapter fixtures without configured storage retain their adapter API.
+        artifact_required = slot=='close' and isinstance(self.store,RuntimeStore) and hasattr(settings,'minute_cache_dir')
         candidate_receipt = None
-        if natural_candidate:
+        if natural_candidate or artifact_required:
             if regeneration is not None:
                 from .runtime.close_regeneration import require_regeneration_publication_window
                 require_regeneration_publication_window(regeneration,self.trading_calendar,now=datetime.now(SHANGHAI))
-            from .runtime.reviewed_batch_natural import stage_natural_candidate
-            candidate_receipt=stage_natural_candidate(self.store,batch,run_id=result.run_id,observed_at=now,
-                regeneration=regeneration)
+            # Prepare and verify discovery artifacts before making a candidate
+            # visible to the natural morning consumer.
             # These are intended captured payloads, not execution-plan inserts.
             # The manifest's explicit candidate mode preserves that distinction.
             published=batch
@@ -7702,6 +7752,26 @@ class WorkflowApplication:
                 # or send a duplicate business notification after publication.
                 projection_manifests.append({"lane_id": lane.lane, "status": "DATA_LIMITED",
                     "reason_code": "PUBLICATION_PROJECTION_CAPTURE_FAILED", "error_type": type(exc).__name__})
+        if natural_candidate or artifact_required:
+            from .runtime.candidate_artifacts import prepare_candidate_artifacts
+            from .runtime.reviewed_batch_natural import stage_natural_candidate
+            target_day = minimum_trade_date or self.trading_calendar.next_trading_day(now.date())
+            source_day = source_trade_date or _latest_closed_market_trade_date(now,self.trading_calendar)
+            artifact_proof=(prepare_candidate_artifacts(batch,
+                workflow_output_dir=self.settings.workflow_output_dir,run_id=result.run_id,status=result.status,
+                market_trade_date=source_day,projection_manifests=projection_manifests,
+                pattern_preparation=pattern_preparation,
+                minute_cache_path=self.settings.minute_cache_dir/'minute_bars.sqlite3',observed_at=now,
+                calendar=self.trading_calendar,research_summary=result.as_dict()) if batch else None)
+            if not natural_candidate:
+                published=self.store.publish_plan_batch(batch,
+                    expire_active_lanes=ready_lanes if formal_close and regeneration is None else (),
+                    invalidate_pending_lanes=ready_lanes if regeneration is None else (),
+                    **({'supersede_pending_plan_ids':regeneration.old_plan_ids,
+                        'supersession_run_id':regeneration.run_id} if regeneration is not None else {}))
+            else:
+                candidate_receipt=stage_natural_candidate(self.store,batch,run_id=result.run_id,observed_at=now,
+                regeneration=regeneration,artifact_proof=artifact_proof)
         if not natural_candidate:self.store.mark_workflow_runs_published(result.run_id, ready_lanes)
         if natural_candidate:
             projection_manifests=[dict(item,publication_state='UNREVIEWED_CANDIDATE_NOT_EXECUTION_PLANS') for item in projection_manifests]
@@ -7995,7 +8065,8 @@ class WorkflowApplication:
         latest_bar = bar
         original_windows = {item.bar_end: item for item in (entry_bars or (bar,))
                             if item.bar_end <= execution_cutoff and item.symbol == symbol and item.interval == "1m"}
-        events = self.store.list_monitor_events(lane_id=lane_id, effective_only=True)
+        events = self.store.list_monitor_events(lane_id=lane_id, effective_only=True,
+            actions=('BUY_SIGNAL','ADD_SIGNAL','SELL_SIGNAL','REDUCE_SIGNAL','FORCED_RISK_EXIT'),symbol=symbol)
         exit_priority = {"FORCED_RISK_EXIT": 3, "SELL_SIGNAL": 2, "REDUCE_SIGNAL": 1}
         # Entries retain their next-bar contract. Among already-known exits,
         # a later reduction cannot consume inventory before a full risk exit.

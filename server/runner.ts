@@ -80,6 +80,18 @@ export function monitorSnapshotDelay(job: JobName, timeoutMs: number | null): nu
   return job === "monitor" && timeoutMs !== null && timeoutMs > 50_000 ? 50_000 : null;
 }
 
+export function writeMonitorSlowWarning(root: string, runId: string, startedAt: Date, observedAt: Date): void {
+  const elapsed = observedAt.getTime() - startedAt.getTime();
+  if (!Number.isFinite(elapsed) || elapsed < 20_000) throw new Error('MONITOR_SLOW_WARNING_NOT_DUE');
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(observedAt);
+  const directory = path.join(root, 'outputs', 'node', 'slow-monitor');
+  mkdirSync(directory, { recursive: true });
+  try { writeFileSync(path.join(directory, day + '.json'), JSON.stringify({ schema: 'monitor-slow-warning/1',
+    run_id: runId, observed_at: observedAt.toISOString(), started_at: startedAt.toISOString(),
+    elapsed_ms: elapsed, threshold_ms: 20_000, task_terminated: false, phase: 'UNKNOWN_USE_CHILD_TRACE' }), { flag: 'wx', mode: 0o600 }); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+}
+
 export function validateModelBudgets(config: AppConfig, env: NodeJS.ProcessEnv = process.env): void {
   // A5 has one 600s model session plus fact assembly, validation and delivery.
   // Validate at server startup, before a scheduler or model can run.
@@ -358,6 +370,7 @@ export class JobRunner {
       let escalationTimer: NodeJS.Timeout | null = null;
       let hardFinishTimer: NodeJS.Timeout | null = null;
       let snapshotTimer: NodeJS.Timeout | null = null;
+      let slowWarningTimer: NodeJS.Timeout | null = null;
       let snapshotRequested = false;
       const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
         if (settled) return;
@@ -366,6 +379,7 @@ export class JobRunner {
         if (escalationTimer) clearTimeout(escalationTimer);
         if (hardFinishTimer) clearTimeout(hardFinishTimer);
         if (snapshotTimer) clearTimeout(snapshotTimer);
+        if (slowWarningTimer) clearTimeout(slowWarningTimer);
         if (stdoutPending) this.logger.info(redactText(stdoutPending, this.config.maxLogLineLength), { job, runId, stream: "stdout" });
         if (stderrPending) this.logger.warn(redactText(stderrPending, this.config.maxLogLineLength), { job, runId, stream: "stderr" });
         const finishedAt = new Date();
@@ -426,6 +440,14 @@ export class JobRunner {
         resolve(record);
       };
       const snapshotDelay = monitorSnapshotDelay(job, timeoutMs);
+      if (job === 'monitor' && timeoutMs !== null && timeoutMs > 20_000) {
+        slowWarningTimer = setTimeout(() => {
+          if (settled) return;
+          try { writeMonitorSlowWarning(this.config.rootDir, runId, startedAt, new Date()); }
+          catch { this.logger.warn('MONITOR_20S_WARNING_WRITE_FAILED', { job, runId }); }
+          this.logger.warn('MONITOR_20S_SLOW_WARNING_NOT_TERMINATION', { job, runId });
+        }, 20_000);
+      }
       if (snapshotDelay !== null) {
         snapshotTimer = setTimeout(() => {
           if (settled) return;

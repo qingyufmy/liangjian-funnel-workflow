@@ -799,6 +799,14 @@ class RuntimeStore:
                         payload_json TEXT NOT NULL DEFAULT '{}',
                         created_at TEXT NOT NULL
                     );
+                    CREATE INDEX IF NOT EXISTS idx_monitor_events_lane_time
+                        ON monitor_events(lane_id,minute_end,event_id);
+                    CREATE INDEX IF NOT EXISTS idx_monitor_events_lane_effective_action
+                        ON monitor_events(lane_id,effective,action,minute_end,event_id);
+                    CREATE INDEX IF NOT EXISTS idx_monitor_events_lane_reason
+                        ON monitor_events(lane_id,reason_code,minute_end,event_id);
+                    CREATE INDEX IF NOT EXISTS idx_monitor_events_effective_time
+                        ON monitor_events(effective,minute_end,event_id);
                     CREATE TABLE IF NOT EXISTS a4_signal_lifecycles (
                         lifecycle_id TEXT PRIMARY KEY,
                         signal_id TEXT NOT NULL UNIQUE,
@@ -1228,6 +1236,8 @@ class RuntimeStore:
                     "CREATE UNIQUE INDEX IF NOT EXISTS idx_astock_outcome_labels_identity_v2 "
                     "ON astock_outcome_labels(run_id, lane_id, stage, symbol)"
                 )
+                from .activation_evidence import ensure_table
+                ensure_table(connection)
         except Exception:
             self._persistence_failed = True
             raise PersistenceError("PERSISTENCE_FAILED") from None
@@ -2283,6 +2293,32 @@ class RuntimeStore:
 
         return self._write(operation)
 
+    def record_activation_blocks(self, evidence):
+        """Record rejected attempts without modifying a plan, in one transaction."""
+        from .activation_evidence import append_on_connection
+        def operation(connection):
+            ids=[]
+            for plan_id,body in evidence.items():
+                row=connection.execute('SELECT * FROM execution_plans WHERE plan_id=?',(plan_id,)).fetchone()
+                if row is None:raise StateTransitionError('PLAN_NOT_FOUND')
+                ids.append(append_on_connection(connection,row,after_status=row['status'],
+                    observed_at=body['observed_at'],evidence=body,action='BLOCKED'))
+            return tuple(ids)
+        return self._write(operation)
+
+    def list_plan_activation_evidence(self, *, plan_id=None, limit=200):
+        if type(limit) is not int or not 1<=limit<=1000:raise ValueError('ACTIVATION_EVIDENCE_LIMIT_INVALID')
+        def operation(connection):
+            if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='plan_activation_evidence'").fetchone():return ()
+            rows=connection.execute('SELECT * FROM plan_activation_evidence '+
+                ('WHERE plan_id=? ' if plan_id is not None else '')+'ORDER BY rowid DESC LIMIT ?',
+                (plan_id,limit) if plan_id is not None else (limit,)).fetchall()
+            for row in rows:
+                if hashlib.sha256(row['body_json'].encode()).hexdigest()!=row['body_sha256']:
+                    raise StateTransitionError('ACTIVATION_EVIDENCE_HASH_INVALID')
+            return tuple(_row_dict(row) for row in rows)
+        return self._read(operation)
+
     def stage_reviewed_batch(self, bundle):
         from .reviewed_batch_switch import stage_reviewed_batch
         return stage_reviewed_batch(self, bundle)
@@ -2300,6 +2336,7 @@ class RuntimeStore:
         *,
         valid_from: datetime,
         invalidated_plan_ids: Sequence[str] = (),
+        decision_evidence: Mapping[str, Any] | None = None,
     ) -> tuple[dict[str, Any], ...]:
         """Atomically activate a fully validated morning-review plan set."""
 
@@ -2332,6 +2369,11 @@ class RuntimeStore:
                 rows.append(row)
             for plan_id in ids:
                 invalidated = plan_id in invalidation_ids
+                from .activation_evidence import append_on_connection
+                original=next(row for row in rows if row['plan_id']==plan_id)
+                append_on_connection(connection,original,
+                    after_status=PlanStatus.INVALIDATED.value if invalidated else PlanStatus.ACTIVE_TODAY.value,
+                    observed_at=now,evidence=(decision_evidence or {}).get(plan_id))
                 connection.execute(
                     "UPDATE execution_plans SET status=?,valid_from=?,updated_at=? WHERE plan_id=?",
                     (PlanStatus.INVALIDATED.value if invalidated else PlanStatus.ACTIVE_TODAY.value,
@@ -2357,6 +2399,7 @@ class RuntimeStore:
         as_of: datetime | None = None,
         session_expires_at: datetime | None = None,
         source_run_id: str,
+        decision_evidence: Mapping[str, Any] | None = None,
     ) -> tuple[dict[str, Any], ...]:
         """Idempotently activate one already-published A3 plan set.
 
@@ -2455,6 +2498,9 @@ class RuntimeStore:
                     if row["plan_id"] in invalidation_ids
                     else PlanStatus.ACTIVE_TODAY.value
                 )
+                from .activation_evidence import append_on_connection
+                append_on_connection(connection,row,after_status=target,observed_at=now,
+                    evidence=(decision_evidence or {}).get(row['plan_id']))
                 connection.execute(
                     "UPDATE execution_plans SET status=?,valid_from=?,expires_at=COALESCE(?,expires_at),updated_at=? WHERE plan_id=? AND status=?",
                     (
@@ -2623,6 +2669,9 @@ class RuntimeStore:
         effective_only: bool = False,
         from_time: datetime | str | None = None,
         to_time: datetime | str | None = None,
+        actions: Sequence[str] | None = None,
+        symbol: str | None = None,
+        plan_id: str | None = None,
     ) -> tuple[dict[str, Any], ...]:
         def operation(connection):
             where: list[str] = []
@@ -2638,10 +2687,44 @@ class RuntimeStore:
             if to_time is not None:
                 where.append("minute_end<=?")
                 args.append(_iso(to_time))
+            if actions is not None:
+                if not actions:return ()
+                where.append('action IN ('+','.join('?' for _ in actions)+')')
+                args.extend(str(action) for action in actions)
+            for key,value in [('symbol',symbol),('plan_id',plan_id)]:
+                if value is not None:
+                    # Preserve malformed relevant originals for the caller's
+                    # existing quarantine path; do not silently drop corruption.
+                    where.append("CASE WHEN json_valid(payload_json) THEN json_extract(payload_json,'$."+key+"')=? ELSE 1 END")
+                    args.append(value)
             sql = "SELECT * FROM monitor_events" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY minute_end,event_id"
             return tuple(_row_dict(row) for row in connection.execute(sql, args).fetchall())
 
         return self._read(operation)
+
+    def list_monitor_decision_history(self, *, lane_id, plan_ids, symbols, minute):
+        """Exact inputs used by episode/T+1 recovery, without irrelevant payloads.
+
+        Accepted actions retain all history; the previous minute retains all
+        observations; T+1 retains old pending risks for currently scoped symbols.
+        No guessed day limit or arbitrary result-count cap is applied.
+        """
+        plan_ids=tuple(sorted(set(plan_ids)));symbols=tuple(sorted(set(symbols)))
+        if not plan_ids and not symbols:return ()
+        queries=['SELECT * FROM monitor_events WHERE lane_id=? AND minute_end>=? AND minute_end<=?']
+        args=[lane_id,_iso(minute-timedelta(minutes=1)),_iso(minute)]
+        if plan_ids:
+            queries.append("SELECT * FROM monitor_events WHERE lane_id=? AND effective=1 AND "+
+                "CASE WHEN json_valid(payload_json) THEN json_extract(payload_json,'$.plan_id') END IN ("+
+                ','.join('?' for _ in plan_ids)+')')
+            args.extend([lane_id,*plan_ids])
+        if symbols:
+            queries.append("SELECT * FROM monitor_events WHERE lane_id=? AND reason_code IN ('T1_LOCKED','T1_RISK_PENDING') "+
+                "AND CASE WHEN json_valid(payload_json) THEN json_extract(payload_json,'$.symbol') END IN ("+
+                ','.join('?' for _ in symbols)+')')
+            args.extend([lane_id,*symbols])
+        sql=' UNION '.join(queries)+' ORDER BY minute_end,event_id'
+        return self._read(lambda db:tuple(_row_dict(row) for row in db.execute(sql,args).fetchall()))
 
     def list_observable_invalidated_plans(
         self,

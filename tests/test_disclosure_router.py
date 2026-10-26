@@ -87,8 +87,12 @@ def test_router_does_not_fallback_after_confirmed_empty_query() -> None:
 
 
 def test_business_query_reuses_bounded_stale_complete_cache_on_live_failure(
-    tmp_path: Path,
+    tmp_path: Path,monkeypatch,
 ) -> None:
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return NOW.astimezone(tz) if tz else NOW.replace(tzinfo=None)
+    monkeypatch.setattr('liangjian_funnel.workflow.datetime',Clock)
     app = object.__new__(WorkflowApplication)
     app.fact_cache = LocalFactCache(tmp_path / "facts.sqlite3")
     old = result(
@@ -122,8 +126,12 @@ def test_business_query_reuses_bounded_stale_complete_cache_on_live_failure(
 
 
 def test_business_stale_cache_precedes_expensive_exchange_history_scan(
-    tmp_path: Path,
+    tmp_path: Path,monkeypatch,
 ) -> None:
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return NOW.astimezone(tz) if tz else NOW.replace(tzinfo=None)
+    monkeypatch.setattr('liangjian_funnel.workflow.datetime',Clock)
     app = object.__new__(WorkflowApplication)
     app.fact_cache = LocalFactCache(tmp_path / "facts.sqlite3")
     old = result(

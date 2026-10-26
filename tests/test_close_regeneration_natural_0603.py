@@ -11,7 +11,8 @@ from liangjian_funnel.runtime.calendar import ExchangeTradingCalendar
 from liangjian_funnel.runtime.close_regeneration import (
     bind_close_regeneration,regeneration_manifest,run_close_regeneration,
 )
-from liangjian_funnel.runtime.reviewed_batch_natural import stage_natural_candidate,read_natural_candidate
+from fixture_candidate_artifacts_0761 import stage_natural_candidate
+from liangjian_funnel.runtime.reviewed_batch_natural import read_natural_candidate
 from liangjian_funnel.runtime.state import RuntimeStore
 
 NOW=datetime.fromisoformat('2026-10-22T23:00:00+08:00')
@@ -31,6 +32,9 @@ def fixture(tmp_path,*,candidate=False):
         if candidate else dict(status='EMPTY_CANDIDATE_NOT_STAGED',plan_ids=[]))
     summary=dict(run_id='source',market_trade_date='2026-10-22',target_trade_date='2026-10-23',
         status='READY',slot='close',plan_publication=dict(created=[],natural_candidate=receipt))
+    if candidate:
+        captured=json.loads((out/'runs/source.json').read_bytes())
+        summary['plan_publication']={**captured['plan_publication'],**summary['plan_publication']}
     audit=dict(lane='lane_1',status='READY',stages=[dict(stage='A2',status='VALIDATED',
         input_hash='b'*64,output_hash='c'*64,snapshot_id='original',
         diagnostics=dict(provider_validation_history=[[]],validation_history=[[]],team_call_ids=['A2:source']))])
@@ -190,12 +194,16 @@ def test_actual_workflow_publication_of_regeneration_never_inserts_execution(tmp
             final_output=dict(core_watch_pool=[raw] if nonempty else [],secondary_watch_pool=[])),))
     raw['first_resistance']=20;data['MIN_REWARD_RISK']=2.5
     data['snapshot_manifest'].update(as_of=NOW.isoformat(),source_failures={})
+    snapshot_path=None
+    if nonempty:
+        from fixture_candidate_artifacts_0761 import complete_publisher_inputs
+        result,snapshot_path=complete_publisher_inputs(publishing,result,data,now=NOW,target=date(2026,10,23))
     class Clock(datetime):
         @classmethod
         def now(cls,*_):return NOW
     monkeypatch.setattr(workflow,'datetime',Clock)
     receipt=WorkflowApplication._publish_plans(publishing,result,'close',NOW,snapshot_data=data,
-        minimum_trade_date=date(2026,10,23),regeneration=proof)
+        minimum_trade_date=date(2026,10,23),regeneration=proof,publication_snapshot_path=snapshot_path)
     assert receipt['created']==receipt['activated']==[] and list(app.store.list_execution_plans())==[]
     assert receipt['publication_state']==('CANDIDATE_PENDING_REVIEW' if nonempty else 'EMPTY_NOT_PUBLISHED')
     candidate=read_natural_candidate(app.settings,day='2026-10-23')
