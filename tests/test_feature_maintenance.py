@@ -1,4 +1,5 @@
 import json
+from fixture_nominal_resources_0782 import nominal_disk_capacity
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from fixture_nominal_resources_0782 import nominal_disk_capacity
 import sqlite3
 import shutil
 from pathlib import Path
