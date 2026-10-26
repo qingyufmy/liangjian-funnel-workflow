@@ -141,10 +141,11 @@ def verify_candidate_artifacts(batch, *, run_id, proof, calendar=None, verify_or
             if (prior.get('available_5m_count') != 48 or prior.get('required_5m_count') != 48
                     or not re.fullmatch('[0-9a-f]{64}', prior.get('native_rowset_sha256', ''))):
                 raise ValueError('CANDIDATE_HISTORY_PROOF_INVALID')
-            from .history_freshness import read_previous_session_seed
-            bars, readback = read_previous_session_seed(proof['minute_cache_path'], row['symbol'],
+            from .published_session_seed import read_published_session_seed
+            bars, readback = read_published_session_seed(proof['minute_cache_path'], row['symbol'],
                 target_trade_date=target, calendar=calendar,
-                as_of=datetime.fromisoformat(proof['observed_at']))
+                as_of=datetime.fromisoformat(proof['observed_at']),
+                expected_rowset_sha256=prior['native_rowset_sha256'])
             rowset=hashlib.sha256(json.dumps([bar.model_dump(mode='json') for bar in sorted(bars,key=lambda b:b.bar_end)],
                 sort_keys=True,separators=(',',':')).encode()).hexdigest()
             if readback['status']!='READY' or rowset!=prior['native_rowset_sha256']:
