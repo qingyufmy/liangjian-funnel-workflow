@@ -40,6 +40,13 @@ def test_real_archive_summary_native_readback_then_stage(tmp_path,record_slot):
     assert result['status']=='CANDIDATE_PENDING_REVIEW' and result['execution_plans_written']==0
     assert verify_candidate_artifacts(batch,run_id='natural-close',proof=proof)['daily_facts']=={
         batch[0]['plan_id']:'READY'}
+    # Exercise the next actual entry, not only the producer's staging gate.
+    from types import SimpleNamespace
+    from liangjian_funnel.runtime.reviewed_batch_natural import read_natural_candidate
+    settings=SimpleNamespace(state_db_path=store.path,research_primary_lane_id='lane_1',
+        workflow_output_dir=Path(proof['workflow_output_dir']))
+    loaded=read_natural_candidate(settings,day='2026-10-27')
+    assert loaded['state']=='PENDING' and len(loaded['body']['plan_rows'])==1
 
 
 @pytest.mark.parametrize('record_slot',['open','MIDDAY',''])
@@ -48,6 +55,22 @@ def test_non_close_workflow_record_still_cannot_stage(tmp_path,record_slot):
     with pytest.raises(ValueError,match='CANDIDATE_WORKFLOW_SOURCE_CONFLICT'):
         stage_natural_candidate(store,batch,run_id='natural-close',observed_at=NOW,artifact_proof=proof)
     assert store._read(lambda db:db.execute('SELECT count(*) FROM natural_review_candidates').fetchone()[0])==0
+
+
+@pytest.mark.parametrize('change',['wrong_source','unknown_slot'])
+def test_morning_reader_still_rejects_conflicting_source_after_staging(tmp_path,change):
+    from types import SimpleNamespace
+    from liangjian_funnel.runtime.reviewed_batch_natural import read_natural_candidate
+    store,batch=fixture(tmp_path,record_slot='CLOSE')
+    proof=prepare(store,batch,run_id='natural-close',observed_at=NOW)
+    stage_natural_candidate(store,batch,run_id='natural-close',observed_at=NOW,artifact_proof=proof)
+    column,value=('trade_date','2026-10-23') if change=='wrong_source' else ('slot','UNKNOWN')
+    store._write(lambda db:db.execute('UPDATE workflow_runs SET '+column+'=? WHERE run_id=?',
+        (value,'natural-close')).rowcount)
+    settings=SimpleNamespace(state_db_path=store.path,research_primary_lane_id='lane_1',
+        workflow_output_dir=Path(proof['workflow_output_dir']))
+    with pytest.raises(ValueError,match='CANDIDATE_WORKFLOW_SOURCE_CONFLICT'):
+        read_natural_candidate(settings,day='2026-10-27')
 
 
 @pytest.mark.parametrize('change',['summary_missing','wrong_source','manifest_missing','payload_changed','seed_missing'])

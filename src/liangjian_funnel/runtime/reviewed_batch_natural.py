@@ -161,7 +161,7 @@ def read_natural_candidate(settings, *, day):
             checked=verify_candidate_artifacts(plans,run_id=body['run_id'],proof=proof,verify_original_files=False)
             record=db.execute('SELECT trade_date,slot FROM workflow_runs WHERE run_id=? AND lane_id=?',
                 (body['run_id'],body['lane_id'])).fetchone()
-            if not record or record['trade_date']!=checked['source_trade_date'] or record['slot']!='close':
+            if not record or record['trade_date']!=checked['source_trade_date'] or str(record['slot']).lower()!='close':
                 raise ValueError('CANDIDATE_WORKFLOW_SOURCE_CONFLICT')
         return dict(body=body,scope_id=row['scope_id'],body_sha256=row['body_sha256'],revision=row['revision'],state=row['state'])
 
