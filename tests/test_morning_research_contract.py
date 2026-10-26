@@ -25,14 +25,16 @@ def fixture(tmp_path, *, status='PUBLISHED', slot='close', trade_date='2026-10-2
 
 
 @pytest.mark.parametrize('status',['PUBLISHED','READY','READY_DEGRADED'])
-def test_only_completed_previous_close_is_qualified(tmp_path,status):
-    store,s,row=fixture(tmp_path,status=status)
+@pytest.mark.parametrize('slot',['close','CLOSE'])
+def test_only_completed_previous_close_is_qualified(tmp_path,status,slot):
+    store,s,row=fixture(tmp_path,status=status,slot=slot)
     result=inspect_morning_research(store,s,[row],now=NOW)
     assert result['status']=='READY' and result['rejected_plans']==[]
     assert result['research_model_calls']==0
 
 
 @pytest.mark.parametrize('slot,day,reason',[('morning','2026-10-20','MORNING_SOURCE_NOT_PREVIOUS_CLOSE'),
+    ('UNKNOWN','2026-10-20','MORNING_SOURCE_NOT_PREVIOUS_CLOSE'),
     ('close','2026-10-21','MORNING_SOURCE_NOT_PREVIOUS_CLOSE'),
     ('close','2026-10-19','MORNING_SOURCE_NOT_PREVIOUS_CLOSE')])
 def test_same_day_research_older_day_and_morning_cannot_be_morning_plan_source(tmp_path,slot,day,reason):
@@ -41,8 +43,9 @@ def test_same_day_research_older_day_and_morning_cannot_be_morning_plan_source(t
     assert result['rejected_plans']==[{'plan_id':'p','reason_code':reason}]
 
 
-def test_failed_close_not_market_empty_and_alert_once_across_0830_and_0926(tmp_path):
-    store,s,row=fixture(tmp_path,status='BLOCKED')
+@pytest.mark.parametrize('slot',['close','CLOSE'])
+def test_failed_close_not_market_empty_and_alert_once_across_0830_and_0926(tmp_path,slot):
+    store,s,row=fixture(tmp_path,status='BLOCKED',slot=slot)
     meeting=TeamMeetingStore(tmp_path/'state/team_v2/team.db')
     result=inspect_morning_research(store,s,[],now=NOW)
     assert result['status']=='BLOCKED' and result['reason_code']=='PREVIOUS_CLOSE_RESEARCH_FAILED'
@@ -53,8 +56,9 @@ def test_failed_close_not_market_empty_and_alert_once_across_0830_and_0926(tmp_p
         assert db.execute('SELECT kind,status,COUNT(*) FROM team_notifications GROUP BY kind,status').fetchall()==[('ALERT','PENDING',1)]
 
 
-def test_no_research_is_explicit_unavailable_but_healthy_zero_is_legitimate(tmp_path):
-    store,s,_=fixture(tmp_path,status='READY')
+@pytest.mark.parametrize('slot',['close','CLOSE'])
+def test_no_research_is_explicit_unavailable_but_healthy_zero_is_legitimate(tmp_path,slot):
+    store,s,_=fixture(tmp_path,status='READY',slot=slot)
     result=inspect_morning_research(store,s,[],now=NOW)
     assert result['status']=='READY'
     result=inspect_morning_research(store,s,[],now=NOW.replace(day=22))
