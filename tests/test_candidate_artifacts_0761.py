@@ -106,3 +106,46 @@ def test_legacy_production_close_also_refuses_missing_archive_before_plan_insert
         WorkflowApplication._publish_plans(app,result,'close',AT,snapshot_data=data,
             minimum_trade_date=TARGET,publication_snapshot_path=snapshot)
     assert app.store.list_execution_plans()==()
+
+
+def test_large_intermediate_lane_audits_are_referenced_not_duplicated_in_discovery_summary(tmp_path):
+    """The real pipeline as_dict includes full lanes; final run summary does not.
+
+    Keep the compact discovery contract readable without relaxing any reader's
+    byte limit, modifying source objects, or dropping the original audit pins.
+    """
+    import hashlib
+    from liangjian_funnel.runtime.candidate_artifacts import prepare_candidate_artifacts
+    store,batch=fixture(tmp_path,record_slot='CLOSE')
+    proof=prepare(store,batch,run_id='natural-close',observed_at=NOW)
+    root=Path(proof['workflow_output_dir']);path=root/'runs/natural-close.json'
+    old=json.loads(path.read_bytes());path.unlink()
+    audit=root/'natural-close-audit.json';original_audit=hashlib.sha256(audit.read_bytes()).hexdigest()
+    outcome={'market_regime':'ROTATION_NO_MAINLINE','status':'READY'}
+    intermediate=dict(lanes=[dict(stages=[dict(output={'large_original':'x'*10_000_000})])],
+        audit_paths=[str(audit)],outcome_v2=outcome,snapshot_id='controlled',snapshot_hash='a'*64)
+    prepared=prepare_candidate_artifacts(batch,workflow_output_dir=root,run_id='natural-close',status='READY',
+        market_trade_date='2026-10-26',projection_manifests=old['plan_publication']['projection_manifests'],
+        pattern_preparation=old['plan_publication']['pattern_preparation'],minute_cache_path=proof['minute_cache_path'],
+        observed_at=NOW,research_summary=intermediate)
+    saved=json.loads(path.read_bytes())
+    assert path.stat().st_size<2_000_000 and 'lanes' not in saved
+    assert saved['outcome_v2']==outcome and saved['audit_paths']==[str(audit)]
+    assert len(intermediate['lanes'][0]['stages'][0]['output']['large_original'])==10_000_000
+    assert hashlib.sha256(audit.read_bytes()).hexdigest()==original_audit
+    staged=stage_natural_candidate(store,batch,run_id='natural-close',observed_at=NOW,artifact_proof=prepared)
+    assert staged['execution_plans_written']==0
+
+
+def test_oversized_discovery_metadata_still_rejected_by_original_read_bound(tmp_path):
+    from liangjian_funnel.runtime.candidate_artifacts import prepare_candidate_artifacts
+    store,batch=fixture(tmp_path)
+    proof=prepare(store,batch,run_id='natural-close',observed_at=NOW)
+    root=Path(proof['workflow_output_dir']);path=root/'runs/natural-close.json'
+    old=json.loads(path.read_bytes());path.unlink()
+    with pytest.raises(ValueError,match='CANDIDATE_ARTIFACT_FILE_UNAVAILABLE'):
+        prepare_candidate_artifacts(batch,workflow_output_dir=root,run_id='natural-close',status='READY',
+            market_trade_date='2026-10-26',projection_manifests=old['plan_publication']['projection_manifests'],
+            pattern_preparation=old['plan_publication']['pattern_preparation'],minute_cache_path=proof['minute_cache_path'],
+            observed_at=NOW,research_summary={'unexpected_discovery_metadata':'x'*2_000_001})
+    assert store._read(lambda db:db.execute('SELECT count(*) FROM natural_review_candidates').fetchone()[0])==0

@@ -184,7 +184,12 @@ def prepare_candidate_artifacts(batch, *, workflow_output_dir, run_id, status,
         return None
     root = Path(workflow_output_dir).resolve()
     target = str(batch[0]['expires_at'])[:10]
-    summary = dict(research_summary or {},run_id=run_id, status=status, slot='close', market_trade_date=str(market_trade_date),
+    # PipelineResult.as_dict() contains complete per-lane stage inputs/outputs.
+    # They already live in the immutable audit_paths and can dwarf the bounded
+    # discovery summary. Match the final run-summary shape; preserve its audit
+    # references, outcome/source facts and all publication pins unchanged.
+    discovery = {key: value for key, value in (research_summary or {}).items() if key != 'lanes'}
+    summary = dict(discovery,run_id=run_id, status=status, slot='close', market_trade_date=str(market_trade_date),
                    plan_publication=dict(projection_manifests=projection_manifests,
                                          pattern_preparation=pattern_preparation))
     path = root/'runs'/f'{run_id}.json'
