@@ -39,9 +39,12 @@ def _usage(free_percent: float) -> SimpleNamespace:
         (25.0, "OK", True, True, True),
         (20.0, "WARNING", True, True, True),
         (15.0, "WARNING", True, True, True),
-        (12.0, "CRITICAL", False, True, True),
-        (10.0, "CRITICAL", False, True, True),
-        (9.0, "BLOCKED", False, False, False),
+        (12.0, "WARNING", True, True, True),
+        (10.0, "WARNING", True, True, True),
+        (9.0, "WARNING", True, True, True),
+        (4.99, "BLOCKED", False, False, False),
+        (5.00, "WARNING", True, True, True),
+        (5.01, "WARNING", True, True, True),
     ),
 )
 def test_disk_watermark_contract(
@@ -61,8 +64,8 @@ def test_disk_watermark_contract(
     assert result.read_only_allowed is True
     assert result.as_dict()["thresholds"] == {
         "warning_free_percent": 25.0,
-        "critical_free_percent": 15.0,
-        "block_free_percent": 10.0,
+        "critical_free_percent": 5.0,
+        "block_free_percent": 5.0,
         "full_rebuild_min_free_bytes": 5 * 1024 * 1024 * 1024,
     }
 

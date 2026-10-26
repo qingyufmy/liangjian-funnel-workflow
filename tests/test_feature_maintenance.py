@@ -1,5 +1,5 @@
 import json
-from fixture_nominal_resources_0782 import nominal_disk_capacity
+import pytest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -240,6 +240,26 @@ def test_full_maintenance_fails_before_generation_write_when_watermark_blocks(
     assert result["status"] == "FAILED_RESOURCE"
     assert result["reason_code"] == "FEATURE_FULL_REBUILD_STORAGE_WATERMARK_BLOCKED"
     assert not settings.feature_store_db_path.exists()
+
+
+@pytest.mark.parametrize("percent,allowed", [(4.99,False),(5.00,True),(5.01,True)])
+def test_full_maintenance_uses_configured_ratio_boundary(tmp_path, monkeypatch, percent, allowed):
+    from decimal import Decimal
+    import shutil
+    settings = _settings(tmp_path)
+    total = 200 * 1024**3
+    free = int(Decimal(total) * Decimal(str(percent)) / 100)
+    monkeypatch.setattr(shutil, "disk_usage", lambda _: SimpleNamespace(
+        total=total, used=total-free, free=free))
+    if allowed:
+        _materialize(settings)
+    result = run_feature_maintenance(settings,full=True,
+        now=datetime(2026,8,29,4,tzinfo=TZ))
+    if allowed:
+        assert result['status']=='PUBLISHED'
+    else:
+        assert result['reason_code']=='FEATURE_FULL_REBUILD_STORAGE_WATERMARK_BLOCKED'
+        assert not settings.feature_store_db_path.exists()
 
 
 def test_full_maintenance_publishes_from_live_source_without_snapshot_file(

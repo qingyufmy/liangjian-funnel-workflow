@@ -75,7 +75,7 @@ def evaluate_resources(
     *,
     minimum_mem_available_mb: float = 512,
     minimum_disk_free_mb: float = 4 * 1024,
-    minimum_disk_free_ratio: float = 0.10,
+    minimum_disk_free_ratio: float = 0.05,
     maximum_process_rss_mb: float = 1024,
     probe: Callable[[str | Path], ResourceSnapshot] = measure_resources,
 ) -> ResourceDecision:

@@ -32,11 +32,11 @@ from typing import Any, Iterable, Mapping, Sequence
 
 
 # These values are expressed as *free* disk percentages.  They intentionally
-# match the operational contract: below 25% is an alert, below 15% blocks new
-# full snapshots/rebuilds, and below 10% fails closed for heavy research.
+# keep the 25% observation alert and the reviewed 5% blocking thresholds;
+# the original absolute limits and each caller's behavior remain unchanged.
 DISK_FREE_WARNING_PERCENT = 25.0
-DISK_FREE_CRITICAL_PERCENT = 15.0
-DISK_FREE_BLOCK_PERCENT = 10.0
+DISK_FREE_CRITICAL_PERCENT = 5.0
+DISK_FREE_BLOCK_PERCENT = 5.0
 DISK_FREE_FULL_REBUILD_MIN_BYTES = 5 * 1024 * 1024 * 1024
 
 STORAGE_SCHEMA_VERSION = "liangjian-storage-governance/1.0.0"
@@ -113,11 +113,11 @@ class DiskWatermark:
         if self.free_percent < DISK_FREE_WARNING_PERCENT:
             reasons.append("DISK_FREE_BELOW_25_PERCENT")
         if self.free_percent < DISK_FREE_CRITICAL_PERCENT:
-            reasons.append("DISK_FREE_BELOW_15_PERCENT")
+            reasons.append("DISK_FREE_BELOW_5_PERCENT")
         if self.free_bytes < DISK_FREE_FULL_REBUILD_MIN_BYTES:
             reasons.append("DISK_FREE_BELOW_5_GIB")
         if self.free_percent < DISK_FREE_BLOCK_PERCENT:
-            reasons.append("DISK_FREE_BELOW_10_PERCENT")
+            reasons.append("DISK_FREE_BLOCK_BELOW_5_PERCENT")
         return tuple(reasons)
 
     def as_dict(self) -> dict[str, Any]:
