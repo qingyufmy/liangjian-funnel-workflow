@@ -114,7 +114,7 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
     quality = normalize_quality(facts.get("data_quality") or {})
     a2_available = metrics.get('a2_focus_count') is not None and metrics.get('a2_watch_count') is not None
     if not a2_available:
-        report.a2_review.summary = 'A2审计结果不可用，聚焦/观察数量未知；不能以空投影认定没有候选。'
+        report.a2_review.summary = 'A2审计结果不可用，聚焦/观察数量尚未核实；不能以空投影认定没有候选。'
         report.a2_review.verdict = 'DATA_LIMITED'
         report.a2_review.strengths = []
         report.a2_review.defects = []
@@ -267,7 +267,7 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
         missing_records = int(totals.get("missing_observation_count") or 0)
         summary = (f"共{metrics.get('a4_monitor_observation_count', 0)}条判断记录，不是同等数量的交易分钟；"
             f"按激活窗口应观察{expected}条，实际{recorded}条；"
-            f"缺失窗口事件{missing_incidents}个、影响{missing_records}条股票×分钟记录，候选动作编排遗漏{missing}条。"
+            f"缺失窗口事件{missing_incidents}个、影响{missing_records}条股票×分钟记录，旧发布通道候选未发布{missing}条。"
             f"业务状态事件{metrics.get('a4_effective_event_count', 0)}个、生命周期{metrics.get('a4_lifecycle_count', 0)}个。")
         if "a4_trade_signal_count" in metrics:
             summary += (f"其中交易信号{metrics['a4_trade_signal_count']}个，"
@@ -289,7 +289,7 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
             if missing_parts:
                 limits.append(name + "不可比较：" + "、".join(missing_parts) + "；不能算作不匹配。")
         if missing:
-            defects.insert(0, f"按计划激活窗口发现{missing}条编排遗漏。")
+            defects.insert(0, f"按计划激活窗口发现{missing}条旧发布通道候选未发布。")
         if missing_records:
             affected = max((int(row.get("affected_plan_count") or 0) for row in totals.get("missing_observation_incidents") or []), default=0)
             defects.insert(0, f"实际决策窗口发生{missing_incidents}个缺口，最多同时影响{affected}个计划，共缺{missing_records}条股票×分钟判断记录。")
@@ -313,13 +313,13 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
         a2_available=(facts.get('a2',{}).get('status')!='NOT_AVAILABLE'
             and metrics.get('a2_focus_count') is not None and metrics.get('a2_watch_count') is not None)
         if not a2_available:
-            report.a2_review.summary='A2审计结果不可用，聚焦/观察数量未知；不能以空投影认定没有候选。'
+            report.a2_review.summary='A2审计结果不可用，聚焦/观察数量尚未核实；不能以空投影认定没有候选。'
             report.a2_review.verdict='DATA_LIMITED'
             report.a2_review.strengths=[]
             report.a2_review.defects=[]
             report.a2_review.data_limitations=['需取得同一源批次的完整A2编译结果，模型意向与A3计划数不能代替最终池数量。']
         a2_summary=(f"A2聚焦{metrics['a2_focus_count']}只、观察{metrics['a2_watch_count']}只；" if a2_available
-            else 'A2审计不可用，聚焦和观察数量未知；')
+            else 'A2审计不可用，聚焦和观察数量尚未核实；')
         report.executive_summary = (a2_summary+
             f"A3正式计划{metrics.get('a3_plan_count', 0)}个。{summary}"
             "核验差异和不可比较字段见下文；单日强势反例不能确认门槛错误或授权修改策略。")

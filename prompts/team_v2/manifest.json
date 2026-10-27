@@ -1,8 +1,16 @@
 {
-  "schema_version": "claude-team-prompt-bundle/3.0.2",
-  "authority": "Original 0323/0315/0308 bundle; A6 bounded contract authorized by 0384; A2 unified ten-stage policy authorized by Tony and 0386; PM compact shortlist contract authorized by 0404 on 2026-10-20",
+  "schema_version": "claude-team-prompt-bundle/3.0.3",
+  "authority": "Original 0323/0315/0308 bundle; A6 bounded contract authorized by 0384; A2 unified ten-stage policy authorized by Tony and 0386; PM compact shortlist contract authorized by 0404 on 2026-10-20; A4 authoritative TECH_REFERENCE echo contract authorized by0837/0838/0843 on2026-10-27",
   "role_semantics_modified": true,
-  "authorized_changes": ["P0-2_A6_SERVER_CLUSTER_CAPACITY", "P0-3_A6_CATALOG_REFS", "P0-17_UNIFIED_TEN_STAGE_POLICY", "P0-12_LOSSLESS_A2_TRANSPORT", "P0-3_0404_PM_SHORTLIST_COMPACT_OUTPUT", "0417_A2_EXPLICIT_NOMINATION_EVIDENCE_BINDING"],
+  "authorized_changes": [
+    "P0-2_A6_SERVER_CLUSTER_CAPACITY",
+    "P0-3_A6_CATALOG_REFS",
+    "P0-17_UNIFIED_TEN_STAGE_POLICY",
+    "P0-12_LOSSLESS_A2_TRANSPORT",
+    "P0-3_0404_PM_SHORTLIST_COMPACT_OUTPUT",
+    "0417_A2_EXPLICIT_NOMINATION_EVIDENCE_BINDING",
+    "0843_A4_AUTHORITATIVE_TECH_REFERENCE_ECHO_ACTION_UNCHANGED"
+  ],
   "files": {
     "00_shared_system_v3.txt": {
       "sha256": "02417791ffeb2b31e7d70b065cf87b5af0a0ffe25162a2374ad0c8056c4f067c",
@@ -21,8 +29,8 @@
       "bytes": 10007
     },
     "agent_4_trader_v1.txt": {
-      "sha256": "6dc0cc97cd0c57b71085c3fb8336e7c9aafa5a63ed6771ccbfb1e0e0f193d04d",
-      "bytes": 6605
+      "sha256": "841683656e80885649dbc8d9d0886f68426644ce9e732668f40c02a8809f3a80",
+      "bytes": 6584
     },
     "agent_5_daily_reviewer_v2.txt": {
       "sha256": "29e88f8d5e74869e9be6e268d63fef0636f899c272ef9402c68545cb5a409094",

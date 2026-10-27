@@ -1895,6 +1895,9 @@ def _validate_evidence(
 
 
 def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
+    from .time_presentation import public_fact_view
+    def fact_json(value,**kwargs):
+        return json.dumps(public_fact_view(value),**kwargs)
     kind = "盘中复盘" if report.review_kind is A5ReviewKind.MIDDAY else "盘后复盘"
     metrics = business_metrics(snapshot)
     lines = [
@@ -1906,7 +1909,7 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
         f"- A3 计划：`{metrics.get('a3_plan_count', 0)}`",
         f"- A4 业务状态事件/生命周期：`{metrics.get('a4_effective_event_count', 0)}/{metrics.get('a4_lifecycle_count', 0)}`；交易信号：{metrics.get('a4_trade_signal_count', '未单独统计')}；计划失效：{metrics.get('a4_plan_invalidation_count', '未单独统计')}",
         f"- 强势股覆盖账本/需复核反例：`{metrics.get('a5_top_performance_ledger_count', 0)}/{metrics.get('a5_counterexample_count', 0)}`；其中已产生有效盘中信号：{metrics.get('a5_top_performance_captured_count', 0)}",
-        f"- 反例落层计数（代码统计）：`{json.dumps(metrics.get('a5_counterexample_drop_stage_counts', {}), ensure_ascii=False)}`",
+        f"- 反例落层计数（代码统计）：`{fact_json(metrics.get('a5_counterexample_drop_stage_counts', {}), ensure_ascii=False)}`",
         "- 核验边界：价格字段一致不代表开高低、成交量或全部技术指标一致；次日可卖也不代表必定成交。",
         "", "## 总结", "", report.executive_summary, "",
     ]
@@ -1920,12 +1923,12 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
         lines.extend(["## 执行业务对账（代码统计）", "",
             f"- 目标买入 2–5 / 实际 {target.get('actual')}；目标不是配额，不放宽策略制造信号。",
             f"- 判断事件行 {business.get('event_rows')} / 通知投递账本行 {business.get('notification_delivery_rows')}；两者不等同。",
-            "- 按策略首因：`" + json.dumps(business.get("first_reason_by_strategy", {}), ensure_ascii=False) + "`",
+            "- 按策略首因：`" + fact_json(business.get("first_reason_by_strategy", {}), ensure_ascii=False) + "`",
             f"- ROTATION_GATE_EMPTY 计划 {business.get('ROTATION_GATE_EMPTY_plan_count')} / A2_REVIEW_DEGRADED 计划 {business.get('A2_REVIEW_DEGRADED_plan_count')}。",
-            "- 缺口归因：`" + json.dumps(business.get("missing_execution_records", []), ensure_ascii=False) + "`",
-            "- 运维事件候选（不自动证明执行缺口）：`" + json.dumps(business.get("incident_candidates", business.get("gap_cause_evidence", [])), ensure_ascii=False) + "`",
-            "- 正常观察计数：`" + json.dumps(business.get("healthy_observations", {}), ensure_ascii=False) + "`",
-            "- 待核实观察（UNKNOWN_PENDING）：`" + json.dumps(business.get("unknown_observations", []), ensure_ascii=False) + "`", ""])
+            "- 缺口归因：`" + fact_json(business.get("missing_execution_records", []), ensure_ascii=False) + "`",
+            "- 运维事件候选（不自动证明执行缺口）：`" + fact_json(business.get("incident_candidates", business.get("gap_cause_evidence", [])), ensure_ascii=False) + "`",
+            "- 正常观察计数：`" + fact_json(business.get("healthy_observations", {}), ensure_ascii=False) + "`",
+            "- 待核实观察：`" + fact_json(business.get("unknown_observations", []), ensure_ascii=False) + "`", ""])
     for title, layer in (("A2 选股与题材", report.a2_review), ("A3 日线计划", report.a3_review), ("A4 日内择时", report.a4_review)):
         lines.extend([f"## {title}", "", f"**{layer.verdict}**｜{layer.summary}", ""])
         if layer.strengths:

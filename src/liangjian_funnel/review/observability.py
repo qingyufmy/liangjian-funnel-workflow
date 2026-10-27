@@ -101,10 +101,28 @@ def condition_observations(plan_rows, event_rows, *, cutoff):
             if at < start or (end is not None and at > end):
                 continue
             strategy = mapping(event_payload.get('strategy'))
-            if event.get('action') == 'DATA_BLOCK' or strategy.get('state') == 'DATA_BLOCKED':
+            matrix = mapping(strategy.get('confirmation_results'))
+            judge_block = (event.get('action') == 'DATA_BLOCK'
+                and event.get('reason_code') in {'MONITOR_OVERRUN', 'JUDGE_TIMEOUT',
+                    'MODEL_TIMEOUT', 'LLM_UNAVAILABLE', 'NETWORK_ERROR'}
+                and strategy.get('state') != 'DATA_BLOCKED'
+                and strategy.get('action') in {'BUY_SIGNAL', 'ADD_SIGNAL', 'NO_ACTION'}
+                and bool(matrix))
+            if strategy.get('state') == 'DATA_BLOCKED' or (event.get('action') == 'DATA_BLOCK' and not judge_block):
                 continue
             result['observed_decision_count'] += 1
-            matrix = mapping(strategy.get('confirmation_results'))
+            expected = ENTRY_CONDITIONS.get(profile)
+            pattern_required = None
+            confirmation = mapping(strategy.get('entry_confirmation'))
+            required = confirmation.get('required_conditions')
+            if (confirmation.get('mode') == 'pattern_v1' and isinstance(required, list)
+                    and required and len(required) <= 64
+                    and all(isinstance(name, str) and name for name in required)):
+                # The runtime's original same-minute required set is the
+                # contract. Never reuse the legacy trend leaf whitelist.
+                expected = set(required)
+                pattern_required = set(required)
+                universe = set(required)
             excluded = set(ROUTE_CONSTANTS)
             # V2's reversal is the AND of the four leaf gates, not a fifth
             # independent confirmation. Retain it in the raw matrix/hash.
@@ -140,9 +158,15 @@ def condition_observations(plan_rows, event_rows, *, cutoff):
                         unavailable_conditions_at_max=sorted(key for key, value in conditions.items() if value.get('available') is not True),
                         veto_conditions_at_max=sorted(vetoes),
                         confirmation_evidence_id='A4:EVENT:' + str(event.get('event_id') or ''),
-                        confirmation_sha256=digest(matrix), status='OBSERVED')
+                        confirmation_sha256=digest(matrix), status='OBSERVED',
+                        condition_contract='pattern_v1:original_required_conditions' if pattern_required else 'legacy:observed_conditions',
+                        condition_contract_required_at_max=sorted(pattern_required or ()),
+                        condition_contract_sha256=digest(sorted(pattern_required)) if pattern_required else None,
+                        technical_evidence_despite_judge_block=judge_block)
             if event.get('effective') and event.get('action') in ('BUY_SIGNAL', 'PLAN_INVALIDATED'):
                 break
+        if result.get('condition_contract') == 'pattern_v1:original_required_conditions':
+            universe = set(result['condition_contract_required_at_max'])
         result['unevaluated_conditions_at_max'] = sorted(universe - set(result['total_conditions_at_max']))
         result['known_condition_names'] = sorted(universe)
         results.append(result)
@@ -265,15 +289,34 @@ def compact_observability(value):
 def observability_markdown(value):
     if not isinstance(value, Mapping):
         return []
+    from zoneinfo import ZoneInfo
+    from ..runtime.lark_notifications import _display_text
+    def shown(item):
+        return '未取得' if item is None else _display_text(str(item), limit=180)
+    def at(value):
+        parsed=stamp(value)
+        return parsed.astimezone(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S 北京时间') if parsed else '未取得'
+    def names(items):
+        return '、'.join(shown(item) for item in (items or [])) or '无已记录项目'
     conditions, timing = mapping(value.get('conditions')), mapping(value.get('timings'))
+    factor_status=conditions.get('factor_ready_count_status')
+    factor_text='按设计停用，不代表日线计划为零' if factor_status==DESIGN_DISABLED else '未取得可核实状态'
+    clusters='、'.join(('标签未取得' if key=='UNKNOWN' else shown(key))+':'+shown(count)
+                      for key,count in conditions.get('cluster_counts',{}).items()) or '未取得'
     lines = ['## 冻结条件与运行预算（代码统计）', '',
-        '- factor_ready_count：`' + str(conditions.get('factor_ready_count')) + '`；`' + str(conditions.get('factor_ready_count_status')) + '`，不代表 A3 为零。',
-        '- 簇分布：`' + json.dumps(conditions.get('cluster_counts', {}), ensure_ascii=False) + '`；不同已知簇：' + str(conditions.get('distinct_clusters')) + '。',
-        '- 条件只统计同一冻结分钟的明确可用证据；路由常量/派生 AND 不重复计数，未评估条件未知，不是入场资格评分。']
+        '- 因子通道：'+factor_text+'。',
+        '- 簇分布：'+clusters+'；不同已确认簇：'+shown(conditions.get('distinct_clusters'))+'。',
+        '- 条件只统计同一冻结分钟的明确可用证据；未评估不计为通过或零项，不是入场资格评分。']
     for row in conditions.get('plans', []):
-        lines.append('- ' + str(row.get('symbol')) + '：最多满足 ' + str(row.get('max_conditions_met')) + '，时刻 ' + str(row.get('max_conditions_met_at'))
-            + '；未满足/不可用 ' + json.dumps(row.get('failing_conditions_at_max'), ensure_ascii=False)
-            + '；未评估 ' + json.dumps(row.get('unevaluated_conditions_at_max'), ensure_ascii=False) + '。')
-    lines.extend(['- 五段耗时 p50/p95/max（ms）：`' + json.dumps(timing.get('phases', {}), ensure_ascii=False) + '`。',
-        '- 预算预警：`' + json.dumps(timing.get('budget_warnings', []), ensure_ascii=False) + '`；仅内部 A5，不发送额外客户提醒。', ''])
+        lines.append('- '+shown(row.get('symbol'))+'：最多满足 '+shown(row.get('max_conditions_met'))
+            +'；时刻 '+at(row.get('max_conditions_met_at'))
+            +'；未满足/不可用 '+names(row.get('failing_conditions_at_max'))
+            +'；未评估 '+names(row.get('unevaluated_conditions_at_max'))+'。')
+    phase_names=dict(startup='启动',fetch='取数',judge='模型复核',persist='写账',notify='推送')
+    phase_rows=[]
+    for phase,values in timing.get('phases',{}).items():
+        phase_rows.append(phase_names.get(phase,shown(phase))+':'+ '/'.join(
+            shown(values.get(key)) for key in ('p50_ms','p95_ms','max_ms')))
+    lines.extend(['- 五段耗时 p50/p95/max（毫秒）：'+ ('；'.join(phase_rows) or '未取得')+'。',
+        '- 预算预警：'+names(timing.get('budget_warnings'))+'；仅内部复盘，不发送额外客户提醒。', ''])
     return lines

@@ -117,7 +117,9 @@ def test_every_real_customer_card_has_original_and_rerendered_snapshot(tmp_path,
         _enforce_verified_findings(report, facts)
         report.fact_reconciliation.extend(reconcile_report(report, facts))
         markdown = _markdown(report, facts)
-        assert '未识别' not in markdown and 'UTC01:' not in markdown and 'UTC00:' not in markdown
+        forbidden=('未识别','未知','None','null','UTC01:','UTC00:')
+        assert not any(value in markdown for value in forbidden), [
+            line for line in markdown.splitlines() if any(value in line for value in forbidden)]
         assert canonical(facts) == original_facts
         kind = report.review_kind.value
         count = len(notifier.cards)
@@ -166,7 +168,7 @@ def test_every_real_customer_card_has_original_and_rerendered_snapshot(tmp_path,
             scope = 'same 08:30 instant; no final no-plan message before CAS'
         stem = old_path.name[:16]
         new_text = text(new) if 'card' in new else json.dumps(new, ensure_ascii=False)
-        assert '未识别' not in new_text and 'UTC01:' not in new_text
+        assert not any(value in new_text for value in ('未识别','未知','None','null','UTC01:','UTC00:'))
         (output / (stem + '-before.json')).write_bytes(canonical(record))
         (output / (stem + '-after.json')).write_bytes(canonical(new))
         (output / (stem + '.diff')).write_text('\n'.join(difflib.unified_diff(

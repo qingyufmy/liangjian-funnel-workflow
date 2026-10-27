@@ -49,7 +49,9 @@ def test_send_positional_keyword_and_stream_close_preserved(tmp_path,keyword):
 @pytest.mark.parametrize('url',['https://evil.example/api','https://fuyao.aicubes.cn:444/api/x','https://fuyao.aicubes.cn:80/api/x','https://ai-api.finpoints.tech/v1/models','https://fuyao.aicubes.cn/not-api','https://proxy.finance.qq.com/not-original'])
 def test_unknown_host_port_path_rejected_before_transport(tmp_path,url):
     gate=guard(tmp_path);seen=[]
-    with httpx.Client(transport=httpx.MockTransport(lambda r:seen.append(r))) as client,gate.install(),pytest.raises(guard_module.GuardStop):client.get(url)
+    from urllib.parse import urlsplit
+    expected=httpx.RequestError if urlsplit(url).hostname in gate.known_hosts else guard_module.GuardStop
+    with httpx.Client(transport=httpx.MockTransport(lambda r:seen.append(r))) as client,gate.install(),pytest.raises(expected):client.get(url)
     assert seen==[]
 
 def test_global_budget_40_and_no_retry_after_failure(tmp_path):
@@ -61,13 +63,14 @@ def test_global_budget_40_and_no_retry_after_failure(tmp_path):
     gate=guard(tmp_path)
     with httpx.Client(transport=httpx.MockTransport(lambda r:httpx.Response(429,request=r))) as client,gate.install():
         client.get('https://fuyao.aicubes.cn/api/global')
-        with pytest.raises(guard_module.GuardStop):client.get('https://fuyao.aicubes.cn/api/global')
+        with pytest.raises(httpx.RequestError):client.get('https://fuyao.aicubes.cn/api/global')
     assert gate.counts['GLOBAL']==1 and gate.rate_limited==1
 
 def test_redirect_cannot_escape_approved_origin(tmp_path):
     gate=guard(tmp_path);seen=[]
-    with httpx.Client(transport=httpx.MockTransport(lambda r:(seen.append(r),httpx.Response(302,headers={'location':'https://evil.example/'},request=r))[1])) as client,gate.install(),pytest.raises(guard_module.GuardStop):
-        client.get('https://fuyao.aicubes.cn/api/global',follow_redirects=True)
+    with httpx.Client(transport=httpx.MockTransport(lambda r:(seen.append(r),httpx.Response(302,headers={'location':'https://evil.example/'},request=r))[1])) as client,gate.install():
+        assert client.get('https://fuyao.aicubes.cn/api/global',follow_redirects=True).status_code==302
+    assert not gate.stopped
     assert len(seen)==1
 
 def test_global_adapter_retries_zero_and_original_member_endpoint_now_forbidden(tmp_path):

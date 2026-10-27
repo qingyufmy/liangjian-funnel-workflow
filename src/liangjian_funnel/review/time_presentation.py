@@ -23,3 +23,15 @@ def bjt_presentation(value):
     if isinstance(value,tuple):return tuple(bjt_presentation(item) for item in value)
     if isinstance(value,str):return _text(value)
     return value
+
+
+def public_fact_view(value):
+    """Display absence explicitly; never writes back or substitutes numeric 0."""
+    value=bjt_presentation(value)
+    if value is None:return '未取得'
+    if isinstance(value,dict):return {key:public_fact_view(item) for key,item in value.items()}
+    if isinstance(value,list):return [public_fact_view(item) for item in value]
+    if isinstance(value,tuple):return tuple(public_fact_view(item) for item in value)
+    if value=='UNKNOWN':return '未核实'
+    if value=='UNKNOWN_PENDING':return '待核实'
+    return value

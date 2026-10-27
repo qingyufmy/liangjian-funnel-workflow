@@ -41,5 +41,5 @@ def test_unknown_a2_remains_unknown_even_without_full_a4_coverage():
     report=A5ReviewReport.model_validate(_report())
     facts=dict(a2={'status':'NOT_AVAILABLE'},metrics={'a2_focus_count':0,'a2_watch_count':0})
     reconcile_report(report,facts)
-    assert '数量未知' in report.a2_review.summary
+    assert '数量尚未核实' in report.a2_review.summary
     assert report.a2_review.verdict=='DATA_LIMITED'

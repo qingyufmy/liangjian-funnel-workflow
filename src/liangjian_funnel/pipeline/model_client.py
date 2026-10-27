@@ -537,8 +537,11 @@ class OpenAICompatibleModelClient:
                                 'original_evidence':evidence.receipt()}) from exc
                     except OSError as exc:
                         original.failed(exc)
-                        raise ModelClientError('MODEL_EVIDENCE_PERSIST_FAILED',attempts=total_attempts,
-                            diagnostics={'original_evidence':evidence.receipt()}) from exc
+                        # A surrounding transport/budget ledger can raise its
+                        # own filesystem failure before HTTP. Preserve that
+                        # failure; only our begin/finish writes own the
+                        # MODEL_EVIDENCE_PERSIST_FAILED classification.
+                        raise
                     finally:
                         failure=sys.exception()
                         try:

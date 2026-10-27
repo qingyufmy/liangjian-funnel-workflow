@@ -1,5 +1,5 @@
 schema_version: liangjian-consumer-map/1
-generated_at: '2026-10-27T21:33:40.309723+08:00'
+generated_at: '2026-10-27T22:22:49.500738+08:00'
 base_head: 6eaaf7582e3a16c8e8e288d2521c3876a62a19ac
 ruling: 0838-Tony-rulings-T1C-T2A-T3.md
 scope: Train A1-A10 implementation and bounded local checks; B2 full component census
@@ -14,6 +14,7 @@ work_packages:
   - src/liangjian_funnel/pipeline/model_client.py
   - src/liangjian_funnel/pipeline/team_v2_judgments.py
   - src/liangjian_funnel/runtime/team_v2_trader_session.py
+  - src/liangjian_funnel/evaluation/team_v2_replay_passes.py
   consumers:
   - name: Team candidate_review
     status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
@@ -50,6 +51,11 @@ work_packages:
     status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
     test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
     test_files: *id001
+  - name: CapturesOnlyJournal independent second execution
+    status: READ_ONLY_EXACT_ORIGINAL_PROJECTION_REVALIDATED_NO_WRITE
+    test_files:
+    - tests/test_team_v2_replay_passes.py
+    - tests/test_team_v2_trader_batch.py
   acceptance:
   - real five INVALID replies all valid with unchanged NO_ACTION
   - unknown reference ID/duplicate ID/envelope/action escalation still rejected
@@ -373,6 +379,8 @@ work_packages:
   - src/liangjian_funnel/review/plan_replay.py
   - src/liangjian_funnel/review/context.py
   - src/liangjian_funnel/review/fact_guard.py
+  - src/liangjian_funnel/review/observability.py
+  - src/liangjian_funnel/review/time_presentation.py
   consumers:
   - name: A2 output availability/counts
     status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
@@ -404,6 +412,11 @@ work_packages:
     status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
     test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
     test_files: *id007
+  - name: A5 same-minute condition observation and public markdown
+    status: PATTERN_REQUIRED_CONTRACT_AND_JUDGE_BLOCK_SEPARATED_NO_NONE_OR_UTC
+    test_files:
+    - tests/test_observability_consumer_0871.py
+    - tests/test_d8_real_outputs_0837.py
   acceptance:
   - 11:36 and natural close seven originals replay
   - A2 unavailable is not zero; bounded audit stream/index provenance
@@ -661,6 +674,7 @@ pending_full_census:
 latest_rulings:
 - 0868
 - 0869
+- 0871
 actual_day_replay:
   observed_components: tests/test_d5_day_replay_0837.py
   status: OBSERVED_DAY_COMPONENTS_PASS_NOT_COMPLETE_WHOLE_PIPELINE
@@ -668,10 +682,19 @@ actual_day_replay:
   counterfactual_after1406: UNKNOWN_NO_FABRICATED_MODEL_OUTPUT
 external_output_snapshots:
   test: tests/test_d8_real_outputs_0837.py
-  run: run-20261027T133144887789
+  run: run-20261027T141950890383
   originals: 13
   status: 13_CUSTOMER_CARDS_PAIRED_NOT_COMPLETE_D8
   remaining:
-  - Team A5 failure/new bounded input snapshot
-  - UI contract snapshot
-  - A7 per-number provenance scope ruling
+  - Team A5 bounded-input/failure snapshot
+  - A7 full per-number provenance scope ruling
+  ui: actual two customer A5 React SSR saved; not live screenshots
+first_full_failure_evidence: artifacts/wp0-20261009/full-20261027T213412/evidence.json
+first_full_categories_initial:
+- actual A4 prompt manifest mismatch
+- actual read-only replay projection write attempt
+- actual transport OSError provenance misclassification
+- missing exact approved rule archive and UI capture inputs
+- Windows non-UTF8 child/long-path/non-ASCII fixture paths; second short-ASCII full
+  will verify
+- two residual test-isolation/receipt cases still under verification

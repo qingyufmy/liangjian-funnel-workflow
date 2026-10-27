@@ -41,6 +41,22 @@ class CapturesOnlyJournal(ModelJudgmentJournal):
     def capture(self,*args,**kwargs):raise ValueError('REPLAY_SECOND_PASS_CAPTURE_FORBIDDEN')
     def mark_failed(self,*args,**kwargs):raise ValueError('REPLAY_SECOND_PASS_CAPTURE_FORBIDDEN')
 
+    def record_output_projection(self,call_id,*,original,context,projected,changes):
+        """Revalidate the first pass view; the second pass cannot write it."""
+        from ..pipeline.team_v2_judgments import _json,_hash
+        original_sha=_hash(_json(original));context_sha=_hash(_json(context))
+        body=dict(original_sha256=original_sha,context_sha256=context_sha,
+            projected=projected,changes=changes)
+        text=_json(body);expected=(call_id,original_sha,context_sha,text,_hash(text))
+        with closing(self._connect()) as db:
+            captured=db.execute('SELECT output_hash FROM model_calls WHERE call_id=?',(call_id,)).fetchone()
+            row=db.execute('SELECT * FROM model_output_projections WHERE call_id=?',(call_id,)).fetchone()
+        if captured is None or captured[0]!=original_sha:
+            raise ValueError('MODEL_PROJECTION_ORIGINAL_BINDING_CONFLICT')
+        if row!=expected:raise ValueError('REPLAY_ORIGINAL_PROJECTION_REQUIRED_OR_CONFLICT')
+        return dict(call_id=call_id,original_sha256=original_sha,
+            context_sha256=context_sha,body_sha256=expected[-1],changes=changes)
+
 
 class NoModelRecallClient:
     def __init__(self):self.attempts=0
