@@ -118,7 +118,7 @@ def test_priority_bounded_flush_and_deduped_guard_count(tmp_path):
         body={'msg_type':'text','content':{'text':'模拟盘｜停止开仓'}},observed_at=NOW,priority=0)
     send,seen=sender(tmp_path,env={'SHADOW_RESEARCH_WEBHOOK':URL})
     assert box.flush(send,now=NOW,maximum=3)['sent']==3 and len(seen)==3
-    assert '停止' in json.loads(seen[0].content)['content']['text']
+    assert '停止' in json.loads(seen[0].content)['card']['elements'][0]['text']['content']
 
 
 def test_rejected_provider_receipt_is_safe_and_only_new_incident_alerts_once(tmp_path):

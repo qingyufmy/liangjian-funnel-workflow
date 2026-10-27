@@ -668,6 +668,7 @@ class WorkflowApplication:
             None,
             webhook_path=settings.lark_webhook_path,
             timeout_seconds=settings.lark_timeout_seconds,
+            policy_root=settings.root,
         )
         self.minute_store = MinuteBarStore(settings.minute_cache_dir)
         self.fact_cache = LocalFactCache(settings.fact_cache_db_path)
@@ -5853,6 +5854,12 @@ class WorkflowApplication:
             "reason_code": "A4_GLOBAL_DEADLINE_EXCEEDED",
         }] if notification_deadline_exceeded else [])
         publish_system_health = getattr(publisher, "publish_a4_system_health", None)
+        flush_summaries = getattr(publisher, "flush_notification_summaries", None)
+        if callable(flush_summaries):
+            try:
+                system_notifications.extend(flush_summaries(now=current))
+            except Exception:
+                system_notifications.append({"status":"FAILED","reason_code":"NOTIFICATION_SUMMARY_FAILED"})
         if callable(publish_system_health):
             try:
                 system_notifications = publish_system_health(
@@ -6645,6 +6652,7 @@ class WorkflowApplication:
                 market_state_dir=self.settings.fact_store_dir / "a4_live_market",
             ),
             notification_publisher=self.lark_publisher,
+            ledger_root=self.settings.root,
         ).run(review_kind=kind, now=current, close_archive=close_archive)
 
     def run_scheduled(

@@ -2167,6 +2167,7 @@ class A5DailyReviewService:
         model: str,
         independent_verifier: Any | None = None,
         notification_publisher: Any | None = None,
+        ledger_root: Path | None = None,
     ):
         self.store = store
         self.prompts = prompts
@@ -2176,6 +2177,7 @@ class A5DailyReviewService:
         self.model = model
         self.independent_verifier = independent_verifier
         self.notification_publisher = notification_publisher
+        self.ledger_root = Path(ledger_root) if ledger_root is not None else None
         self._failure_context: dict[str, Any] = {}
 
     def _validate_model_report(self, output, *, facts, allowed_projection_evidence, review_kind, trade_date):
@@ -2327,6 +2329,25 @@ class A5DailyReviewService:
                     or facts.get("cutoff_at") != cutoff.isoformat()
                     or facts.get("input_hash") != _canonical_hash({k: v for k, v in facts.items() if k != "input_hash"})):
                 raise A5ReviewError("A5_FROZEN_FACT_IDENTITY_OR_HASH_MISMATCH")
+        if self.ledger_root is not None:
+            from .key_counts import freeze_key_counts, reconcile_counts
+            try:
+                receipt=facts.get('key_count_reconciliation')
+                if receipt is None:
+                    receipt=freeze_key_counts(facts,store=self.store,root=self.ledger_root,observed_at=current)
+                else:
+                    # A retry uses the original frozen ledger attestation;
+                    # later intraday rows cannot alter a midday denominator.
+                    checked=reconcile_counts(facts,receipt['actual'],source_sha256=receipt['source_sha256'],
+                        observed_at=receipt['observed_at'])
+                    if checked!=receipt:
+                        raise ValueError('A5_FROZEN_COUNT_RECEIPT_MISMATCH')
+                facts['key_count_reconciliation']=receipt
+                facts['metrics'].update(a4_team_model_attempt_count=receipt['actual']['model_calls'],
+                    a4_team_fill_count=receipt['actual']['fills'],a4_stock_minute_count=receipt['actual']['minute_rows'])
+            except (ValueError,KeyError,TypeError) as exc:
+                raise A5ReviewError('A5_KEY_COUNT_RECONCILIATION_FAILED',diagnostics={
+                    'phase':'KEY_COUNT_LEDGER_GATE','detail':str(exc)}) from exc
         # Identical market facts must not reuse prose produced by an older
         # prompt/verification contract after a release.
         facts["review_contract"] = {

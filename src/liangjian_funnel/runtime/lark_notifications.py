@@ -575,10 +575,13 @@ def _display_items(value: Any, *, limit: int = 4) -> list[str]:
 
 
 def _condition_summary(value, *, key_limit=4):
+    if value is None:
+        return '不可用（该轮条件原件未留存）'
     rows=list(value) if isinstance(value,(list,tuple)) else []
-    shown=_display_items(rows,limit=key_limit)
-    remainder=len(rows)-len(shown)
-    return f"共{len(rows)}项；"+('；'.join(shown) if shown else '无')+(f"；另{remainder}项见原件" if remainder else '')
+    # The count and every required condition refer to this same event.
+    # A short key-condition preview must never hide the rest of the evidence.
+    shown=_display_items(rows,limit=len(rows))
+    return f"共{len(rows)}项；"+('；'.join(shown) if shown else '无')
 
 
 def _a4_price_discipline(payload, strategy, event_payload):
@@ -664,7 +667,8 @@ def _time_label(value: Any, *, fallback: str = "—") -> str:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
         return _display_text(raw, limit=40, fallback=fallback)
-    return parsed.strftime("%Y年%m月%d日 %H:%M")
+    return (parsed.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y年%m月%d日 %H:%M 北京时间")
+            if parsed.tzinfo is not None else parsed.strftime("%Y年%m月%d日 %H:%M（原件未标时区）"))
 
 
 def _percentile(value: Any) -> str:
@@ -799,11 +803,15 @@ class WorkflowLarkPublisher:
         webhook_path: Path | None = None,
         timeout_seconds: float = 8.0,
         clock: Callable[[], datetime] | None = None,
+        policy_root: Path | None = None,
+        internal_sink: Callable[..., Mapping[str, Any]] | None = None,
     ):
         self.store = store
         self.webhook_path = webhook_path
         self.timeout_seconds = timeout_seconds
         self.clock = clock or (lambda: datetime.now().astimezone())
+        self.policy_root = Path(policy_root) if policy_root is not None else None
+        self.internal_sink = internal_sink
         self.configuration_reason: str | None = None
         try:
             self.notifier = LarkNotifier(webhook_url, timeout_seconds=timeout_seconds)
@@ -835,7 +843,7 @@ class WorkflowLarkPublisher:
         except (OSError, ValueError, TypeError, json.JSONDecodeError, LarkConfigurationError):
             return self.notifier, "LARK_WEBHOOK_CONFIGURATION_INVALID"
 
-    def _send(
+    def _send_legacy(
         self,
         *,
         delivery_key: str,
@@ -886,6 +894,100 @@ class WorkflowLarkPublisher:
             "delivery_id": str(row["delivery_id"]),
             "reason_code": row.get("last_reason_code"),
         }
+
+    def _internal_notice(self, *, key, kind, title, lines, now):
+        if self.internal_sink is not None:
+            return dict(self.internal_sink(key=key, kind=kind, title=title, lines=lines, now=now))
+        from .team_v2_store import TeamMeetingStore
+        from .team_v2_internal import InternalOutbox
+        root = self.policy_root
+        assert root is not None
+        directory = root / 'state' / 'team_v2'
+        if directory.is_symlink() or (directory / 'team.db').is_symlink():
+            raise ValueError('INTERNAL_NOTIFICATION_SCOPE_INVALID')
+        # Delivery belongs to the native notification command, never this
+        # minute trading call. Enqueued is explicitly different from SENT.
+        event_id = InternalOutbox(TeamMeetingStore(directory/'team.db')).enqueue(
+            account_id='local-paper',trade_date=now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat(),
+            kind=kind,source_id=hashlib.sha256(key.encode()).hexdigest(),observed_at=now,
+            skip_policy=True,
+            body=dict(msg_type='text',content=dict(text=title+'\n'+'\n'.join(lines))))
+        return dict(status='QUEUED_INTERNAL',event_id=event_id)
+
+    def _send(self, *, delivery_key, kind, source_id, title, lines, summary, now):
+        # The optional root preserves the public library API. Both production
+        # composition roots explicitly install the 0881 contract below.
+        if self.policy_root is None:
+            return self._send_legacy(delivery_key=delivery_key,kind=kind,source_id=source_id,
+                title=title,lines=lines,summary=summary,now=now)
+        existing = self.store.get_delivery_by_key(delivery_key)
+        if existing is not None:
+            return dict(status=existing['status'],duplicate=True,delivery_id=existing['delivery_id'])
+        from .notification_policy import NotificationPolicy
+        policy = NotificationPolicy(self.policy_root/'state'/'notification_policy.sqlite3')
+        title = title + '｜' + now.astimezone(ZoneInfo('Asia/Shanghai')).strftime('%H:%M 北京时间')
+        body = list(lines)
+        trace = []
+        def visible(match):
+            code = match.group(0)
+            if code in {'A1','A2','A3','A4','A5','A6','PM','CAS','VWAP','MACD','T1','T2'}:
+                return code
+            trace.append(code)
+            translated=(_DISPLAY_LABELS.get(code) or _ACTION_LABELS.get(code) or _STRATEGY_LABELS.get(code)
+                or {'READY':'已就绪','MET':'已满足','UNMET':'未满足','NO_ACTION':'不动',
+                    'PROBE':'试探仓','WATCH':'观察','SIGNAL_READY':'技术条件成立',
+                    'BLOCKED':'已拒绝','FAILED':'失败','PUBLISHED':'已发布','NOT_PUBLISHED':'未发布',
+                    'PENDING_A4':'等待盘中确认','REQUIRED':'必须满足'}.get(code))
+            if translated is None:
+                raise ValueError('NOTIFICATION_LABEL_MISSING:'+code)
+            return translated
+        body = [re.sub(r'\b[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)*\b',visible,line) for line in body]
+        if any(re.search(r'\b(?:None|null)\b|未识别',line) for line in body):
+            raise ValueError('NOTIFICATION_VALUE_CONTRACT_INVALID')
+        if not summary.get('symbol') and not summary.get('symbols'):
+            body.append('• 单股当前价、入场区间、止损、禁追价及形态条件：不适用。')
+        if not any(token in '\n'.join(body) for token in ('下一','等待','无需','处理：','执行状态','系统将')):
+            body.append('• 接下来：系统按原计划与数据、仓位和风控门处理；此通知不构成放行。')
+        body.append('追溯：'+source_id+('；'+','.join(sorted(set(trace))) if trace else ''))
+        payload=dict(title=title,lines=body,summary=dict(summary),source_id=source_id)
+        state = str(summary.get('state') or summary.get('output_state') or summary.get('status') or
+            summary.get('action') or kind)
+        observed = policy.observe(event_key=delivery_key,kind=kind,symbol=str(summary.get('symbol') or ''),
+            state=state,now=now,payload=payload)
+        if observed['disposition'] != 'IMMEDIATE':
+            return dict(status=observed['disposition'],group_id=observed['group_id'])
+        channels=observed['routes']
+        if summary.get('native_internal_event_id'):
+            channels=tuple(c for c in channels if c!='INTERNAL')
+            policy.receipt(delivery_key,'INTERNAL',str(summary.get('native_internal_status') or 'QUEUED_INTERNAL'),
+                dict(event_id=summary['native_internal_event_id'],existing_native_event=True))
+        return self._deliver_policy(policy,delivery_key,kind,payload,channels,now)
+
+    def _deliver_policy(self, policy, key, kind, payload, channels, now):
+        results = {}
+        for channel in channels:
+            if channel == 'INTERNAL':
+                result = self._internal_notice(key=key,kind=kind,title=payload['title'],lines=payload['lines'],now=now)
+            else:
+                result = self._send_legacy(delivery_key=key,kind=kind,source_id=payload['source_id'],
+                    title=payload['title'],lines=payload['lines'],summary=payload['summary'],now=now)
+            policy.receipt(key,channel,result['status'],result)
+            results[channel] = result
+        return dict(status=results.get('CUSTOMER',results.get('INTERNAL',{})).get('status'),routes=results)
+
+    def flush_notification_summaries(self, *, now, close_day=False):
+        if self.policy_root is None:
+            return []
+        from .notification_policy import NotificationPolicy
+        policy=NotificationPolicy(self.policy_root/'state'/'notification_policy.sqlite3')
+        output=[]
+        for group in policy.claim_summaries(now=now,close_day=close_day,owner='workflow'):
+            payload=group['payload']
+            first=_time_label(group['first_at']);last=_time_label(group['last_at'])
+            payload={**payload,'title':'重复事件汇总｜'+payload['title'],
+                'lines':[f"• 同类同状态共{group['count']}次；首条{first}，末条{last}。",*payload['lines']]}
+            output.append(self._deliver_policy(policy,group['event_key'],group['kind'],payload,group['routes'],now))
+        return output
 
     def publish_premarket(
         self,
@@ -1392,7 +1494,23 @@ class WorkflowLarkPublisher:
                 "• 本系统仅做本地模拟研究，不连接真实账户，不发送真实订单。",
             ]
         )
+        engineering=[]
+        if self.policy_root is not None:
+            engineering.append(self._send(delivery_key=f'a5-engineering:{review_id}',
+                kind=notification_kind+'_ENGINEERING',source_id=review_id,
+                title=f'A5工程复盘｜{trade_date}',lines=lines,
+                summary=dict(trade_date=trade_date,review_kind=review_kind),now=now))
+            counts=(facts.get('key_count_reconciliation') or {}).get('actual') or {}
+            def number(value):
+                return str(value) if type(value) is int else '不可用'
+            lines=[f'• 今日计划：{number(metrics.get("a3_plan_count"))}只。',
+                f'• 已发布交易信号：{number(metrics.get("a4_trade_signal_count"))}条；技术候选不等于已发布信号。',
+                f'• 成交记录：{number(counts.get("fills"))}笔；以成交账本为准。',
+                '• 主要风险：'+('部分证据不可用，未核实字段不作结论。' if data_quality.get('missing_components') else
+                    '信号不代表成交，仍须逐只满足执行与风控门。'),
+                '• 接下来：系统按自然调度继续核验，复盘提案待审，不自动改变策略。']
         return [
+            *engineering,
             self._send(
                 delivery_key=f"a5-review:{review_id}",
                 kind=notification_kind,
@@ -1674,12 +1792,14 @@ class WorkflowLarkPublisher:
             symbol = _stock_code(event.get("symbol") or event_payload.get("symbol") or plan.get("symbol"))
             name = _text(payload.get("name"), limit=30, fallback="名称未提供")
             strategy = _STRATEGY_LABELS.get(str(payload.get("strategy_profile") or ""), _display_text(payload.get("strategy_profile"), limit=40, fallback="按个股计划执行"))
-            met_values=event.get("met_conditions") or strategy_result.get("met_conditions") or payload.get("met_conditions")
-            unmet_values=event.get("unmet_conditions") or strategy_result.get("unmet_conditions") or payload.get("unmet_conditions")
+            # An A3 authored condition list is not an A4 same-tick result.
+            # Empty lists are valid zero; absence is explicitly unavailable.
+            met_values=event.get("met_conditions") if 'met_conditions' in event else strategy_result.get("met_conditions")
+            unmet_values=event.get("unmet_conditions") if 'unmet_conditions' in event else strategy_result.get("unmet_conditions")
             met = _condition_summary(met_values)
             unmet = _condition_summary(unmet_values)
             veto = _display_items(event.get("veto_conditions") or strategy_result.get("veto_conditions") or payload.get("veto_conditions"), limit=3)
-            source_id = f"{event.get('lane_id') or ''}:{plan_id}:{action}"
+            source_id = str(event.get('event_id') or f"{event.get('lane_id') or ''}:{plan_id}:{action}:{event.get('minute_end')}")
             title = f"A4 盘中信号｜{name}（{symbol}）｜{_ACTION_LABELS.get(action, _display_text(action))}"
             contract = event_payload.get("entry_contract") or {}
             decision_context = (
@@ -1726,6 +1846,7 @@ class WorkflowLarkPublisher:
                 "**条件核对**",
                 f"• 已满足：{met}",
                 f"• 未满足：{unmet}",
+                f"• 条件计数：满足{len(met_values) if isinstance(met_values,(list,tuple)) else '不可用'} / 未满足{len(unmet_values) if isinstance(unmet_values,(list,tuple)) else '不可用'}；仅引用该轮原件。",
                 f"• 否决边界：{'；'.join(veto) if veto else '无新增否决条件'}",
                 "",
                 "**价格纪律**",
@@ -1733,6 +1854,10 @@ class WorkflowLarkPublisher:
             ]
             if not is_data_alert and action in {"BUY_SIGNAL", "ADD_SIGNAL"}:
                 lines.extend(_a4_decision_lines(decision_context))
+            if judge_timeout:
+                lines.append('• 接下来：本轮复核没有有效结论；不以超时推定买入，下一自然节拍按原门复核。')
+            elif is_data_alert:
+                lines.append('• 接下来：等待该计划所需证据恢复，仍按原数据与风控门拒绝不合格入场。')
             outputs.append(
                 self._send(
                     delivery_key=f"a4:{source_id}",

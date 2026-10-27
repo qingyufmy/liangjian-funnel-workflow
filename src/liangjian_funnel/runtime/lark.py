@@ -155,11 +155,17 @@ class LarkNotifier:
         color = str(color or "").strip().lower()
         if color not in NOTIFICATION_CARD_COLORS:
             raise ValueError("LARK_CARD_COLOR_INVALID")
+        trace_lines = [line for line in body_text.splitlines() if line.startswith('追溯：')]
+        if trace_lines:
+            body_text = '\n'.join(line for line in body_text.splitlines() if not line.startswith('追溯：'))
+        elements = [{"tag":"div","text":{"tag":"lark_md","content":body_text}}]
+        if trace_lines:
+            elements.append({"tag":"note","elements":[{"tag":"plain_text","content":"\n".join(trace_lines)}]})
         return {
             "msg_type": "interactive",
             "card": {
                 "header": {"template": color, "title": {"tag": "plain_text", "content": title}},
-                "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": body_text}}],
+                "elements": elements,
             },
         }
 

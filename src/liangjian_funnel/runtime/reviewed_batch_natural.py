@@ -206,7 +206,7 @@ def finish_natural_candidate(settings, candidate, *, calendar,observed_at=None):
     from zoneinfo import ZoneInfo
     from .lark_notifications import WorkflowLarkPublisher
     publisher=WorkflowLarkPublisher(store,None,webhook_path=settings.lark_webhook_path,
-        timeout_seconds=settings.lark_timeout_seconds)
+        timeout_seconds=settings.lark_timeout_seconds,policy_root=settings.root)
     try:
         notification=publisher.publish_batch_switch_status(trade_date=body['trade_date'],scope_id=scope,
             plan_count=len(body['plan_rows']),body_sha256=candidate['body_sha256'],

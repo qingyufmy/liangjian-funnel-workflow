@@ -78,6 +78,21 @@ class InternalSender:
 
     def send(self, body):
         text = _body_text(body)
+        return self._send_json(text)
+
+    def send_event(self, body, *, kind, observed_at, event_id):
+        original = _body_text(body)
+        from .notification_presentation import native_card
+        card=native_card(kind=kind,body=body,observed_at=observed_at,event_id=event_id)
+        wire=canonical(card)
+        if len(wire.encode())>32768:
+            raise ValueError('INTERNAL_CARD_TOO_LARGE')
+        result=self._send_json(wire)
+        self.last_receipt.update(original_body_sha256=hashlib.sha256(original.encode()).hexdigest(),
+            rendered_body_sha256=hashlib.sha256(wire.encode()).hexdigest())
+        return result
+
+    def _send_json(self, text):
         self.last_receipt = {'http_status':None,'provider_code':None,'provider_message_sha256':None}
         destination = self._destination()
         if destination is None:
@@ -137,7 +152,8 @@ class InternalOutbox:
                     event_id TEXT PRIMARY KEY,noticed_at TEXT NOT NULL);
             ''')
 
-    def enqueue(self, *, account_id, trade_date, kind, source_id, body, observed_at, priority=50):
+    def enqueue(self, *, account_id, trade_date, kind, source_id, body, observed_at, priority=50,
+            skip_policy=False, notification_state=None, symbol=''):
         text = _body_text(body)
         if not all(isinstance(item, str) and 0 < len(item) <= 256
                    for item in (account_id, kind, source_id)):
@@ -156,9 +172,21 @@ class InternalOutbox:
                 if row != (text, digest, priority):
                     raise ValueError('INTERNAL_EVENT_BINDING_CONFLICT')
                 return event_id
+            disposition='IMMEDIATE'
+            if not skip_policy and getattr(self.store,'path',None) is not None:
+                from .notification_policy import NotificationPolicy
+                parent=self.store.path.parent
+                policy_path=(parent.parent if parent.name=='team_v2' else parent)/'notification_policy.sqlite3'
+                policy_kind=kind+':'+source_id.split(':',1)[0] if kind=='ALERT' else kind
+                decision=NotificationPolicy(policy_path).observe(event_key='native:'+event_id,kind=policy_kind,
+                    symbol=symbol,state=notification_state or kind,now=observed_at,
+                    payload=dict(body=body,kind=kind,source_id=source_id),immediate=source_id.startswith('node-identity:'))
+                disposition=decision['disposition']
             db.execute('INSERT INTO team_notifications(event_id,account_id,trade_date,kind,source_id,observed_at,'
                 'priority,body_json,body_sha256) VALUES (?,?,?,?,?,?,?,?,?)',
                 (event_id, account_id, trade_date, kind, source_id, observed_at.isoformat(), priority, text, digest))
+            if disposition=='MERGED':
+                db.execute("UPDATE team_notifications SET status='MERGED',result_code='INTERNAL_POLICY_MERGED' WHERE event_id=?",(event_id,))
         return event_id
 
     def record_guard_rejection(self, account_id, trade_date, decision_id):
@@ -173,17 +201,33 @@ class InternalOutbox:
         day = _day(now)
         if type(maximum) is not int or not 1 <= maximum <= 3:
             raise ValueError('INTERNAL_FLUSH_BOUND_INVALID')
+        if getattr(self.store,'path',None) is not None:
+            from .notification_policy import NotificationPolicy
+            parent=self.store.path.parent
+            policy=NotificationPolicy((parent.parent if parent.name=='team_v2' else parent)/'notification_policy.sqlite3')
+            local=now.astimezone(_ZONE)
+            for group in policy.claim_summaries(now=now,close_day=(local.hour,local.minute)>=(17,55),owner='native'):
+                payload=group['payload']
+                # Workflow card groups are claimed by their publisher; only
+                # native text groups are emitted through this native command.
+                if 'body' not in payload:
+                    continue
+                first=datetime.fromisoformat(group['first_at']).astimezone(_ZONE).strftime('%H:%M:%S')
+                last=datetime.fromisoformat(group['last_at']).astimezone(_ZONE).strftime('%H:%M:%S')
+                body=dict(msg_type='text',content=dict(text=f"重复告警汇总：共{group['count']}次；首条{first}，末条{last}（北京时间）。\n"+payload['body']['content']['text']))
+                self.enqueue(account_id='local-paper',trade_date=day,kind=payload['kind'],source_id=group['event_key'],
+                    body=body,observed_at=now,skip_policy=True)
         result = dict(attempted=0, sent=0, reason_code='INTERNAL_FLUSH_COMPLETED')
         if not sender.ready():
             return dict(result, reason_code='INTERNAL_WEBHOOK_NOT_CONFIGURED')
         for _ in range(maximum):
             with closing(self.store._connect()) as db, db:
                 db.execute('BEGIN IMMEDIATE')
-                row = db.execute("SELECT event_id,body_json,body_sha256 FROM team_notifications "
+                row = db.execute("SELECT event_id,body_json,body_sha256,kind,observed_at FROM team_notifications "
                     "WHERE trade_date=? AND status='PENDING' ORDER BY priority,event_id LIMIT 1", (day,)).fetchone()
                 if row is None:
                     break
-                event_id, text, digest = row
+                event_id, text, digest, kind, observed_at = row
                 if hashlib.sha256(text.encode()).hexdigest() != digest:
                     raise ValueError('INTERNAL_CARD_HASH_MISMATCH')
                 body = json.loads(text)
@@ -191,7 +235,9 @@ class InternalOutbox:
                 db.execute("UPDATE team_notifications SET status='SENDING' WHERE event_id=?", (event_id,))
             result['attempted'] += 1
             try:
-                outcome = sender.send(body)
+                send_event = getattr(sender,'send_event',None)
+                outcome = (send_event(body,kind=kind,observed_at=observed_at,event_id=event_id)
+                    if callable(send_event) else sender.send(body))
             except Exception:
                 outcome = 'UNKNOWN'
             if outcome not in {'SENT', 'REJECTED', 'NOT_CONFIGURED'}:
@@ -201,7 +247,8 @@ class InternalOutbox:
                 db.execute("UPDATE team_notifications SET status=?,result_code=? WHERE event_id=? AND status='SENDING'",
                     (status, 'INTERNAL_' + outcome, event_id))
                 receipt=getattr(sender,'last_receipt',{})
-                allowed={'http_status','provider_code','provider_message_sha256','provider_message_bytes','message_class'}
+                allowed={'http_status','provider_code','provider_message_sha256','provider_message_bytes','message_class',
+                    'original_body_sha256','rendered_body_sha256'}
                 safe={key:value for key,value in receipt.items() if key in allowed}
                 db.execute('INSERT OR IGNORE INTO team_internal_delivery_receipts VALUES (?,?,?)',
                     (event_id,now.isoformat(),canonical(safe)))

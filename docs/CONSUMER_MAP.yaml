@@ -698,3 +698,35 @@ first_full_categories_initial:
 - Windows non-UTF8 child/long-path/non-ASCII fixture paths; second short-ASCII full
   will verify
 - two residual test-isolation/receipt cases still under verification
+
+notification_contract_0881:
+  status: IMPLEMENTED_CURRENT_HEAD_TARGETED_PASS_FULL_PENDING
+  producer_files:
+  - runtime/notification_policy.py
+  - runtime/notification_presentation.py
+  - runtime/lark_notifications.py
+  - runtime/team_v2_internal.py
+  consumers:
+  - consumer: native internal sender and original notification ledger
+    disposition: changed; original body/hash immutable, readable wire card and rendered hash separate
+    tests: [test_team_v2_internal.py, test_push_contract_0875.py]
+  - consumer: customer morning/fallback/position channels
+    disposition: changed; both real composition roots enable routing; dual status projection from native originals
+    tests: [test_d8_contract_0881.py, test_workflow_lark_notifications.py]
+  - consumer: minute monitor and dedicated internal command
+    disposition: changed; window summary flush; no model/risk/plan/authority mutation
+    tests: [test_push_contract_0875.py]
+  - consumer: A5 customer and internal review
+    disposition: changed; customer key-count summary, engineering details internal; unavailable stays unavailable
+    tests: [test_a5_key_counts_0881.py, test_a5_daily_review.py, test_d8_contract_0881.py]
+  - consumer: card archive and UI snapshots
+    disposition: changed; exact original and derived wire hash; 13 original/11 controlled HTML, original wire limitations explicit
+    tests: [test_d8_contract_0881.py]
+  - consumer: trading strategy, risk admission, position sizing, model vote authority
+    disposition: unaffected by notification policy; no calls back from notice policy; T2 remains Train B
+    tests: [test_d5_day_replay_0837.py]
+a7_scope_0881:
+  mandatory: None/BJT/pattern conditions/audit unavailable/shared replay/key count ledger gate
+  key_counts: plans/monitor rows/stock minute rows/published signals/Team attempts/fills
+  full_per_number_provenance: DEFERRED_TRAIN_B_BY_0881_NOT_CLAIMED_COMPLETE
+  raw_request_history_missing: UNKNOWN_NO_FABRICATED_RECONSTRUCTION

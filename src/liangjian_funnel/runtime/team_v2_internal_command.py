@@ -30,6 +30,11 @@ def run_internal_delivery(settings, *, clock=None, calendar=None, sender=None):
     projector = InternalEventProjector(outbox)
     projection = projector.project(paper_path=directory/'paper.db', account_id=ACCOUNT, now=now,
         rule_alert_path=directory/'rules'/(now.date().isoformat()+'.alert.json'))
+    from .notification_customer_status import publish_customer_status
+    try:
+        customer_status=publish_customer_status(settings,store,now=now)
+    except (OSError,ValueError,KeyError,TypeError) as exc:
+        customer_status=[dict(status='FAILED',reason_code='CUSTOMER_STATUS_PROJECTION_FAILED',exception_class=type(exc).__name__)]
     sender = sender or InternalSender(settings.root.parent/'liangjian-shadow/internal_alert.env', env=os.environ)
     delivery = outbox.flush(sender, now=now, maximum=3)
     projector.sync_acknowledgments(account_id=ACCOUNT, trade_date=now.date().isoformat())
@@ -39,4 +44,5 @@ def run_internal_delivery(settings, *, clock=None, calendar=None, sender=None):
         attempted=delivery['attempted'], sent=delivery['sent'],
         pending=delivery.get('pending'),unconfirmed=delivery.get('unconfirmed'),
         delivery_health='UNCONFIRMED' if delivery.get('unconfirmed') else 'CONFIRMED',
-        new_failure_notices=delivery.get('new_failure_notices',0),node_identity=node_identity,slow_warning=slow_warning)
+        new_failure_notices=delivery.get('new_failure_notices',0),node_identity=node_identity,slow_warning=slow_warning,
+        customer_status_notifications=customer_status)
