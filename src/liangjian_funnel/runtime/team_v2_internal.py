@@ -83,13 +83,14 @@ class InternalSender:
     def send_event(self, body, *, kind, observed_at, event_id):
         original = _body_text(body)
         from .notification_presentation import native_card
-        card=native_card(kind=kind,body=body,observed_at=observed_at,event_id=event_id)
+        diagnostics={}
+        card=native_card(kind=kind,body=body,observed_at=observed_at,event_id=event_id,diagnostics=diagnostics)
         wire=canonical(card)
         if len(wire.encode())>32768:
             raise ValueError('INTERNAL_CARD_TOO_LARGE')
         result=self._send_json(wire)
         self.last_receipt.update(original_body_sha256=hashlib.sha256(original.encode()).hexdigest(),
-            rendered_body_sha256=hashlib.sha256(wire.encode()).hexdigest())
+            rendered_body_sha256=hashlib.sha256(wire.encode()).hexdigest(),**diagnostics)
         return result
 
     def _send_json(self, text):
@@ -234,11 +235,29 @@ class InternalOutbox:
                 _body_text(body)
                 db.execute("UPDATE team_notifications SET status='SENDING' WHERE event_id=?", (event_id,))
             result['attempted'] += 1
+            wire_archive={};failure_receipt={}
             try:
                 send_event = getattr(sender,'send_event',None)
+                if callable(send_event) and getattr(self.store,'path',None) is not None:
+                    from .notification_presentation import native_card
+                    card=native_card(kind=kind,body=body,observed_at=observed_at,event_id=event_id)
+                    wire=canonical(card).encode();wire_sha=hashlib.sha256(wire).hexdigest()
+                    directory=self.store.path.parent/'internal_cards'/day
+                    if directory.is_symlink() or directory.parent.is_symlink():raise ValueError('INTERNAL_CARD_ARCHIVE_SCOPE_INVALID')
+                    directory.mkdir(parents=True,exist_ok=True)
+                    path=directory/(event_id+'.'+wire_sha[:12]+'.json')
+                    if path.exists():
+                        if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest()!=wire_sha:
+                            raise ValueError('INTERNAL_CARD_ARCHIVE_CONFLICT')
+                    else:
+                        with path.open('xb') as stream:stream.write(wire)
+                    wire_archive=dict(rendered_card_path=str(path),rendered_card_sha256=wire_sha)
                 outcome = (send_event(body,kind=kind,observed_at=observed_at,event_id=event_id)
                     if callable(send_event) else sender.send(body))
-            except Exception:
+            except Exception as exc:
+                reason=str(exc)
+                failure_receipt=dict(exception_class=type(exc).__name__,failure_code=(reason
+                    if re.fullmatch(r'[A-Z0-9_:.]{1,160}',reason) else 'INTERNAL_RENDER_OR_TRANSPORT_FAILED'))
                 outcome = 'UNKNOWN'
             if outcome not in {'SENT', 'REJECTED', 'NOT_CONFIGURED'}:
                 outcome = 'UNKNOWN'
@@ -248,8 +267,9 @@ class InternalOutbox:
                     (status, 'INTERNAL_' + outcome, event_id))
                 receipt=getattr(sender,'last_receipt',{})
                 allowed={'http_status','provider_code','provider_message_sha256','provider_message_bytes','message_class',
-                    'original_body_sha256','rendered_body_sha256'}
+                    'original_body_sha256','rendered_body_sha256','unmapped_code_counts'}
                 safe={key:value for key,value in receipt.items() if key in allowed}
+                safe.update(wire_archive);safe.update(failure_receipt)
                 db.execute('INSERT OR IGNORE INTO team_internal_delivery_receipts VALUES (?,?,?)',
                     (event_id,now.isoformat(),canonical(safe)))
             result['sent'] += outcome == 'SENT'

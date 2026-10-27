@@ -8,10 +8,10 @@ def publish_customer_status(settings, store, *, now):
     from .notification_policy import DUAL_KINDS
     from .notification_presentation import native_card
     from .lark_notifications import WorkflowLarkPublisher
-    from .state import RuntimeStore
+    from .notification_delivery_ledger import NotificationDeliveryLedger
     # The caller is the dedicated notification command, not the A4 model path.
-    publisher=WorkflowLarkPublisher(RuntimeStore(settings.state_db_path),None,
-        webhook_path=settings.lark_webhook_path,timeout_seconds=settings.lark_timeout_seconds,
+    publisher=WorkflowLarkPublisher(NotificationDeliveryLedger(settings.root/'state'/'notification_policy.sqlite3'),None,
+        webhook_path=getattr(settings,'lark_webhook_path',None),timeout_seconds=getattr(settings,'lark_timeout_seconds',8),
         policy_root=settings.root)
     day=now.date().isoformat()
     with closing(store._connect()) as db:

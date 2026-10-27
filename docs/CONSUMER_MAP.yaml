@@ -730,3 +730,25 @@ a7_scope_0881:
   key_counts: plans/monitor rows/stock minute rows/published signals/Team attempts/fills
   full_per_number_provenance: DEFERRED_TRAIN_B_BY_0881_NOT_CLAIMED_COMPLETE
   raw_request_history_missing: UNKNOWN_NO_FABRICATED_RECONSTRUCTION
+
+review_0889_corrections:
+  source_head_before_fix: defe055b052aa8cef88b204c44f46088cfedc000
+  original_full_status: FAILED_13_ORIGINALS_RETAINED
+  core_repairs:
+  - customer status uses dedicated notification receipt ledger, never constructs Legacy RuntimeStore
+  - native full rendered wire archived before HTTP with source/rendered hashes and failure reason classification
+  - historical controlled cache tests freeze provider/recorder clocks together, not production clock
+  rendering:
+  - plan page actual activation state and A4 authored entry rules; positive basis and negative risk separate
+  - model network unavailability separated from data missing
+  - customer A5 concrete original blocker count, no single-stock not-applicable row, one next action
+  tests:
+  - test_h1_review_close.py
+  - test_team_v2_internal_command.py
+  - test_team_v2_internal_events.py
+  - test_team_v2_internal.py
+  - test_postclose_outputs_0837.py
+  - test_r4_scope_0858.py
+  - test_d8_contract_0881.py
+  latest_targeted_run: run-20261027T170912956243
+  current_full: PENDING_NEW_HEAD_NOT_REUSED

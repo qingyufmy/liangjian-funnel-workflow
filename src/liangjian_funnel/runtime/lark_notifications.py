@@ -93,6 +93,7 @@ _LIVE_MARKET_REASON_LABELS = {
 }
 
 _DISPLAY_LABELS = {
+    'REQUIRED':'必须满足','PENDING_A4':'等待盘中确认','NOT_PUBLISHED':'未发布',
     'A3_PULLBACK_ZONE':'原计划回踩区间',
     'A3_RIGHT_SIDE_CONFIRMATION':'原计划右侧确认条件',
     'A3_RIGHT_SIDE_CONFIRMATION_MISSING':'原计划缺少右侧确认条件',
@@ -944,9 +945,9 @@ class WorkflowLarkPublisher:
         body = [re.sub(r'\b[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)*\b',visible,line) for line in body]
         if any(re.search(r'\b(?:None|null)\b|未识别',line) for line in body):
             raise ValueError('NOTIFICATION_VALUE_CONTRACT_INVALID')
-        if not summary.get('symbol') and not summary.get('symbols'):
+        if not summary.get('symbol') and not summary.get('symbols') and kind not in {'A5_MIDDAY_REVIEW','A5_POST_CLOSE_REVIEW'}:
             body.append('• 单股当前价、入场区间、止损、禁追价及形态条件：不适用。')
-        if not any(token in '\n'.join(body) for token in ('下一','等待','无需','处理：','执行状态','系统将')):
+        if not any(token in '\n'.join(body) for token in ('接下来','下一步','下一','等待','无需','处理：','执行状态','系统将','交运维','不下单','不重跑')):
             body.append('• 接下来：系统按原计划与数据、仓位和风控门处理；此通知不构成放行。')
         body.append('追溯：'+source_id+('；'+','.join(sorted(set(trace))) if trace else ''))
         payload=dict(title=title,lines=body,summary=dict(summary),source_id=source_id)
@@ -1021,9 +1022,10 @@ class WorkflowLarkPublisher:
             lines = [
                 "**早盘复核结果**",
                 f"• {reviewed_at.strftime('%m月%d日 %H:%M')} 完成复核，{len(ordered)} 只计划进入盘中监测。",
-                f"• 重点方向：{'、'.join(themes[:5]) if themes else '以已验证板块为准'}。",
                 f"• 适用策略：{'、'.join(strategies) if strategies else '按个股计划执行'}。",
             ]
+            if themes:
+                lines.insert(2,f"• 重点方向：{'、'.join(themes[:5])}。")
             symbols: list[str] = []
             source_ids: list[str] = []
             for row in chunk:
@@ -1035,17 +1037,28 @@ class WorkflowLarkPublisher:
                 symbols.append(symbol)
                 source_ids.append(_text(payload.get("source_run_id"), limit=160, fallback=""))
                 strategy = _STRATEGY_LABELS.get(str(payload.get("strategy_profile") or ""), _display_text(payload.get("strategy_profile"), limit=40, fallback="按个股计划执行"))
-                reasons = _display_items(payload.get("selection_reasons") or payload.get("reason_codes"), limit=2)
-                conditions = _display_items(payload.get("required_conditions"), limit=3)
+                reason_codes=_items(payload.get("selection_reasons") or payload.get("reason_codes"),limit=100)
+                risks=[];reasons=[]
+                for code in reason_codes:
+                    rendered=_display_text(code,limit=180)
+                    if any(token in str(code) for token in ('BELOW','MISSING','NOT_READY','RISK','REJECT','OVEREXTEND','CONFLICT','DEGRADED')) or any(token in rendered for token in ('低于','缺失','风险','不足','超限','未通过')):
+                        risks.append(rendered)
+                    else:reasons.append(rendered)
+                confirmation=payload.get('entry_confirmation')
+                confirmation=confirmation.get('required_conditions') if isinstance(confirmation,Mapping) else None
+                conditions = _display_items(confirmation or payload.get('a4_required_entry_rules') or payload.get('confirmation_conditions'), limit=3)
+                actual_status={'ACTIVE_TODAY':'已激活，仍待盘中条件确认','PENDING_MORNING_REVIEW':'等待自然晨会审核',
+                    'PENDING':'待激活','INVALIDATED':'已失效，停止新入场'}.get(str(row.get('status')),'状态尚未核实')
                 auction = evidence.get(symbol_raw) or evidence.get(symbol) or {}
                 auction_price = auction.get("price") if isinstance(auction, Mapping) else None
                 lines.extend(
                     [
                         f"\n**{name}（{symbol}）｜{strategy}**",
-                        f"• 入选依据：{'；'.join(reasons) if reasons else '已通过 A3 确定性技术计划'}",
-                        f"• 状态边界：日线设置 {_display_text(presentation.get('daily_setup_state'), limit=30)}；A4确认 {_display_text(presentation.get('a4_confirmation_state'), limit=30)}；当前入场资格 {_display_text(presentation.get('current_entry_eligibility'), limit=30)}；计划有效性 {_display_text(presentation.get('plan_validity_state'), limit=30)}",
+                        f"• 入选依据：{'；'.join(reasons[:2]) if reasons else 'A3 日线计划通过'}",
+                        f"• 风险提示：{'；'.join(risks[:3]) if risks else '仍需盘中确认，未触发不交易。'}",
+                        f"• 计划状态：{actual_status}。",
                         f"• 价格计划：触发区 {_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}；止损 {_number(payload.get('stop_level'))}；禁止追价 {_number(payload.get('no_chase_price') or payload.get('max_chase_price'))}",
-                        f"• 早盘价格：{_number(auction_price)}；确认条件：{'；'.join(conditions) if conditions else '按计划触发条件执行'}",
+                        f"• 早盘价格：{_number(auction_price)}；入场确认：{'；'.join(conditions) if conditions else '原计划未留存具体盘中确认条件，待核验。'}",
                     ]
                 )
                 if str(payload.get("strategy_profile") or "") == "LEADER_INTRADAY":
@@ -1503,11 +1516,16 @@ class WorkflowLarkPublisher:
             counts=(facts.get('key_count_reconciliation') or {}).get('actual') or {}
             def number(value):
                 return str(value) if type(value) is int else '不可用'
+            from ..review.fact_guard import execution_blocker_counts
+            blockers=execution_blocker_counts(facts)
+            risk=(f"今日旧发布通道{blockers.get('JUDGE_TIMEOUT',0)}条技术候选受复核超时阻断；不能据此认定成交或漏单。"
+                if blockers.get('JUDGE_TIMEOUT') else
+                'A2审计数据不可用，未将其写成零候选。' if metrics.get('a2_availability')=='NOT_AVAILABLE' else
+                '尚无足够已成交样本检验收益，信号不代表成交。')
             lines=[f'• 今日计划：{number(metrics.get("a3_plan_count"))}只。',
                 f'• 已发布交易信号：{number(metrics.get("a4_trade_signal_count"))}条；技术候选不等于已发布信号。',
                 f'• 成交记录：{number(counts.get("fills"))}笔；以成交账本为准。',
-                '• 主要风险：'+('部分证据不可用，未核实字段不作结论。' if data_quality.get('missing_components') else
-                    '信号不代表成交，仍须逐只满足执行与风控门。'),
+                '• 主要风险：'+risk,
                 '• 接下来：系统按自然调度继续核验，复盘提案待审，不自动改变策略。']
         return [
             *engineering,
@@ -1813,6 +1831,9 @@ class WorkflowLarkPublisher:
                 title = f"A4 数据告警｜{name}（{symbol}）｜{'行情或执行数据未就绪' if action == 'DATA_BLOCK' else '入场契约未就绪'}"
             judge_timeout=event.get('reason_code') in {'MONITOR_OVERRUN','MODEL_WALL_CLOCK_TIMEOUT','TRADER_GLOBAL_DEADLINE_EXCEEDED'}
             if judge_timeout:title=f"A4 模型超时｜{name}（{symbol}）｜本轮未形成有效裁决"
+            network_unavailable=(action=='DATA_BLOCK' and (str(event_payload.get('diagnostic_code') or strategy_result.get('llm_reason_code') or '').startswith('NETWORK')
+                or data_reason in {'NETWORK_ERROR','MODEL_NETWORK_ERROR'}))
+            if network_unavailable:title=f"A4 模型复核不可用（网络）｜{name}（{symbol}）"
             eligibility = strategy_result.get("execution_eligibility") or {}
             execution_lines: list[str] = []
             if action in {"BUY_SIGNAL", "ADD_SIGNAL"}:
@@ -1836,11 +1857,11 @@ class WorkflowLarkPublisher:
                     f"• 总持仓：{eligibility.get('total_qty', '未核实')}股；可卖：{eligibility.get('sellable_qty') if eligibility.get('sellable_qty') is not None else '未核实'}股",
                     f"• {explanation}"]
             lines = [
-                "**模型复核超时，不是数据缺失或交易信号**" if judge_timeout else "**数据条件告警，不是交易信号**" if is_data_alert else "**盘中交易条件触发**",
+                "**模型复核不可用（网络），不是数据缺失或交易信号**" if network_unavailable else "**模型复核超时，不是数据缺失或交易信号**" if judge_timeout else "**数据条件告警，不是交易信号**" if is_data_alert else "**盘中交易条件触发**",
                  f"• 时间：{_time_label(event.get('minute_end') or now.isoformat())}",
                 f"• 股票：{name}（{symbol}）",
                 f"• 策略：{strategy}",
-                f"• 动作：{_ACTION_LABELS['JUDGE_TIMEOUT'] if judge_timeout else _ACTION_LABELS.get(action, _display_text(action))}",
+                f"• 动作：{'模型复核不可用（网络）' if network_unavailable else _ACTION_LABELS['JUDGE_TIMEOUT'] if judge_timeout else _ACTION_LABELS.get(action, _display_text(action))}",
                 f"• 触发原因：{_display_text(event.get('reason_code'), limit=100, fallback='确定性条件成立')}",
                 "",
                 "**条件核对**",
@@ -1854,7 +1875,9 @@ class WorkflowLarkPublisher:
             ]
             if not is_data_alert and action in {"BUY_SIGNAL", "ADD_SIGNAL"}:
                 lines.extend(_a4_decision_lines(decision_context))
-            if judge_timeout:
+            if network_unavailable:
+                lines.append('• 接下来：本轮模型网络请求未取得可用回复；保留失败证据，按原自然节拍处理，不人工放行。')
+            elif judge_timeout:
                 lines.append('• 接下来：本轮复核没有有效结论；不以超时推定买入，下一自然节拍按原门复核。')
             elif is_data_alert:
                 lines.append('• 接下来：等待该计划所需证据恢复，仍按原数据与风控门拒绝不合格入场。')

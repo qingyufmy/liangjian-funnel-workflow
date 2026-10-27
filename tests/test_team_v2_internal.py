@@ -134,3 +134,17 @@ def test_rejected_provider_receipt_is_safe_and_only_new_incident_alerts_once(tmp
         proof=json.loads(db.execute('SELECT receipt_json FROM team_internal_delivery_receipts WHERE event_id=?',(event,)).fetchone()[0])
     assert proof['provider_code']==19024 and proof['http_status']==200 and proof['message_class']=='KEYWORD_POLICY'
     assert b'PRIVATE_PROVIDER_BODY' not in box.store.path.read_bytes()
+
+
+
+def test_native_wire_card_is_archived_and_hash_matches_actual_send(tmp_path):
+    box=outbox(tmp_path);event=enqueue(box)
+    send,seen=sender(tmp_path,env={'SHADOW_RESEARCH_WEBHOOK':URL})
+    assert box.flush(send,now=NOW)['sent']==1
+    with sqlite3.connect(box.store.path) as db:
+        receipt=json.loads(db.execute('SELECT receipt_json FROM team_internal_delivery_receipts WHERE event_id=?',(event,)).fetchone()[0])
+        original=db.execute('SELECT body_json,body_sha256 FROM team_notifications WHERE event_id=?',(event,)).fetchone()
+    raw=Path(receipt['rendered_card_path']).read_bytes()
+    assert hashlib.sha256(raw).hexdigest()==receipt['rendered_card_sha256']==receipt['rendered_body_sha256']
+    assert raw==seen[0].content and hashlib.sha256(original[0].encode()).hexdigest()==original[1]
+    assert json.loads(raw)['msg_type']=='interactive'

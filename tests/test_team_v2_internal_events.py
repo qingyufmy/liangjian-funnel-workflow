@@ -44,7 +44,8 @@ def test_actual_rejections_increment_once_and_threshold_alert_does_not_mutate_or
     assert hashlib.sha256(b.path.read_bytes()).hexdigest()==before
     send,seen=sender(tmp_path,env={'SHADOW_RESEARCH_WEBHOOK':URL})
     assert box.flush(send,now=stamp(tm='10:02:00'))['sent']==3
-    assert 'TRADER_SIGNAL_BLOCKED_BY_GUARDRAIL' in json.loads(seen[0].content)['content']['text']
+    assert 'TRADER_SIGNAL_BLOCKED_BY_GUARDRAIL' in json.dumps(json.loads(seen[0].content)['card']['elements'][-1])
+    assert 'TRADER_SIGNAL_BLOCKED_BY_GUARDRAIL' not in json.loads(seen[0].content)['card']['elements'][0]['text']['content']
 
 
 def test_record_mode_is_explicit_and_not_counted_as_live_guard_alert(tmp_path):

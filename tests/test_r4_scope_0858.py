@@ -11,6 +11,23 @@ O=Path('D:/dev_A股/liangjian_team_v2_20261016/artifacts/a4-monitor-20261021')
 spec=importlib.util.spec_from_file_location('global_cache_0857',O/'global_typed_cache_0857.py')
 cache=importlib.util.module_from_spec(spec);spec.loader.exec_module(cache)
 
+@pytest.fixture(autouse=True)
+def fixed_controlled_capture_clock(monkeypatch):
+    # These are historical controlled 10-27 cache examples, not a live clock
+    # gate. Freeze provider and recorder clocks together; real production
+    # clocks and the negative cross-day/window tests remain unchanged.
+    from zoneinfo import ZoneInfo
+    from liangjian_funnel.pipeline import data_source
+    from liangjian_funnel.data import gov_policy,open_news
+    at=datetime.fromisoformat('2026-10-27T20:00:00+08:00')
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls,tz=None):
+            return at.astimezone(tz) if tz else at.replace(tzinfo=None)
+    for module in (cache,data_source,gov_policy,open_news):
+        monkeypatch.setattr(module,'datetime',FixedDateTime)
+
+
 def test_original_bse307_is_explicit_unavailable_and_never_follows(tmp_path):
     gate=guard(tmp_path);sent=[]
     def transport(request):

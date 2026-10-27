@@ -6652,7 +6652,7 @@ class WorkflowApplication:
                 market_state_dir=self.settings.fact_store_dir / "a4_live_market",
             ),
             notification_publisher=self.lark_publisher,
-            ledger_root=self.settings.root,
+            ledger_root=getattr(self.settings,'root',None),
         ).run(review_kind=kind, now=current, close_archive=close_archive)
 
     def run_scheduled(

@@ -25,7 +25,7 @@ def test_actual_command_with_missing_source_is_not_ready_or_account_creation(tmp
     settings,b=prepared(tmp_path);b.path.unlink();send,seen=sender(tmp_path,env={'SHADOW_RESEARCH_WEBHOOK':URL})
     result=run_internal_delivery(settings,clock=lambda:stamp(tm='08:45:00'),calendar=CAL,sender=send)
     assert result['status']=='DATA_LIMITED' and result['sent']==1 and not b.path.exists()
-    assert '缺失' in json.loads(seen[0].content)['content']['text']
+    assert '缺失' in json.loads(seen[0].content)['card']['elements'][0]['text']['content']
 
 
 def test_independent_command_uses_fake_sender_no_model_or_legacy_store(tmp_path,monkeypatch):

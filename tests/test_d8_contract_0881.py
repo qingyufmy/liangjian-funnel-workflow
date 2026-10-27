@@ -23,7 +23,8 @@ def render(path,card,description):
 def checks(card):
     value=text(card)
     assert '北京时间' in value
-    assert not any(x in value for x in ('None','null','未识别'))
+    assert not any(x in value for x in ('None','null','未识别','原码：','标签映射告警'))
+    assert value.count('接下来')<=1
     assert any(x in value for x in ('接下来','下一','处理：','等待','执行状态','无需'))
     return dict(happened=True,key_numbers_or_explicit_not_applicable=True,next_action=True,bjt=True,forbidden_zero=True)
 
@@ -98,14 +99,14 @@ def test_real_13_and_11_controlled_current_contract(tmp_path,monkeypatch):
             route=['CUSTOMER']*(len(customer.cards)-before_c)+['INTERNAL']*(len(internal)-before_i),
             result=result,three_points=checks(sent)))
     assert len(table)==13
-    cases=[('BUY通过','A4_EFFECTIVE','688351','当前技术参考价76.21；绑定区间76.20–76.30；止损75；禁追价76.50；满足2 / 未满足0。下一完整分钟按冻结契约尝试模拟撮合，未成交不追价。'),
+    cases=[('BUY通过','A4_EFFECTIVE','688351','当前技术参考价76.21；绑定区间76.20–76.30；止损75；禁追价76.50；满足2 / 未满足0。下一分钟在76.20–76.30内模拟买入，未成交不追价。'),
         ('不动追价否决','A4_REVIEW_NO_ACTION','688351','当前价76.60高于禁追价76.50；绑定区间76.20–76.30；止损75；满足1 / 未满足1（禁止追价）。等待回落，下一自然节拍复核。'),
         ('复核超时','A4_JUDGE_TIMEOUT','688351','本轮未形成有效复核。当前技术参考价76.21；区间76.20–76.30；止损75；禁追价76.50；满足2 / 未满足0。下一自然节拍复核，不以超时推定买入。'),
         ('候选截断','A4_REVIEW_TRUNCATED','600628','候选3只，已送2只，本股未送模型；当前技术参考价6.58，区间6.57–6.59，止损6.54，禁追价6.60；满足2 / 未满足0。等待下一自然节拍，记录未复核。'),
-        ('降级开始','A4_REVIEW_ENGINE_ONLY','','连续3次有效失败触发仅引擎降级；下一步原风控外执行加严价格和总仓位50%规则，每次准入另报。'),
+        ('降级开始','A4_REVIEW_ENGINE_ONLY','','连续3次有效失败触发仅引擎降级；接下来：降级期间：仅在入场区间内、单股仓位减半、每笔准入单独通知。'),
         ('降级准入','A4_ENGINE_ONLY_ADMISSION','600628','当前技术参考价6.58；更严区间6.57–6.59；止损6.54；禁追价6.60；满足2 / 未满足0。原门核验结果拒绝，数量0；不下单，等待下个节拍。'),
         ('降级结束','A4_REVIEW_RESTORED','','本交易日首次有效模型复核已经落盘；无需操作，后续自然节拍继续模型复核。'),
-        ('原买入被拒','A4_REVIEW_ORIGINAL_BUY_REJECTED','600628','原买入结论校验未通过；当前技术参考价6.58；绑定区间6.57–6.59；止损6.54；禁追价6.60；满足1 / 未满足1（引用冲突）。该结论不发布，保留原回复交运维核验。'),
+        ('原买入被拒','A4_REVIEW_ORIGINAL_BUY_REJECTED','600628','原买入结论校验未通过；当前技术参考价6.58；绑定区间6.57–6.59；止损6.54；禁追价6.60；满足1 / 未满足1（引用冲突）。接下来：该结论不发布，保留原回复交运维核验。'),
         ('盘前就绪','PREMARKET_BATCH_READY','','计划14只已完成切换；接下来等待09:26自然激活，当前不是已成交。'),
         ('盘前未就绪','PREMARKET_A3_STATUS','','08:45终态：2只计划审核未完成，已通过12只切换；下一步仅已审计划走自然激活，未审计划保持拒绝。'),
         ('收盘终止','AUDITED_RESEARCH_FAILED','','收盘研究因真实截止终止；候选未知不是0；接下来交运维裁定，未获批准不重跑。')]

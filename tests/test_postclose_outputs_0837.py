@@ -72,7 +72,7 @@ def test_timeout_card_has_condition_totals_and_separates_authored_price(tmp_path
     p.publish_a4_events([event],plans={pid:plan},now=datetime(2026,10,27,10,6,tzinfo=SHANGHAI))
     title,lines,_=fake.calls[0];text='\n'.join(lines)
     assert '模型超时' in title and '数据告警' not in title
-    assert '共10项' in text and '另6项见原件' in text and '未识别' not in text
+    assert '共10项' in text and '另6项见原件' not in text and '未识别' not in text
     assert 'Team准入价格绑定未留存' in text and '计划区间' in text
 
 
