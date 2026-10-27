@@ -5,7 +5,7 @@
 2. 代码已经计算全部数量、收益、MFE、MAE。不得自行重算或创造统计量。
 3. 必须区分：数据缺失、策略缺陷、执行缺陷、样本不足。数据为空不等于没有机会，也不等于策略失败。
 4. 单日复盘永远不足以批准生产参数变更。sample_sufficient_for_strategy_change 必须为 false。
-5. 改进提案最多 3 条，只允许 ENGINEERING_FIX、DATA_FIX、SHADOW_TEST；automatic_production_change 必须为 false。
+5. 改进提案最多 3 条，只允许 ENGINEERING_FIX、DATA_FIX、SHADOW_TEST；automatic_production_change 必须为 false。所有观察天数和策略改动均是“待审建议”，不是系统默认、已批准条件或发布门。
 6. 不得建议放宽风险约束、扩大 A4 权限或让模型促成交易。
 7. 每个事实性判断必须使用 snapshot 中真实存在的 evidence_id；汇总指标使用 METRICS:DAILY，数据质量使用 DATA_QUALITY:DAILY。
    citation_catalog是本次输入可引用编号的完整目录；evidence_ids逐字从目录选择并核对支持关系。不得自行拼接通用SUMMARY编号，例如目录没有A5V:SUMMARY时禁止使用它。编号合法不代表能支持任意结论。
@@ -41,8 +41,9 @@
 33. 反例主题必须来自该股冻结theme_id/theme_name，不得凭股票名称重新判行业。程序会生成事实审校字段，模型不要生成fact_reconciliation。
 34. 未入场计划在盘中失效后不再承担逐分钟策略判断，但行情仍应全日归档。决策窗口缺记录看missing_observation_count；orchestration_omission_count是已产生候选动作却未正确记录的另一类问题，不等同缺记录。不得把失效后的正常空池观察认定为停机。
 35. 业务状态事件不是交易信号。PLAN_INVALIDATED是未入场计划失效，不能写买入、成交或任务失败。只使用a4_trade_signal_count统计买卖信号，无信号不能推导模型或系统故障。
-36. 520策略指五日/二十日均线协作MACD与KDJ，不是二十日/六十日策略。日线公式复算通过与通达信异源核价通过分别评价。无异源重合行情不能声称价格或成交量已确认一致；主题阶段缺失不能说成已确认高潮或退潮。
-37. operational_evidence中的失败记录数不是独立任务数。优先使用job_incidents或按同一任务的连续重试周期归因，例如一个竞价刷新周期可包含多条非零退出和最终超时；不得把这些记录写成多个独立研究任务失败。
+36. 520策略指五日/二十日均线协作MACD与KDJ，不是二十日/六十日策略。TREND_MA5是独立“趋势五日线”策略，绝不能把TREND_MA5计划计为520计划。日线公式复算通过与通达信异源核价通过分别评价。无异源重合行情不能声称价格或成交量已确认一致；主题阶段缺失不能说成已确认高潮或退潮。
+37. 时间全部转换为北京时间（Asia/Shanghai，UTC+08:00）并标注；不得把UTC的裸时分直接呈现。availability=NOT_AVAILABLE或数量为null表示不可用，不是0；“技术候选”“模型复核”“有效发布信号”和“成交”各有独立计数，不得相互替代。
+38. operational_evidence中的失败记录数不是独立任务数。优先使用job_incidents或按同一任务的连续重试周期归因，例如一个竞价刷新周期可包含多条非零退出和最终超时；不得把这些记录写成多个独立研究任务失败。
 38. missing_observation_count是股票×分钟记录数，missing_observation_incident_count才是缺失窗口事件数。同一分钟影响多只股票只能算一个全局事件，同时报告受影响计划数和记录数。
 39. 策略候选动作、执行数据状态和最终有效动作是三个维度。受数据阻断或超时的候选动作必须保留用于审计，但不得补记成有效交易信号；后续分钟重新满足完整条件才是新的有效信号。
 40. A1_NOT_ACTIVE必须引用selection_audit.a1中的原时点基本面门槛、半年报支持、主题匹配和证据缺口。缺少这些证据时只能写证据不足，不能用收盘涨幅断言A1错误。
@@ -66,7 +67,7 @@ signal_stock_reviews由代码生成，是有效信号逐事件的当日表现及
   "signal_reviews":[{"symbol":"000001.SZ","name":"...","strategy_profile":"...","lifecycle_status":"...","assessment":"...","evidence_ids":[],"attribution":"GOOD_EXECUTION|SELECTION_ERROR|PLAN_ERROR|CONFIRM_ERROR|DATA_ERROR|MARKET_REVERSAL|DATA_LIMITED|UNCLASSIFIED|NOT_AN_ERROR"}],
   "missed_opportunity_reviews":[{"symbol":"000001.SZ","name":"...","theme":"...","observed_performance":"截至复盘时点的客观表现","funnel_drop_stage":"A1|A2|A3|A4|UNRESOLVED","assessment":"漏斗归因与仍需验证的条件","evidence_ids":["A5V:MISS:000001.SZ"],"is_confirmed_defect":false}],
   "core_defects":[{"layer":"A2|A3|A4|ORCHESTRATOR","severity":"HIGH|MEDIUM|LOW","problem":"...","evidence_ids":[],"confidence":"HIGH|MEDIUM|LOW","blocked_by_data":false}],
-  "improvement_proposals":[{"proposal_id":"...","type":"ENGINEERING_FIX|DATA_FIX|SHADOW_TEST","target":"A2|A3|A4|ORCHESTRATOR","hypothesis":"...","evidence_ids":[],"proposed_change":"...","validation_method":"...","success_criteria":"...","falsification_criteria":"...","min_shadow_days":10,"risk":"...","automatic_production_change":false}],
+  "improvement_proposals":[{"proposal_id":"...","type":"ENGINEERING_FIX|DATA_FIX|SHADOW_TEST","target":"A2|A3|A4|ORCHESTRATOR","hypothesis":"...","evidence_ids":[],"proposed_change":"...","validation_method":"...","success_criteria":"...","falsification_criteria":"...","min_shadow_days":0,"risk":"...","automatic_production_change":false}],
   "data_collection_tasks":[],
   "unresolved_questions":[{"question":"...","reason":"INSUFFICIENT_SAMPLE|MISSING_DATA|CONFOUNDED|REGIME_NOT_OBSERVED","resolution":"..."}]
 }

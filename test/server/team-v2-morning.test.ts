@@ -16,19 +16,41 @@ test("three separate real CLI commands and 120s budgets preserve monitor",()=>{
   }
   expect(timeoutForJob("monitor",5400000)).toBe(58000);
 });
-test("explicit UTC instants dispatch 08:33,08:35,08:38 once; no weekend or late catchup",async()=>{
+test("A6 completion dispatches PM immediately; no duplicate 08:38 clock or weekend catchup",async()=>{
   const root=await mkdtemp(join(tmpdir(),"team-morning-"));const config=loadConfig({},root);
   const logger=new LogStore(config);const calls:JobName[]=[];
   const runner={run:async(job:JobName)=>{calls.push(job);return {job,status:"succeeded"};}};
-  const scheduler=new WorkflowScheduler(runner as unknown as JobRunner,logger,{comparisonEnabled:false});
+  let current=new Date('2026-10-19T00:00:00Z');
+  const scheduler=new WorkflowScheduler(runner as unknown as JobRunner,logger,{comparisonEnabled:false,now:()=>current});
   try {
     for(const day of ["2026-10-18","2026-10-19"]){
       for(const instant of ["00:32:59","00:33:00","00:33:02","00:34:00","00:35:00","00:35:59","00:38:00","00:38:01","00:40:00"]){
-        await scheduler.tick(new Date(`${day}T${instant}Z`));await new Promise<void>(resolve=>setImmediate(resolve));
+        current=new Date(`${day}T${instant}Z`);
+        await scheduler.tick(current);await new Promise<void>(resolve=>setImmediate(resolve));
       }
     }
     expect(calls).toEqual(['runtime-integrity',...jobs]);
   } finally {scheduler.stop();await (logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}
+});
+
+test("PM follows actual A6 completion and never starts at or after 08:45",async()=>{
+  for(const completedAt of ['00:36:12','00:45:00']){
+    const root=await mkdtemp(join(tmpdir(),'pm-completion-'));const logger=new LogStore(loadConfig({},root));
+    let current=new Date('2026-10-27T00:35:00Z');const calls:JobName[]=[];
+    let finishRisk!:(value:unknown)=>void;
+    const runner={run:(job:JobName)=>{calls.push(job);return job==='team-morning-risk'
+      ?new Promise(resolve=>{finishRisk=resolve;}):Promise.resolve({job,status:'succeeded'});}};
+    const scheduler=new WorkflowScheduler(runner as unknown as JobRunner,logger,{comparisonEnabled:false,now:()=>current});
+    try{
+      await scheduler.tick(current);await new Promise<void>(resolve=>setImmediate(resolve));
+      expect(calls).not.toContain('team-morning-pm');
+      current=new Date(`2026-10-27T${completedAt}Z`);finishRisk({job:'team-morning-risk',status:'succeeded'});
+      await new Promise<void>(resolve=>setImmediate(resolve));
+      expect(calls.filter(j=>j==='team-morning-pm')).toHaveLength(completedAt==='00:36:12'?1:0);
+      current=new Date('2026-10-27T00:38:00Z');await scheduler.tick(current);
+      expect(calls.filter(j=>j==='team-morning-pm')).toHaveLength(completedAt==='00:36:12'?1:0);
+    }finally{scheduler.stop();await (logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}
+  }
 });
 test("each edge uses review slot without displacing the primary process",async()=>{
   const root=await mkdtemp(join(tmpdir(),"team-morning-slot-"));const config=loadConfig({},root);

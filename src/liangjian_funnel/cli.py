@@ -730,7 +730,9 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         from .runtime.team_v2_review_command import run_review_stage
         kind='MIDDAY' if args.command.endswith('midday') else 'POST_CLOSE'
         try:result=run_review_stage(active,kind)
-        except Exception:result={'status':'BLOCKED','reason_code':'TEAM_A5_STAGE_FAILED'}
+        except Exception as exc:
+            from .runtime.team_v2_review_command import record_review_stage_failure
+            result=record_review_stage_failure(active,kind,exc)
         print(json.dumps({key:result[key] for key in ('status','reason_code','trade_date','review_kind') if key in result},ensure_ascii=False))
         # 75 is reserved for a pre-request prerequisite wait, never model retry.
         if result['status']=='WAITING':return 75

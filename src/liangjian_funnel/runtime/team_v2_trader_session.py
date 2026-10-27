@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from liangjian_paper_broker.ledger import dump
 from ..pipeline.team_v2_model import call_team_model,team_call_binding
-from ..pipeline.team_v2_trader_schema import validate_trader_output
+from ..pipeline.team_v2_trader_schema import validate_trader_output, project_trader_references
 from .team_v2_execution import admit_trader_signal
 from .risk_engine import cap_risk_envelope
 from .trader_guardrails import is_closed_trader_tick
@@ -151,6 +151,35 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         except ValueError as exc:
             if str(exc) not in {'TEAM_MODEL_CALL_FAILED','TEAM_MODEL_RESULT_INVALID'}:raise
             issues=(str(exc),)
+    projection_receipt=None
+    explicit_original_decision=False
+    if output is not None:
+        original=output
+        signals=original.get('signals') if isinstance(original,Mapping) else None
+        positions=original.get('position_actions') if isinstance(original,Mapping) else None
+        explicit_original_decision=(isinstance(signals,list) and isinstance(positions,list)
+            and len(signals)==len(active_plan_ids) and len(positions)==len(held_plan_ids)
+            and {r.get('plan_id') for r in signals if isinstance(r,Mapping) and isinstance(r.get('plan_id'),str)}==set(active_plan_ids)
+            and all(isinstance(r,Mapping) and isinstance(r.get('action'),str) and r.get('action') in {
+                'NO_ACTION','START_CONFIRMATION','BUY_SIGNAL','ADD_SIGNAL','SELL_SIGNAL','REDUCE_SIGNAL','CANCEL_SIGNAL','BLOCK'} for r in signals)
+            and all(isinstance(r,Mapping) and isinstance(r.get('action'),str) and r.get('action') in {
+                'HOLD','SELL_SIGNAL','REDUCE_SIGNAL','ADD_SIGNAL'} for r in positions))
+        output,changes=project_trader_references(original,tech_reference)
+        projection_receipt=journal.record_output_projection(call_id,original=original,
+            context=tech_reference,projected=output,changes=changes)
+    rejected_entry_alert=None
+    if not valid and isinstance(output,Mapping) and isinstance(output.get('signals'),list):
+        rejected=[row for row in output['signals'] if isinstance(row,Mapping)
+            and isinstance(row.get('action'),str) and row['action'] in {'BUY_SIGNAL','ADD_SIGNAL','BUY','ENTER'}]
+        if rejected:
+            from .team_v2_internal import InternalOutbox
+            symbols=[all_plans[row['plan_id']].symbol if isinstance(row.get('plan_id'),str)
+                and row['plan_id'] in all_plans else 'DOMAIN_MISMATCH' for row in rejected]
+            rejected_entry_alert=InternalOutbox(store).enqueue(account_id=account_id,trade_date=trade_date,
+                kind='A4_ORIGINAL_ENTRY_REJECTED',source_id=call_id,observed_at=decision_at,priority=10,
+                body=dict(msg_type='text',content=dict(text='A4 原始入场动作被校验拒绝；股票 '+','.join(symbols)+
+                    '；原动作 '+','.join(row['action'] for row in rejected)+'；原因 '+','.join(issues)+
+                    '；原件SHA '+str(projection_receipt['original_sha256'])+'；未执行任何修复后动作。')))
     admissions=[];expired='TRADER_GLOBAL_DEADLINE_EXCEEDED' in issues
     if valid and not capture_only:
         commands=[('plan',row['plan_id'],row) for row in output['signals']]
@@ -179,6 +208,9 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         decision_id=decision_id,source_call_id=call_id,minute_snapshot_id=minute_snapshot_id,
         trade_date=trade_date,input_hash=request.input_hash,model_validated=valid,
         reason_codes=list(issues),admissions=admissions,
+        reference_projection=projection_receipt,
+        explicit_original_decision=explicit_original_decision,
+        rejected_entry_alert=rejected_entry_alert,
         handoff_notes=output['handoff_notes'] if valid else {},
         what_would_change_my_mind=output['what_would_change_my_mind'] if valid else [])
     if capture_only:

@@ -89,6 +89,16 @@ class TeamPromptRepository:
             raise ValueError("TEAM_ROLE_INVALID")
         return self._read(_SESSION_FILES.get((role,session),(_FILES[role],None))[0])
 
+    def declared_role_version(self, role: str, session: str | None = None):
+        document=self.document(role,session)
+        version=_SESSION_FILES.get((role,session),(None,_VERSIONS[role]))[1]
+        if f'版本: {version}' not in document.text:raise ValueError('TEAM_PROMPT_VERSION_MISMATCH')
+        return version
+
+    def source_hashes(self, role: str, session: str | None = None):
+        shared=self._read('00_shared_system_v3.txt');document=self.document(role,session)
+        return MappingProxyType({shared.name:shared.sha256,document.name:document.sha256})
+
     def prepare_messages(self, role: str, replacements: Mapping[str, Any], *,
                          required_envelope: Mapping[str, Any], session: str | None = None) -> TeamMessageRequest:
         """Bind immutable transport metadata plus shorthand input exactly once.
@@ -155,3 +165,28 @@ class TeamPromptRepository:
         return TeamPromptRequest(role, "shared-system/3.0.2", version, rendered,
                                  hashlib.sha256(rendered.encode()).hexdigest(),
                                  MappingProxyType({shared.name: shared.sha256, document.name: document.sha256}))
+
+
+def estimate_a5_message_chars(repository, replacements, *, required_envelope, session, contract):
+    """Count exact final A5 message characters without rendering the full text."""
+    if set(required_envelope)!=_ENVELOPE_KEYS or required_envelope.get('stage_id')!='A5':
+        raise ValueError('TEAM_REQUIRED_ENVELOPE_INVALID')
+    document=repository.document('A5',session)
+    template=repository._read('00_shared_system_v3.txt').text+'\n\n'+document.text
+    encoder=json.JSONEncoder(ensure_ascii=False,sort_keys=True,separators=(',',':'),default=str)
+    def size(value):return sum(len(chunk) for chunk in encoder.iterencode(value))
+    def replacement_size(value):
+        if value is None:return 1
+        if isinstance(value,str):return len(value)
+        if isinstance(value,(bool,int,float)):return len(_replacement_text(value))
+        return size(value)
+    chars=len(template)
+    for match in _TOKEN.finditer(template):
+        if match.group(1) not in replacements:raise ValueError('TEAM_UNRESOLVED_PLACEHOLDER')
+        chars+=replacement_size(replacements[match.group(1)])-len(match.group(0))
+    catalog=replacements['EVIDENCE_CATALOG']
+    catalog_text=json.dumps(catalog,ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False)
+    inputs={} if 'EVIDENCE_CATALOG' in document.placeholders else {'EVIDENCE_CATALOG':catalog}
+    runtime=dict(required_envelope=dict(required_envelope),session=session,
+        catalog_sha256=hashlib.sha256(catalog_text.encode()).hexdigest(),inputs=inputs,server_output_contract=contract)
+    return chars+len('RUNTIME_INPUT\n')+size(runtime)

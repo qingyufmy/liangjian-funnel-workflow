@@ -74,6 +74,10 @@ class ModelJudgmentJournal:
                 CREATE TABLE IF NOT EXISTS model_call_telemetry (
                     call_id TEXT PRIMARY KEY, request_binding TEXT NOT NULL,
                     body_json TEXT NOT NULL, body_sha256 TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS model_output_projections (
+                    call_id TEXT PRIMARY KEY REFERENCES model_calls(call_id),
+                    original_sha256 TEXT NOT NULL,context_sha256 TEXT NOT NULL,
+                    body_json TEXT NOT NULL,body_sha256 TEXT NOT NULL);
                 COMMIT;
             """)
 
@@ -81,6 +85,27 @@ class ModelJudgmentJournal:
         db = sqlite3.connect(self.path, timeout=2)
         db.execute("PRAGMA foreign_keys=ON")
         return db
+
+    def record_output_projection(self, call_id, *, original, context, projected, changes):
+        """An auditable view of a captured reply; never replaces model_calls."""
+        original_sha = _hash(_json(original))
+        context_sha = _hash(_json(context))
+        body = dict(original_sha256=original_sha, context_sha256=context_sha,
+                    projected=projected, changes=changes)
+        text = _json(body)
+        row = (call_id, original_sha, context_sha, text, _hash(text))
+        with closing(self._connect()) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            captured = db.execute('SELECT output_hash FROM model_calls WHERE call_id=?', (call_id,)).fetchone()
+            if captured is None or captured[0] != original_sha:
+                raise ValueError('MODEL_PROJECTION_ORIGINAL_BINDING_CONFLICT')
+            old = db.execute('SELECT * FROM model_output_projections WHERE call_id=?', (call_id,)).fetchone()
+            if old is not None and old != row:
+                raise ValueError('MODEL_PROJECTION_BINDING_CONFLICT')
+            if old is None:
+                db.execute('INSERT INTO model_output_projections VALUES (?,?,?,?,?)', row)
+        return dict(call_id=call_id, original_sha256=original_sha,
+                    context_sha256=context_sha, body_sha256=row[-1], changes=changes)
 
     @staticmethod
     def _budget_row(row,source_sha256):

@@ -67,12 +67,12 @@ def pm_shortlist(values,*,envelopes,plan_clusters,geometry_plan_ids,max_position
     order=priority_order(plans)
     candidates=[p for p in order if p in geometry_plan_ids and by_id[p].eligible
         and by_id[p].risk_unit in ('STANDARD','PROBE')]
-    selected=candidates[:2*max_positions];selected_set=set(selected)
+    selected=candidates;selected_set=set(selected)
     audit=dict(authority='SERVER_SHORTLIST_NOT_NEW_ELIGIBILITY',max_positions=max_positions,
-        shortlist_limit=2*max_positions,priority_order=order,geometry_plan_ids=sorted(geometry_plan_ids),
+        batch_capacity=2*max_positions,global_truncation=False,priority_order=order,geometry_plan_ids=sorted(geometry_plan_ids),
         a6_eligible_plan_ids=[p for p in order if by_id[p].eligible],selected_plan_ids=selected,
-        excluded=[dict(plan_id=p,decision='WATCH',reason_code='PM_SHORTLIST_CUTOFF',
-            exclusion_basis='SHORTLIST_CAP' if p in candidates else 'GEOMETRY_OR_A6_INELIGIBLE')
+        excluded=[dict(plan_id=p,decision='NOT_ELIGIBLE',reason_code='PM_SOURCE_NOT_ELIGIBLE',
+            exclusion_basis='GEOMETRY_OR_A6_INELIGIBLE')
             for p in order if p not in selected_set])
     result=project_pm_values(values)
     result['EVIDENCE_CATALOG']['items']=[i for i in result['EVIDENCE_CATALOG']['items']

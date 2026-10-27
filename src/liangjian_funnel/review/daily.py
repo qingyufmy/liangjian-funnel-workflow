@@ -85,6 +85,7 @@ class A5Defect(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list, max_length=20)
     confidence: str = Field(pattern=r"^(HIGH|MEDIUM|LOW)$")
     blocked_by_data: bool = False
+    blocker_type: str = Field(default='UNCLASSIFIED', pattern=r'^(UNCLASSIFIED|DATA|JUDGE_TIMEOUT|MODEL_UNAVAILABLE|MIXED|OTHER_OR_UNPROVEN)$')
 
 
 class A5Proposal(BaseModel):
@@ -325,7 +326,10 @@ def _audit_output(output_dir: Path, run_id: str, lane_id: str) -> tuple[dict[str
             stages = [read_audit_stage(path, name) for name in ("A1", "A2", "A3")]
             return {"stages": [stage for stage in stages if stage]}, []
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        code=str(exc) if isinstance(exc,ValueError) else type(exc).__name__
+        if code in {'AUDIT_FILE_LIMIT','AUDIT_STAGE_LIMIT','AUDIT_READ_DEADLINE','AUDIT_CHANGED_DURING_READ','AUDIT_JSON_INVALID'}:
+            return {}, ['A2_AUDIT_UNREADABLE',code]
         return {}, ["A2_AUDIT_UNREADABLE"]
     return (dict(value), []) if isinstance(value, Mapping) else ({}, ["A2_AUDIT_INVALID"])
 
@@ -335,7 +339,8 @@ def _a2_projection(audit: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]
     stages = _rows(audit.get("stages"))
     stage = next((item for item in stages if str(item.get("stage")).upper() == "A2"), None)
     if stage is None:
-        return {"status": "NOT_AVAILABLE", "candidates": [], "themes": []}, ["A2_STAGE_NOT_FOUND"]
+        return {"status": "NOT_AVAILABLE", "availability":"NOT_AVAILABLE",
+            "counts":{"FOCUS":None,"WATCH":None},"candidates": [], "themes": []}, ["A2_STAGE_NOT_FOUND"]
     output = _json_mapping(stage.get("output"))
     candidates: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -400,6 +405,7 @@ def _a2_projection(audit: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]
     lineage_complete = evaluated_count is None or evaluated_count == len(candidates)
     return {
         "status": stage.get("status"),
+        "availability":"AVAILABLE" if output else "NOT_AVAILABLE",
         "reason_codes": stage.get("reason_codes") if isinstance(stage.get("reason_codes"), list) else [],
         "counts": counts,
         "quant_evaluated_count": evaluated_count,
@@ -1596,9 +1602,10 @@ def build_a5_fact_snapshot(
                         if item.get("performance_eligible", True) and item.get("status") == "CLOSED"
                         and item.get("remaining_qty") == 0 and item.get("net_return") is not None]
     metrics = {
-        "a2_focus_count": int(a2.get("counts", {}).get("FOCUS", 0)),
-        "a2_watch_count": int(a2.get("counts", {}).get("WATCH", 0)),
-        "a2_theme_count": len(a2.get("themes", [])),
+        "a2_availability": a2.get('availability','NOT_AVAILABLE'),
+        "a2_focus_count": a2.get("counts", {}).get("FOCUS") if a2.get('availability')=='AVAILABLE' else None,
+        "a2_watch_count": a2.get("counts", {}).get("WATCH") if a2.get('availability')=='AVAILABLE' else None,
+        "a2_theme_count": len(a2.get("themes", [])) if a2.get('availability')=='AVAILABLE' else None,
         "a3_plan_count": len(plans),
         "a3_strategy_counts": _count_by(plans, "strategy_profile"),
         "a3_daily_macd_complete_count": sum(all(_json_mapping(item.get("daily_macd")).get(key) is not None
@@ -1654,6 +1661,7 @@ def build_a5_fact_snapshot(
         selected_plan_rows, raw_event_rows,
         minute_store=getattr(independent_verifier, "minute_store", None), cutoff=cutoff,
         market_state_dir=getattr(independent_verifier, "market_state_dir", None),
+        runtime_root=Path(output_dir).parent,workflow_output_dir=Path(output_dir),
     )
     activation_reader=getattr(store,'list_plan_activation_evidence',None)
     activation_rows=activation_reader(limit=1000) if callable(activation_reader) else ()
@@ -1894,7 +1902,7 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
         "> 内部模拟复盘，不构成投资建议；A5 不修改生产策略，不产生或执行交易信号。", "",
         f"- 结论：**{report.overall_verdict}**",
         f"- 事实截止：`{snapshot.get('cutoff_at')}`",
-        f"- A2 聚焦/观察：`{metrics.get('a2_focus_count', 0)}/{metrics.get('a2_watch_count', 0)}`",
+        f"- A2 聚焦/观察：`{metrics.get('a2_focus_count') if metrics.get('a2_focus_count') is not None else '不可用'}/{metrics.get('a2_watch_count') if metrics.get('a2_watch_count') is not None else '不可用'}`",
         f"- A3 计划：`{metrics.get('a3_plan_count', 0)}`",
         f"- A4 业务状态事件/生命周期：`{metrics.get('a4_effective_event_count', 0)}/{metrics.get('a4_lifecycle_count', 0)}`；交易信号：{metrics.get('a4_trade_signal_count', '未单独统计')}；计划失效：{metrics.get('a4_plan_invalidation_count', '未单独统计')}",
         f"- 强势股覆盖账本/需复核反例：`{metrics.get('a5_top_performance_ledger_count', 0)}/{metrics.get('a5_counterexample_count', 0)}`；其中已产生有效盘中信号：{metrics.get('a5_top_performance_captured_count', 0)}",
@@ -1957,7 +1965,7 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
             f"- 假设：{item.hypothesis}", f"- 建议：{item.proposed_change}",
             f"- 验证：{item.validation_method}", f"- 成功标准：{item.success_criteria}",
             f"- 证伪标准：{item.falsification_criteria}",
-            (f"- 最少影子观察：{item.min_shadow_days} 个交易日" if item.type == "SHADOW_TEST" else "- 验收方式：确定性回归及数据核对，不设统一影子观察天数"), "",
+            (f"- 待审建议：影子观察 {item.min_shadow_days} 个交易日，尚未获批" if item.type == "SHADOW_TEST" else "- 验收方式：确定性回归及数据核对，不设统一影子观察天数"), "",
         ])
     lines.extend(["## 尚不能下结论", ""])
     lines.extend([f"- {item.question}（{item.reason}）：{item.resolution}" for item in report.unresolved_questions])
@@ -2078,8 +2086,16 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
         for omission in _rows(plan.get("orchestration_omissions"))
     ]
     if omissions:
-        findings.append(A5Defect(layer="ORCHESTRATOR", severity="MEDIUM", confidence="HIGH", blocked_by_data=True,
-            problem=f"发现{len(omissions)}条策略候选动作未形成同分钟有效动作记录；候选动作、执行数据状态和最终发布动作必须分开保存，数据受限窗口不得补记为有效交易信号。",
+        from .fact_guard import execution_blocker_counts
+        blockers=execution_blocker_counts(facts)
+        kinds=set(blockers)
+        blocker_type=next(iter(kinds)) if len(kinds)==1 else 'MIXED' if kinds else 'OTHER_OR_UNPROVEN'
+        labels={'JUDGE_TIMEOUT':'模型超时','MODEL_UNAVAILABLE':'模型或网络不可用','OTHER_OR_UNPROVEN':'其他或尚未证明原因'}
+        detail='、'.join(f'{labels[k]}{v}条' for k,v in sorted(blockers.items()))
+        findings.append(A5Defect(layer="ORCHESTRATOR", severity="MEDIUM", confidence="HIGH", blocked_by_data=False,
+            blocker_type=blocker_type,
+            problem=f"发现{len(omissions)}条策略候选动作未形成同分钟有效动作记录；"+(f'原阻断事件分类：{detail}。' if detail else '阻断原因尚未完成核对。')+
+                "候选动作和最终发布动作分别计数，模型超时不是行情数据缺口，受阻候选不得补记为有效交易信号。",
             evidence_ids=[str(row.get("evidence_id") or "A5V:A4:SUMMARY") for row in _rows(a4.get("plans")) if row.get("orchestration_omission_count")][:20]))
     if _json_mapping(facts.get("a2")).get("lineage_complete") is False:
         findings.append(A5Defect(layer="A2", severity="HIGH", confidence="HIGH", blocked_by_data=True,

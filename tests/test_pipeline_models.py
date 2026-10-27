@@ -26,6 +26,16 @@ class _ChunkedByteStream(httpx.SyncByteStream):
         yield from self.chunks
 
 
+class _ClockAdvancingStream(httpx.SyncByteStream):
+    """Advance elapsed time at a real receive boundary, not clock call N."""
+    def __init__(self,stream,clock_value):self.stream,self.clock_value=stream,clock_value
+    def __iter__(self):
+        for index,chunk in enumerate(self.stream):
+            if index:self.clock_value[0]=2.0
+            yield chunk
+    def close(self):self.stream.close()
+
+
 def _sse_response(request: httpx.Request, events: list[dict | str], *, chunks: bool = False) -> httpx.Response:
     import json
 
@@ -570,23 +580,25 @@ def test_5xx_retries_same_model_and_succeeds_with_sse(tmp_path: Path):
 
 
 def test_continuous_sse_is_bounded_by_total_wall_clock(tmp_path: Path):
+    clock_value=[0.0]
     def handler(request: httpx.Request) -> httpx.Response:
-        return _sse_response(
+        response = _sse_response(
             request,
             [
                 {"choices": [{"delta": {"content": "{"}}]},
                 {"choices": [{"delta": {"content": '"ok":true}'}}]},
                 "[DONE]",
-            ],
+            ],chunks=True,
         )
+        response.stream=_ClockAdvancingStream(response.stream,clock_value)
+        return response
 
-    ticks = iter((0.0, 0.5, 2.0, 2.1))
     settings = _settings(tmp_path).model_copy(update={"model_timeout_seconds": 1.0})
     client = OpenAICompatibleModelClient(
         settings,
         transport=httpx.MockTransport(handler),
         sleep=lambda _: None,
-        monotonic=lambda: next(ticks, 2.1),
+        monotonic=lambda:clock_value[0],
         max_attempts=1,
     )
 
@@ -636,22 +648,24 @@ def test_silent_socket_is_interrupted_by_remaining_wall_clock_budget(tmp_path: P
 
 
 def test_call_timeout_override_cannot_exceed_remaining_stage_budget(tmp_path: Path):
+    clock_value=[0.0]
     def handler(request: httpx.Request) -> httpx.Response:
-        return _sse_response(
+        response = _sse_response(
             request,
             [
                 {"choices": [{"delta": {"content": "{"}}]},
                 {"choices": [{"delta": {"content": '"ok":true}'}}]},
                 "[DONE]",
-            ],
+            ],chunks=True,
         )
+        response.stream=_ClockAdvancingStream(response.stream,clock_value)
+        return response
 
-    ticks = iter((0.0, 0.5, 2.0, 2.1))
     client = OpenAICompatibleModelClient(
         _settings(tmp_path),
         transport=httpx.MockTransport(handler),
         sleep=lambda _: None,
-        monotonic=lambda: next(ticks, 2.1),
+        monotonic=lambda:clock_value[0],
         max_attempts=1,
     )
 
@@ -666,22 +680,22 @@ def test_call_timeout_override_cannot_exceed_remaining_stage_budget(tmp_path: Pa
 
 
 def test_chunked_json_content_type_is_bounded_by_total_wall_clock(tmp_path: Path):
+    clock_value=[0.0]
     def handler(request: httpx.Request) -> httpx.Response:
         body = b'{"choices":[{"message":{"content":"{\\"ok\\":true}"}}]}'
         return httpx.Response(
             200,
             headers={"content-type": "application/json"},
-            stream=_ChunkedByteStream([body[:16], body[16:]]),
+            stream=_ClockAdvancingStream(_ChunkedByteStream([body[:16], body[16:]]),clock_value),
             request=request,
         )
 
-    ticks = iter((0.0, 0.5, 0.75, 2.0, 2.1))
     settings = _settings(tmp_path).model_copy(update={"model_timeout_seconds": 1.0})
     client = OpenAICompatibleModelClient(
         settings,
         transport=httpx.MockTransport(handler),
         sleep=lambda _: None,
-        monotonic=lambda: next(ticks, 2.1),
+        monotonic=lambda:clock_value[0],
         max_attempts=1,
     )
 
@@ -763,7 +777,7 @@ def test_sse_metadata_event_is_accepted_and_unknown_shape_has_safe_diagnostics(t
     with pytest.raises(StrictJSONError) as exc_info:
         client.complete("deepseek-v4-pro-0813", [{"role": "user", "content": "{}"}])
     assert exc_info.value.reason_code == "STREAM_CHOICES_INVALID"
-    assert exc_info.value.diagnostics == {
+    assert {k:v for k,v in exc_info.value.diagnostics.items() if k!='original_evidence'} == {
         "event_index": 1,
         "top_level_fields": ["unexpected"],
         "top_level_types": {"unexpected": "str"},

@@ -1,0 +1,677 @@
+schema_version: liangjian-consumer-map/1
+generated_at: '2026-10-27T21:33:40.309723+08:00'
+base_head: 6eaaf7582e3a16c8e8e288d2521c3876a62a19ac
+ruling: 0838-Tony-rulings-T1C-T2A-T3.md
+scope: Train A1-A10 implementation and bounded local checks; B2 full component census
+  separate
+release_gate: PRELIMINARY_FREEZE_FULL_D5_D8_A7_SCOPE_FINAL_PENDING
+work_packages:
+- id: WP-A1
+  issue: LJ-089
+  status: IMPLEMENTED_TARGETED_CHECKS_PASS_RELEASE_PENDING
+  producer_files:
+  - src/liangjian_funnel/pipeline/team_v2_trader_schema.py
+  - src/liangjian_funnel/pipeline/model_client.py
+  - src/liangjian_funnel/pipeline/team_v2_judgments.py
+  - src/liangjian_funnel/runtime/team_v2_trader_session.py
+  consumers:
+  - name: Team candidate_review
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: &id001
+    - tests/test_five_real_invalid_0843.py
+    - tests/test_model_original_evidence_0837.py
+    - tests/test_postclose_a_0837.py
+  - name: day latch classification
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id001
+  - name: paper admission (unchanged risk authority)
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id001
+  - name: legacy model call audit
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id001
+  - name: A5 model call audit
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id001
+  - name: prompts/A4_INSTRUCTION.md and actual prompt repository
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id001
+  - name: Lark invalid-original-BUY notification
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id001
+  - name: model request/raw reply replay
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id001
+  acceptance:
+  - real five INVALID replies all valid with unchanged NO_ACTION
+  - unknown reference ID/duplicate ID/envelope/action escalation still rejected
+  - real OpenAICompatibleModelClient streaming zero-network chain archives exact rendered
+    request and original reply before validation
+  implementation_test_files: *id001
+  actual_test_names:
+  - test_five_real_invalid_0843.py::test_actual_five_invalid_become_valid_without_changing_decisions
+  - test_model_original_evidence_0837.py::test_real_stream_request_saved_before_dispatch_and_raw_response_closed
+  - test_model_original_evidence_0837.py::test_connection_retry_has_durable_per_attempt_typed_causes
+  - test_model_original_evidence_0837.py::test_partial_response_is_preserved_and_not_retried
+  - test_model_original_evidence_0837.py::test_request_persistence_failure_stops_before_paid_dispatch
+  - test_model_original_evidence_0837.py::test_archive_time_consumes_original_deadline_before_any_dispatch
+  - test_postclose_a_0837.py::test_three_explicit_rejected_votes_do_not_latch_but_network_failures_do
+  - test_postclose_a_0837.py::test_original_reference_vote_archived_separately_without_action_change
+  - test_postclose_a_0837.py::test_original_buy_rejected_alert_is_deduped_and_never_admitted
+  - test_postclose_a_0837.py::test_engine_only_geometry_no_chase_and_half_total_position
+  - test_postclose_a_0837.py::test_half_position_owns_existing_lots_and_never_rounds_up
+  - test_postclose_a_0837.py::test_three_candidates_record_truncated_and_queue_notification
+  - test_postclose_a_0837.py::test_engine_only_rejection_also_queues_labelled_notice
+  test_evidence_runs:
+  - run-20261027T115823381643
+  - run-20261027T115907787387
+  remaining:
+  - D5 actual full-day replay
+  - D8 external snapshots
+  - current frozen HEAD full and release gates
+- id: WP-A2
+  issue: LJ-096
+  status: IMPLEMENTED_TARGETED_CHECKS_PASS_RELEASE_PENDING
+  producer_files:
+  - src/liangjian_funnel/runtime/team_v2_candidate_review.py
+  - src/liangjian_funnel/runtime/team_v2_review_latch.py
+  consumers:
+  - name: trader_review_days/attempts
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: &id002
+    - tests/test_postclose_a_0837.py
+  - name: candidate-review-day frozen contexts
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id002
+  - name: ENGINE_ONLY alerts
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id002
+  - name: A5 degradation facts
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id002
+  acceptance:
+  - three recorded reference-invalid replies do not trip latch
+  - three transport/unparseable failures still trip
+  - same-day restart preserved, next-day default false
+  implementation_test_files: *id002
+  actual_test_names:
+  - test_postclose_a_0837.py::test_three_explicit_rejected_votes_do_not_latch_but_network_failures_do
+  - test_postclose_a_0837.py::test_original_reference_vote_archived_separately_without_action_change
+  - test_postclose_a_0837.py::test_original_buy_rejected_alert_is_deduped_and_never_admitted
+  - test_postclose_a_0837.py::test_engine_only_geometry_no_chase_and_half_total_position
+  - test_postclose_a_0837.py::test_half_position_owns_existing_lots_and_never_rounds_up
+  - test_postclose_a_0837.py::test_three_candidates_record_truncated_and_queue_notification
+  - test_postclose_a_0837.py::test_engine_only_rejection_also_queues_labelled_notice
+  test_evidence_runs:
+  - run-20261027T115823381643
+  - run-20261027T115907787387
+  remaining:
+  - D5 actual full-day replay
+  - D8 external snapshots
+  - current frozen HEAD full and release gates
+- id: WP-A3
+  issue: LJ-093
+  status: IMPLEMENTED_TARGETED_CHECKS_PASS_RELEASE_PENDING
+  producer_files:
+  - src/liangjian_funnel/runtime/team_v2_candidate_review.py
+  - src/liangjian_funnel/runtime/team_v2_internal.py
+  consumers:
+  - name: review selection metadata
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: &id003
+    - tests/test_postclose_a_0837.py
+  - name: pending/truncated pool
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id003
+  - name: internal outbox sender
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id003
+  - name: A5 candidate review accounting
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id003
+  - name: Lark reason labels
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id003
+  acceptance:
+  - 13:21 real three candidates:600628 reviewed OR explicit TRUNCATED and sent-message
+    rendering
+  - selection deterministic, no silent loss or duplicate notifications
+  implementation_test_files: *id003
+  actual_test_names:
+  - test_postclose_a_0837.py::test_three_explicit_rejected_votes_do_not_latch_but_network_failures_do
+  - test_postclose_a_0837.py::test_original_reference_vote_archived_separately_without_action_change
+  - test_postclose_a_0837.py::test_original_buy_rejected_alert_is_deduped_and_never_admitted
+  - test_postclose_a_0837.py::test_engine_only_geometry_no_chase_and_half_total_position
+  - test_postclose_a_0837.py::test_half_position_owns_existing_lots_and_never_rounds_up
+  - test_postclose_a_0837.py::test_three_candidates_record_truncated_and_queue_notification
+  - test_postclose_a_0837.py::test_engine_only_rejection_also_queues_labelled_notice
+  test_evidence_runs:
+  - run-20261027T115823381643
+  - run-20261027T115907787387
+  remaining:
+  - D5 actual full-day replay
+  - D8 external snapshots
+  - current frozen HEAD full and release gates
+- id: WP-A4
+  issue: LJ-094
+  status: IMPLEMENTED_TARGETED_CHECKS_PASS_RELEASE_PENDING
+  producer_files:
+  - src/liangjian_funnel/pipeline/model_client.py
+  - src/liangjian_funnel/runtime/team_v2_model_deadline.py
+  - src/liangjian_funnel/runtime/team_v2_monitor.py
+  consumers:
+  - name: A4 retry budget
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: &id004
+    - tests/test_model_original_evidence_0837.py
+  - name: model transport telemetry/journal
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id004
+  - name: provider stream metrics
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id004
+  - name: failure latch
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id004
+  - name: Lark failure detail
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id004
+  - name: shared market failure facts
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id004
+  acceptance:
+  - first connection failure then success through real stream client
+  - two failures preserve typed cause chain and elapsed per attempt
+  - retry/backoff cannot exceed original absolute tick deadline
+  - 13:02 cause/recovery evidence explicit, unavailable cause remains unproven
+  implementation_test_files: *id004
+  actual_test_names:
+  - test_model_original_evidence_0837.py::test_real_stream_request_saved_before_dispatch_and_raw_response_closed
+  - test_model_original_evidence_0837.py::test_connection_retry_has_durable_per_attempt_typed_causes
+  - test_model_original_evidence_0837.py::test_partial_response_is_preserved_and_not_retried
+  - test_model_original_evidence_0837.py::test_request_persistence_failure_stops_before_paid_dispatch
+  - test_model_original_evidence_0837.py::test_archive_time_consumes_original_deadline_before_any_dispatch
+  test_evidence_runs:
+  - run-20261027T115823381643
+  - run-20261027T115907787387
+  remaining:
+  - D5 actual full-day replay
+  - D8 external snapshots
+  - current frozen HEAD full and release gates
+- id: WP-A5
+  issue: LJ-092
+  status: IMPLEMENTED_TARGETED_CHECKS_PASS_RELEASE_PENDING
+  producer_files:
+  - src/liangjian_funnel/runtime/lark_notifications.py
+  - src/liangjian_funnel/runtime/monitor.py
+  consumers:
+  - name: legacy/Team push rendering
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: &id005
+    - tests/test_postclose_outputs_0837.py
+    - tests/test_display_enum_gate_0843.py
+  - name: A5 report status semantics
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id005
+  - name: UI reason/condition/price presentation
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id005
+  - name: unknown-code count alert
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id005
+  - name: notification replay snapshots
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id005
+  acceptance:
+  - all recorded October27 cards replay with zero unrecognized/None/null/UTC
+  - 47 missing labels covered; production enum census CI
+  - condition total counts and key items, no silent top4
+  - current Team binding distinct from historical A3 plan range
+  - JUDGE_TIMEOUT separate from missing source data
+  implementation_test_files: *id005
+  actual_test_names:
+  - test_postclose_outputs_0837.py::test_unavailable_a2_is_unknown_not_empty_and_real_empty_remains_zero
+  - test_postclose_outputs_0837.py::test_streaming_audit_is_not_rejected_only_for_large_source_metadata
+  - test_postclose_outputs_0837.py::test_bjt_projection_preserves_original_instant_and_never_changes_original
+  - test_postclose_outputs_0837.py::test_unknown_code_is_visible_counted_and_queued_as_label_alert
+  - test_postclose_outputs_0837.py::test_timeout_card_has_condition_totals_and_separates_authored_price
+  - test_postclose_outputs_0837.py::test_morning_final_status_deduped_by_actual_switched_scope
+  - test_postclose_outputs_0837.py::test_watchdog_uses_current_single_config_and_confirms_transient_error
+  - test_postclose_outputs_0837.py::test_watchdog_preserves_stage_without_saving_private_error
+  - test_display_enum_gate_0843.py::test_literal_a4_producer_enums_have_chinese_display_contract
+  - test_display_enum_gate_0843.py::test_all_47_original_missing_codes_now_map_and_future_unknown_is_visible
+  test_evidence_runs:
+  - run-20261027T115823381643
+  - run-20261027T115907787387
+  remaining:
+  - D5 actual full-day replay
+  - D8 external snapshots
+  - current frozen HEAD full and release gates
+- id: WP-A6
+  issue: LJ-088/LJ-088b
+  status: IMPLEMENTED_TARGETED_CHECKS_PASS_RELEASE_PENDING
+  producer_files:
+  - src/liangjian_funnel/runtime/lark_notifications.py
+  - src/liangjian_funnel/workflow.py
+  - server/scheduler.ts
+  - scripts/watch_a4_runtime.py
+  - src/liangjian_funnel/runtime/watchdog.py
+  consumers:
+  - name: premarket notification timing
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: &id006
+    - tests/test_postclose_outputs_0837.py
+    - tests/test_workflow_lark_notifications.py
+  - name: post-CAS final notification dedupe
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id006
+  - name: activation no-pending status
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id006
+  - name: installed Windows Liangjian-A4-External-Watchdog action
+    status: INSTALLED_APPROVED_OPS_NOT_CORE_DEPLOY_NATURAL_TASK_EXIT0_AFTER_INSTALL
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id006
+  - name: shared canonical production root
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id006
+  - name: watchdog failure stage/second confirmation
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id006
+  acceptance:
+  - real08:30/08:38/09:26/09:31 timeline replay
+  - no not-ready-zero before CAS; final scope and plan count once
+  - all active =>NOTHING_PENDING_ALL_ACTIVE not no plan
+  - real production root read-only successful probe and two-stage failure fixtures
+  implementation_test_files: *id006
+  actual_test_names:
+  - test_postclose_outputs_0837.py::test_unavailable_a2_is_unknown_not_empty_and_real_empty_remains_zero
+  - test_postclose_outputs_0837.py::test_streaming_audit_is_not_rejected_only_for_large_source_metadata
+  - test_postclose_outputs_0837.py::test_bjt_projection_preserves_original_instant_and_never_changes_original
+  - test_postclose_outputs_0837.py::test_unknown_code_is_visible_counted_and_queued_as_label_alert
+  - test_postclose_outputs_0837.py::test_timeout_card_has_condition_totals_and_separates_authored_price
+  - test_postclose_outputs_0837.py::test_morning_final_status_deduped_by_actual_switched_scope
+  - test_postclose_outputs_0837.py::test_watchdog_uses_current_single_config_and_confirms_transient_error
+  - test_postclose_outputs_0837.py::test_watchdog_preserves_stage_without_saving_private_error
+  - test_workflow_lark_notifications.py::test_plan_scope_alert_and_recovery_are_once_per_day
+  - test_workflow_lark_notifications.py::test_a5_failure_is_once_per_period_and_success_emits_one_recovery
+  - test_workflow_lark_notifications.py::test_a5_evidence_failure_card_does_not_mislabel_input_as_oversize
+  - test_workflow_lark_notifications.py::test_premarket_empty_scope_status_is_once_per_day_and_not_a_plan
+  - test_workflow_lark_notifications.py::test_position_health_incident_change_recovery_survives_restart
+  - test_workflow_lark_notifications.py::test_premarket_cards_are_chunked_colored_and_idempotent
+  - test_workflow_lark_notifications.py::test_a4_only_sends_effective_event_with_condition_logic
+  - test_workflow_lark_notifications.py::test_a4_fill_receipt_explains_price_basis_and_frozen_reasons
+  - test_workflow_lark_notifications.py::test_normal_state_events_are_silent_and_not_mutated
+  - test_workflow_lark_notifications.py::test_unready_data_is_alert_not_trade_signal
+  - test_workflow_lark_notifications.py::test_systemic_timestamp_block_is_not_sent_once_per_stock
+  - test_workflow_lark_notifications.py::test_minute_provider_incident_sends_one_aggregate_and_one_recovery_not_fifty_cards
+  - test_workflow_lark_notifications.py::test_expected_auxiliary_deferral_does_not_toggle_source_alert
+  - test_workflow_lark_notifications.py::test_position_risk_events_notify_risk_not_executable_t1_trade
+  - test_workflow_lark_notifications.py::test_a4_system_health_alert_is_aggregated_idempotent_and_recovers_once
+  - test_workflow_lark_notifications.py::test_a4_system_health_reports_same_run_retry_recovery_once
+  - test_workflow_lark_notifications.py::test_a4_system_health_understands_fallback_only_diagnostics
+  - test_workflow_lark_notifications.py::test_a2_rotation_health_alerts_in_chinese_and_recovers_once
+  - test_workflow_lark_notifications.py::test_delivery_timestamp_is_acknowledgement_not_business_cutoff
+  - test_workflow_lark_notifications.py::test_a5_review_card_is_structured_chinese_and_idempotent
+  - test_workflow_lark_notifications.py::test_a3_premarket_analysis_is_distinct_from_auction_activation
+  - test_workflow_lark_notifications.py::test_a3_premarket_repairs_cross_date_recovery_timestamp
+  - test_workflow_lark_notifications.py::test_missing_webhook_is_disabled_without_delivery_row
+  - test_workflow_lark_notifications.py::test_file_webhook_is_reloaded_without_restarting_publisher
+  - test_postclose_outputs_0837.py::test_watchdog_zero_plan_waits_for_new_cas_cutoff_without_weakening_health
+  - test_postclose_outputs_0837.py::test_watchdog_remote_sql_is_lane_bounded_and_query_only
+  test_evidence_runs:
+  - run-20261027T115823381643
+  - run-20261027T115907787387
+  - run-20261027T125542419486
+  remaining:
+  - D5 actual full-day replay
+  - D8 external snapshots
+  - current frozen HEAD full and release gates
+  installation_evidence:
+  - WATCHDOG_LOCAL_INSTALL_0843_20261027.json
+  - WATCHDOG_LOCAL_INSTALL_R2_0843_20261027.json
+  - WATCHDOG_INSTALLED_EXACT_RO_PROBE_R2_0843_20261027.json
+- id: WP-A7
+  issue: LJ-091
+  status: PARTIAL_COMPLETE_NUMERIC_PROVENANCE_GATE_PENDING
+  producer_files:
+  - src/liangjian_funnel/review/audit_reader.py
+  - src/liangjian_funnel/review/daily.py
+  - src/liangjian_funnel/review/plan_replay.py
+  - src/liangjian_funnel/review/context.py
+  - src/liangjian_funnel/review/fact_guard.py
+  consumers:
+  - name: A2 output availability/counts
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: &id007
+    - tests/test_a5_originals_0837.py
+    - tests/test_postclose_outputs_0837.py
+  - name: A5 realtime strategy context
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id007
+  - name: frozen daily/history facts
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id007
+  - name: A5 rendered prompt
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id007
+  - name: A5 server reconciliation
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id007
+  - name: Lark A5 cards
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id007
+  - name: UI A5 report
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id007
+  acceptance:
+  - 11:36 and natural close seven originals replay
+  - A2 unavailable is not zero; bounded audit stream/index provenance
+  - reuse realtime pattern_v1/daily facts/warmup builder, no copied strategy logic
+  - all numeric claims source paths reconcile to production
+  - BJT timezone and TREND interpretation; SHADOW proposal pending-review label
+  implementation_test_files: *id007
+  actual_test_names:
+  - test_a5_originals_0837.py::test_two_original_a5_inputs_counts_availability_and_timeout_semantics
+  - test_a5_originals_0837.py::test_unknown_a2_remains_unknown_even_without_full_a4_coverage
+  - test_postclose_outputs_0837.py::test_unavailable_a2_is_unknown_not_empty_and_real_empty_remains_zero
+  - test_postclose_outputs_0837.py::test_streaming_audit_is_not_rejected_only_for_large_source_metadata
+  - test_postclose_outputs_0837.py::test_bjt_projection_preserves_original_instant_and_never_changes_original
+  - test_postclose_outputs_0837.py::test_unknown_code_is_visible_counted_and_queued_as_label_alert
+  - test_postclose_outputs_0837.py::test_timeout_card_has_condition_totals_and_separates_authored_price
+  - test_postclose_outputs_0837.py::test_morning_final_status_deduped_by_actual_switched_scope
+  - test_postclose_outputs_0837.py::test_watchdog_uses_current_single_config_and_confirms_transient_error
+  - test_postclose_outputs_0837.py::test_watchdog_preserves_stage_without_saving_private_error
+  test_evidence_runs:
+  - run-20261027T115823381643
+  - run-20261027T115907787387
+  remaining:
+  - Every external numeric claim exact field-citation and automatic reconciliation
+    still incomplete
+  - D5 actual full-day replay
+  - D8 external snapshots
+  - current frozen HEAD full and release gates
+- id: WP-A8
+  issue: LJ-077/T3
+  status: IMPLEMENTED_TARGETED_CHECKS_PASS_RELEASE_PENDING
+  producer_files:
+  - src/liangjian_funnel/runtime/team_v2_pm_session.py
+  - src/liangjian_funnel/runtime/team_v2_morning.py
+  - src/liangjian_funnel/pipeline/team_v2_pm_schema.py
+  - src/liangjian_funnel/runtime/reviewed_batch_morning.py
+  - server/scheduler.ts
+  consumers:
+  - name: all A6 KEEP candidates
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: &id008
+    - tests/test_pm_batches_0843.py
+    - tests/test_pm_natural_cas_0843.py
+    - tests/test_team_v2_morning.py
+    - tests/test_natural_reviewed_batch_0595.py
+  - name: deterministic PM batches
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id008
+  - name: model journal per batch
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id008
+  - name: aggregate PM allocation/risk
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id008
+  - name: CAS candidate body lineage
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id008
+  - name: unreviewed-time-budget push
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id008
+  - name: PM call count >3 receipt
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id008
+  acceptance:
+  - real14 all sent including300519/301239
+  - controlled30 batch partition and aggregation
+  - before actual approved CAS deadline complete OR explicit PM_NOT_REVIEWED_TIME_BUDGET
+    plus push
+  implementation_test_files: *id008
+  actual_test_names:
+  - test_pm_batches_0843.py::test_all_candidates_reviewed_in_parallel_and_original_calls_independent
+  - test_pm_batches_0843.py::test_one_batch_timeout_disposes_only_its_ids_and_preserves_other_original
+  - test_pm_natural_cas_0843.py::test_all_natural_originals_revalidate_before_cas_and_timeout_is_explicit
+  - test_pm_natural_cas_0843.py::test_pm_evidence_deadline_is_exact_bjt_instant
+  - test_team_v2_morning.py::test_actual_three_stage_source_to_model_to_allocation_retains_legacy_bytes
+  - test_team_v2_morning.py::test_first_day_engine_probe_cannot_be_promoted_by_pm_standard_fixture
+  - test_team_v2_morning.py::test_empty_plan_day_still_prepares_emotion_seed_without_inventing_morning_permission
+  - test_team_v2_morning.py::test_a6_lower_cap_clips_pm_baseline_without_loosening
+  - test_team_v2_morning.py::test_missing_a6_is_explicit_conservative_not_a_fabricated_success
+  - test_team_v2_morning.py::test_unproven_plan_does_not_create_an_executable_substitute
+  - test_team_v2_morning.py::test_changed_plan_between_edges_blocks_without_model_call
+  - test_team_v2_morning.py::test_pending_null_activation_is_planning_only_never_manufactured
+  - test_team_v2_morning.py::test_old_held_owner_is_read_without_activation_or_omitting_exposure
+  - test_team_v2_morning.py::test_missing_planning_source_does_not_create_a_legacy_database
+  - test_team_v2_morning.py::test_missing_engine_does_not_invent_account_or_call_model
+  - test_team_v2_morning.py::test_outside_window_no_owned_or_legacy_write
+  - test_team_v2_morning.py::test_cli_has_three_independent_entries_without_legacy_constructor
+  - test_natural_reviewed_batch_0595.py::test_actual_three_natural_edges_switch_only_after_original_valid_pm
+  - test_natural_reviewed_batch_0595.py::test_failed_natural_review_never_publishes_or_retires_old_batch
+  - test_natural_reviewed_batch_0595.py::test_empty_candidate_never_changes_existing_head_or_old_plan
+  - test_natural_reviewed_batch_0595.py::test_new_candidate_between_engine_and_review_is_not_mixed
+  - test_natural_reviewed_batch_0595.py::test_missing_actual_a6_never_calls_pm_or_publishes
+  - test_natural_reviewed_batch_0595.py::test_old_row_changed_during_morning_rolls_back_all_publication
+  - test_natural_reviewed_batch_0595.py::test_candidate_cas_rejects_replaced_head_at_last_transaction_boundary
+  - test_natural_reviewed_batch_0595.py::test_night_and_missed_edges_never_run_candidate_model_or_switch
+  - test_natural_reviewed_batch_0595.py::test_real_workflow_team_publication_stages_only_candidate_and_candidate_proof
+  - test_natural_reviewed_batch_0595.py::test_atomic_failure_after_plan_insert_keeps_old_and_candidate_pending
+  - test_natural_reviewed_batch_0595.py::test_inconsistent_candidate_stored_sha_failclosed
+  - test_natural_reviewed_batch_0595.py::test_real_valid_pm_watch_only_result_is_saved_but_cannot_replace_old_domain
+  test_evidence_runs:
+  - run-20261027T115823381643
+  - run-20261027T115907787387
+  remaining:
+  - D5 actual full-day replay
+  - D8 external snapshots
+  - current frozen HEAD full and release gates
+  clock_contract: A6 completion -> concurrent PM batches -> CAS on completion or exact
+    08:45:00 BJT; no 08:38 deadline
+- id: WP-A9
+  issue: LJ-096/T1C
+  status: IMPLEMENTED_TARGETED_CHECKS_PASS_RELEASE_PENDING
+  producer_files:
+  - src/liangjian_funnel/runtime/team_v2_candidate_review.py
+  - src/liangjian_funnel/runtime/team_v2_execution.py
+  - src/liangjian_funnel/runtime/entry_pattern_binding.py
+  - src/liangjian_funnel/runtime/team_v2_review_latch.py
+  consumers:
+  - name: engine-only admission binding
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: &id009
+    - tests/test_postclose_a_0837.py
+  - name: normal PM/data/risk gates remain
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id009
+  - name: intersection Team/current original plan range
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id009
+  - name: strict no-chase comparison
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id009
+  - name: 50% normal single-stock position/board-lot rounding
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id009
+  - name: every admission attempt push including rejection
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id009
+  - name: degrade/recovery once per day notifications
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id009
+  - name: C7 tomorrow day isolation
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_status: BOUND_TO_PACKAGE_NAMED_TARGETED_TESTS_NOT_FULL_ACCEPTANCE
+    test_files: *id009
+  acceptance:
+  - outside stricter intersection rejected
+  - price>=no_chase rejected
+  - 50% cap never rounded up; existing position accounted
+  - attempt success/rejection both notify once
+  - day transition restores review and recovery notification, original risk not relaxed
+  implementation_test_files: *id009
+  actual_test_names:
+  - test_postclose_a_0837.py::test_three_explicit_rejected_votes_do_not_latch_but_network_failures_do
+  - test_postclose_a_0837.py::test_original_reference_vote_archived_separately_without_action_change
+  - test_postclose_a_0837.py::test_original_buy_rejected_alert_is_deduped_and_never_admitted
+  - test_postclose_a_0837.py::test_engine_only_geometry_no_chase_and_half_total_position
+  - test_postclose_a_0837.py::test_half_position_owns_existing_lots_and_never_rounds_up
+  - test_postclose_a_0837.py::test_three_candidates_record_truncated_and_queue_notification
+  - test_postclose_a_0837.py::test_engine_only_rejection_also_queues_labelled_notice
+  test_evidence_runs:
+  - run-20261027T115823381643
+  - run-20261027T115907787387
+  remaining:
+  - D5 actual full-day replay
+  - D8 external snapshots
+  - current frozen HEAD full and release gates
+- id: WP-A10
+  issue: 0856 TEAM_A5_STAGE_FAILED
+  status: IMPLEMENTED_ORIGINAL_SIZE_AND_INVERSE_GATE_PASS_FULL_RELEASE_PENDING
+  producer_files:
+  - src/liangjian_funnel/pipeline/team_v2_a5_projection.py
+  - src/liangjian_funnel/pipeline/a5_transport_compaction.py
+  - src/liangjian_funnel/pipeline/team_v2_prompts.py
+  - src/liangjian_funnel/runtime/team_v2_review.py
+  - src/liangjian_funnel/runtime/team_v2_review_command.py
+  - src/liangjian_funnel/cli.py
+  consumers:
+  - name: A5 complete message/context and numeric validator
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_files:
+    - tests/test_team_a5_original_failure_0837.py
+    - tests/test_a5_lossless_projection_20261021.py
+    - tests/test_team_v2_review.py
+  - name: original context replay including previous transport schema
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_files:
+    - tests/test_team_a5_original_failure_0837.py
+    - tests/test_a5_lossless_projection_20261021.py
+    - tests/test_team_v2_review.py
+  - name: coach report and method/hypothesis persistence
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_files:
+    - tests/test_team_a5_original_failure_0837.py
+    - tests/test_a5_lossless_projection_20261021.py
+    - tests/test_team_v2_review.py
+  - name: typed CLI failure and internal outbox dedupe
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_files:
+    - tests/test_team_a5_original_failure_0837.py
+    - tests/test_a5_lossless_projection_20261021.py
+    - tests/test_team_v2_review.py
+  - name: customer A5 and UI remain separate outputs; D8 compare pending
+    status: IMPLEMENTED_OR_UNCHANGED_BOUNDARY_REVIEWED
+    test_files:
+    - tests/test_team_a5_original_failure_0837.py
+    - tests/test_a5_lossless_projection_20261021.py
+    - tests/test_team_v2_review.py
+  implementation_test_files:
+  - tests/test_team_a5_original_failure_0837.py
+  - tests/test_a5_lossless_projection_20261021.py
+  - tests/test_team_v2_review.py
+  test_evidence_runs:
+  - run-20261027T115823381643
+  acceptance:
+  - actual old request480092 ->247451 chars <=250000 unchanged ceiling
+  - inverse complete facts and canonical SHA equal; business evidence IDs unchanged
+  - preconstruction exact character count; oversize stops before prepare_messages
+  - low token limit still rejects without HTTP
+  - typed failure once and duplicate notification remains single
+  remaining:
+  - D5 full day
+  - D8 external snapshots
+  - no new real A5 call authorized
+unaffected_boundaries:
+- name: A1/A2/A3 selection/scoring
+  reason: No strategy selection thresholds changed by train A; only PM all-kept delivery
+    and A5 availability consumer.
+- name: broker matching / T+1 / hard stop and account limits
+  reason: Unchanged; T1C only adds tighter admission and 50% position cap under existing
+    original gates.
+- name: production root/env/secret settings
+  reason: No live mutation; only final approved deployment, watchdog receives same
+    configured production root.
+pending_full_census:
+- A1/A2/A3 publication artifacts and declared schemas
+- A4 realtime and legacy authority retirement
+- A5 consumer/context replay
+- A6 and PM batching
+- UI/decode label versions
+- scheduler/native timers/windows watchdog
+- opening evidence producers/consumers
+- notifications/outbox/versioned reasons
+latest_rulings:
+- 0868
+- 0869
+actual_day_replay:
+  observed_components: tests/test_d5_day_replay_0837.py
+  status: OBSERVED_DAY_COMPONENTS_PASS_NOT_COMPLETE_WHOLE_PIPELINE
+  inputs: tests/fixtures/postclose_20261027
+  counterfactual_after1406: UNKNOWN_NO_FABRICATED_MODEL_OUTPUT
+external_output_snapshots:
+  test: tests/test_d8_real_outputs_0837.py
+  run: run-20261027T133144887789
+  originals: 13
+  status: 13_CUSTOMER_CARDS_PAIRED_NOT_COMPLETE_D8
+  remaining:
+  - Team A5 failure/new bounded input snapshot
+  - UI contract snapshot
+  - A7 per-number provenance scope ruling

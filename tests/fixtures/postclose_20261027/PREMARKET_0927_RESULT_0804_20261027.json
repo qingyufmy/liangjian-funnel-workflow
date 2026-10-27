@@ -1,0 +1,42 @@
+{
+  "actual_at": "2026-10-27T09:30:08.546922+08:00",
+  "checkpoint": "0927",
+  "status": "PASS_NATURAL_ACTIVATION_14",
+  "activation_at": "2026-10-27T09:26:03.605361+08:00",
+  "active": 14,
+  "invalidated": 0,
+  "evidence_rows": 14,
+  "evidence_hash_valid": true,
+  "record_latch": [],
+  "a6": [
+    {
+      "account_id": "local-paper",
+      "trade_date": "2026-10-27",
+      "consecutive_failures": 0,
+      "halted": 0,
+      "last_observed_at": "2026-10-27T08:35:01.665317+08:00"
+    }
+  ],
+  "supplemental_activation": "NOT_RUN_NOT_DUE",
+  "A4": "NOT_RUN_NOT_DUE",
+  "notice_investigation": "LJ088_IN_PROGRESS_0809",
+  "raw": [
+    {
+      "path": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\a4-monitor-20261021\\PREMARKET_RO_0804_0927_20261027T092723.json",
+      "sha256": "4b181ef6a7ac94e7c0d1e6784e0e4ee5e43e67dd781f398405269d38b5134646"
+    },
+    {
+      "path": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\a4-monitor-20261021\\ACTIVATION_0927_SUPPLEMENT_RO_0804_R2_20261027.json",
+      "sha256": "4e6c43b8a53ead4350d5a70c7756f11ee6bcc39bd52e57359f068917887fedd7"
+    }
+  ],
+  "ops_failure": {
+    "file": "ACTIVATION_0927_SUPPLEMENT_RO_0804_20261027.json",
+    "cause": "optional log job null caused TypeError; bounded RO only",
+    "repair": "job and message normalize null; R2 passed",
+    "production_writes": 0
+  },
+  "production_write": 0,
+  "model_http": 0,
+  "source_http": 0
+}

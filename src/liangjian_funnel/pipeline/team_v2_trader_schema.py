@@ -1,5 +1,6 @@
 """Claude 3.0.2 A4 schema; invalid/unknown is never an executable signal."""
 from collections.abc import Mapping
+from copy import deepcopy
 import json
 import re
 
@@ -27,6 +28,46 @@ def _same(left, right):
         return False
 
 
+def project_trader_references(output, tech_reference):
+    """Keep the raw vote immutable; server-owned facts are a separate projection.
+
+    Only a known item in its own plan can receive its authoritative status.
+    Unknown items, duplicate items, explanations, actions and envelope fields
+    are deliberately left to the strict validator, never repaired here.
+    """
+    projected = deepcopy(output)
+    changes = []
+    if not isinstance(projected, Mapping) or not isinstance(tech_reference, Mapping):
+        return projected, changes
+    signals = projected.get('signals')
+    if not isinstance(signals, list):
+        return projected, changes
+    for index, row in enumerate(signals):
+        if not isinstance(row, Mapping):
+            continue
+        pid = row.get('plan_id')
+        if not isinstance(pid, str) or not isinstance(tech_reference.get(pid), Mapping):
+            continue
+        reviews = row.get('tech_reference_review')
+        if not isinstance(reviews, list):
+            continue
+        for ordinal, ref in enumerate(reviews):
+            if (not isinstance(ref, dict) or set(ref) not in (
+                    {'item', 'my_read'}, {'item', 'status', 'my_read'})
+                    or not isinstance(ref.get('item'), str) or ref['item'] not in tech_reference[pid]
+                    or ('status' in ref and (not isinstance(ref['status'],str) or ref['status'] not in {'MET','UNMET'}))):
+                continue
+            status = tech_reference[pid][ref['item']]
+            if status not in {'MET', 'UNMET'}:
+                continue
+            if ref.get('status') != status:
+                changes.append(dict(path=f'signals.{index}.tech_reference_review.{ordinal}.status',
+                    item=ref['item'], original_present='status' in ref,
+                    original=ref.get('status'), authoritative=status))
+            ref['status'] = status
+    return projected, changes
+
+
 def validate_trader_output(output, catalog, *, required_envelope, decision_id, minute_snapshot_id,
                            plans, held_symbols, tech_reference,candidate_actions=None,position_candidate_actions=None):
     if candidate_actions is not None and (set(candidate_actions)!=set(plans)
@@ -42,6 +83,7 @@ def validate_trader_output(output, catalog, *, required_envelope, decision_id, m
                 for k, v in ref.items()) for ref in tech_reference.values())
             or not _text(decision_id) or not _text(minute_snapshot_id)):
         raise ValueError("TRADER_SERVER_CONTEXT_INVALID")
+    output, _ = project_trader_references(output, tech_reference)
     common = validate_team_output("A4", output, catalog, expected_ids=set(plans))
     issues = list(common.issues)
     def issue(code):

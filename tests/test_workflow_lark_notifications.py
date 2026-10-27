@@ -125,13 +125,10 @@ def test_premarket_empty_scope_status_is_once_per_day_and_not_a_plan(tmp_path):
     again = publisher.publish_a3_premarket_status(
         analyzed_at=now, reason_code="NO_PENDING_A3_PLANS",
     )
-    assert first["status"] == "SENT" and again["duplicate"] is True
-    assert len(fake.calls) == 1
-    title, lines, _color = fake.calls[0]
-    assert "盘前计划未就绪" in title
-    assert "今日有效 A3 计划：0 只" in "\n".join(lines)
-    assert "不构成买入信号" in "\n".join(lines)
-    assert store.list_notification_deliveries(kind="PREMARKET_A3_STATUS")
+    assert first==again and first['reason_code']=='PREMARKET_AWAITING_NATURAL_CAS'
+    assert first['availability']=='IN_PROGRESS' and first['status']=='NOOP'
+    assert len(fake.calls)==0
+    assert not store.list_notification_deliveries(kind="PREMARKET_MORNING_IN_PROGRESS")
 
 
 def _plan(index: int) -> dict[str, object]:

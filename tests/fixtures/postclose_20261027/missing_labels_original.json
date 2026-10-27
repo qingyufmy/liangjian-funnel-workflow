@@ -1,0 +1,639 @@
+[
+  {
+    "code": "A3_TREND_ROUTE_APPROVED",
+    "count": 1743,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "A4_LIVE_ENTRY_GEOMETRY_ACCEPTED",
+    "count": 80,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1031:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "A4_MARKET_CAUTION_REDUCED_POSITION",
+    "count": 57,
+    "sources": [
+      "monitor_events.strategy.strategy_reasons"
+    ]
+  },
+  {
+    "code": "A4_SESSION_WARMUP",
+    "count": 196,
+    "sources": [
+      "monitor_events.reason_code"
+    ]
+  },
+  {
+    "code": "A_15M_SUPPORT",
+    "count": 212,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.reason_code",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.strategy_reasons",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "A_CONTRACTION",
+    "count": 258,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.reason_code",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.strategy_reasons",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "A_PULLBACK",
+    "count": 162,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.strategy_reasons",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "A_STABILIZED",
+    "count": 244,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.reason_code",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.strategy_reasons",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "A_SUPPORT",
+    "count": 152,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "B_ACCEPTED",
+    "count": 3337,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.reason_code",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.strategy_reasons",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "B_ATTEMPT_PREFIX",
+    "count": 1591,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "B_EFFECTIVE_BREAKOUT",
+    "count": 2799,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.strategy_reasons",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "B_KEY_BELOW_NO_CHASE",
+    "count": 1837,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.strategy_reasons",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "B_KEY_LEVEL",
+    "count": 1591,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "B_NO_CHASE",
+    "count": 1591,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "B_RETEST",
+    "count": 2985,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1031:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.reason_code",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.strategy_reasons",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "B_RETEST_VOLUME",
+    "count": 2865,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1031:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.strategy_reasons",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "B_STOP_ONLY_RAISED",
+    "count": 2864,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.strategy_reasons",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "CLOSED_15M",
+    "count": 140,
+    "sources": [
+      "monitor_events.strategy.unmet"
+    ]
+  },
+  {
+    "code": "CLOSED_5M",
+    "count": 56,
+    "sources": [
+      "monitor_events.strategy.unmet"
+    ]
+  },
+  {
+    "code": "CONFIRM_CURRENT_MINUTE_NO_TRADES",
+    "count": 6,
+    "sources": [
+      "monitor_events.reason_code",
+      "monitor_events.strategy.strategy_reasons"
+    ]
+  },
+  {
+    "code": "CURRENT_MINUTE_HAS_TRADES",
+    "count": 3,
+    "sources": [
+      "monitor_events.strategy.unmet"
+    ]
+  },
+  {
+    "code": "DETERMINISTIC_STRATEGY_CONFIRMATION",
+    "count": 58,
+    "sources": [
+      "monitor_events.strategy.strategy_reasons"
+    ]
+  },
+  {
+    "code": "EMPTY_SCOPE",
+    "count": 1,
+    "sources": [
+      "monitor_events.reason_code"
+    ]
+  },
+  {
+    "code": "ENGINE_REVIEW_CANDIDATE",
+    "count": 12,
+    "sources": [
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.scope.decisions.reason_code",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.scope.decisions.reason_code",
+      "team.trader_sessions.team:20261027T1031:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.scope.decisions.reason_code",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.scope.decisions.reason_code",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.scope.decisions.reason_code",
+      "team.trader_sessions.team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.scope.decisions.reason_code",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.scope.decisions.reason_code",
+      "team.trader_sessions.team:20261027T1306:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.scope.decisions.reason_code",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.scope.decisions.reason_code",
+      "team.trader_sessions.team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.scope.decisions.reason_code"
+    ]
+  },
+  {
+    "code": "ENTRY_CONFIRMATION_NOT_COMPLETE",
+    "count": 3,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.reason_code",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.reason_code",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.reason_code"
+    ]
+  },
+  {
+    "code": "ENTRY_GEOMETRY_NOT_CONFIRMED",
+    "count": 1,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.reason_code"
+    ]
+  },
+  {
+    "code": "ENTRY_GEOMETRY_NOT_MET_PRICE_ABOVE_NO_CHASE",
+    "count": 3,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.reason_code",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.reason_code",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.reason_code"
+    ]
+  },
+  {
+    "code": "ENTRY_GEOMETRY_NOT_MET_PRICE_BELOW_ZONE",
+    "count": 6,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.reason_code",
+      "model.model_calls.A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.reason_code",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.reason_code",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.reason_code",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.reason_code",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.reason_code"
+    ]
+  },
+  {
+    "code": "ENTRY_GEOMETRY_VIOLATED_NO_CHASE",
+    "count": 1,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1031:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.reason_code"
+    ]
+  },
+  {
+    "code": "ENTRY_RR",
+    "count": 3026,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.strategy_reasons",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "ENTRY_ZONE",
+    "count": 170,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.strategy_reasons",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "ENTRY_ZONE_NOT_REACHED",
+    "count": 3,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.reason_code",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.reason_code",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.reason_code"
+    ]
+  },
+  {
+    "code": "ENTRY_ZONE_NOT_REACHED_AND_MARKET_RISK_OFF",
+    "count": 1,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.reason_code"
+    ]
+  },
+  {
+    "code": "ENTRY_ZONE_NOT_REACHED_PRICE_ABOVE_TRIGGER_HIGH",
+    "count": 3,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.reason_code",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.reason_code",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.reason_code"
+    ]
+  },
+  {
+    "code": "LLM_UNAVAILABLE",
+    "count": 5,
+    "sources": [
+      "monitor_events.reason_code",
+      "notification_deliveries.reason_code"
+    ]
+  },
+  {
+    "code": "MONITOR_OVERRUN",
+    "count": 112,
+    "sources": [
+      "monitor_events.llm",
+      "monitor_events.reason_code",
+      "notification_deliveries.reason_code"
+    ]
+  },
+  {
+    "code": "NETWORK_RETRY_EXHAUSTED",
+    "count": 8,
+    "sources": [
+      "monitor_events.diagnostic",
+      "monitor_events.llm"
+    ]
+  },
+  {
+    "code": "NO_CLOSED_15M",
+    "count": 140,
+    "sources": [
+      "monitor_events.strategy.strategy_reasons"
+    ]
+  },
+  {
+    "code": "NO_CLOSED_5M",
+    "count": 56,
+    "sources": [
+      "monitor_events.strategy.strategy_reasons"
+    ]
+  },
+  {
+    "code": "PREVIOUS_CLOSE_RESEARCH_FAILED",
+    "count": 1,
+    "sources": [
+      "notification_deliveries.reason_code"
+    ]
+  },
+  {
+    "code": "PRICE_ABOVE_ENTRY_ZONE_AND_MARKET_RISK_OFF",
+    "count": 1,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.reason_code"
+    ]
+  },
+  {
+    "code": "TEAM_MODEL_CALL_FAILED",
+    "count": 3,
+    "sources": [
+      "team.trader_sessions.team:20261027T1306:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.reason_codes",
+      "team.trader_sessions.team:20261027T1306:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.reason_codes",
+      "team.trader_sessions.team:20261027T1306:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.reason_codes"
+    ]
+  },
+  {
+    "code": "TRADER_TECH_REFERENCE_INVALID",
+    "count": 9,
+    "sources": [
+      "team.trader_sessions.team:20261027T1031:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.reason_codes",
+      "team.trader_sessions.team:20261027T1031:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.reason_codes",
+      "team.trader_sessions.team:20261027T1031:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.reason_codes",
+      "team.trader_sessions.team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.reason_codes",
+      "team.trader_sessions.team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.reason_codes",
+      "team.trader_sessions.team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.reason_codes",
+      "team.trader_sessions.team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.reason_codes",
+      "team.trader_sessions.team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.reason_codes",
+      "team.trader_sessions.team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.reason_codes"
+    ]
+  },
+  {
+    "code": "VOLUME_NOT_OVERHEATED",
+    "count": 1744,
+    "sources": [
+      "model.model_calls.A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1031:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "model.model_calls.A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.signals.tech_reference_review.item",
+      "monitor_events.strategy.met",
+      "monitor_events.strategy.unmet",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc.shards.captured_output.signals.tech_reference_review.item",
+      "team.trader_sessions.team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW.captured_output.signals.tech_reference_review.item"
+    ]
+  },
+  {
+    "code": "VOLUME_OVERHEATED",
+    "count": 10,
+    "sources": [
+      "monitor_events.strategy.strategy_reasons"
+    ]
+  },
+  {
+    "code": "WAITING_CONDITION",
+    "count": 2570,
+    "sources": [
+      "monitor_events.reason_code",
+      "monitor_events.strategy.strategy_reasons"
+    ]
+  }
+]

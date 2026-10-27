@@ -174,7 +174,7 @@ def candidate_planning_source(settings, candidate, *, now, calendar):
     return result
 
 
-def finish_natural_candidate(settings, candidate, *, calendar):
+def finish_natural_candidate(settings, candidate, *, calendar,observed_at=None):
     if candidate.get('state')=='EMPTY':raise ValueError('NATURAL_EMPTY_CANNOT_SWITCH')
     from .reviewed_batch_evidence import build_reviewed_batch_evidence
     from .state import RuntimeStore, StateTransitionError
@@ -202,4 +202,16 @@ def finish_natural_candidate(settings, candidate, *, calendar):
     store.stage_reviewed_batch(bundle)
     result=store.commit_reviewed_batch_switch(scope,expected_old_plan_ids=body['expected_old_plan_ids'],
         expected_old_rows_sha256=body['expected_old_rows_sha256'],expected_pointer_revision=body['expected_pointer_revision'])
-    return result
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from .lark_notifications import WorkflowLarkPublisher
+    publisher=WorkflowLarkPublisher(store,None,webhook_path=settings.lark_webhook_path,
+        timeout_seconds=settings.lark_timeout_seconds)
+    try:
+        notification=publisher.publish_batch_switch_status(trade_date=body['trade_date'],scope_id=scope,
+            plan_count=len(body['plan_rows']),body_sha256=candidate['body_sha256'],
+            observed_at=observed_at or datetime.now(ZoneInfo('Asia/Shanghai')))
+    except Exception as exc:
+        notification=dict(status='FAILED',reason_code='MORNING_FINAL_NOTIFICATION_FAILED',
+            failure_phase='POST_COMMIT_NOTIFICATION',exception_class=type(exc).__name__)
+    return dict(result,final_notification=notification)

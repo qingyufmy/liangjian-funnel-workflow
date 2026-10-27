@@ -29,7 +29,7 @@ from .team_v2_external import read_external
 
 TZ=ZoneInfo('Asia/Shanghai')
 ACCOUNT='local-paper'
-WINDOWS={'engine':(time(8,33),time(8,35)), 'risk':(time(8,35),time(8,37)), 'pm':(time(8,38),time(8,40))}
+WINDOWS={'engine':(time(8,33),time(8,35)), 'risk':(time(8,35),time(8,37)), 'pm':(time(8,35),time(8,45))}
 
 
 def _directory(settings):
@@ -259,13 +259,14 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
         fallback_enabled=False if candidate is not None else pm_policy['fallback_enabled'],fallback_priority_order=tuple(priority_order(meeting_plans)),
         max_new_entries=limits.max_new_entries,max_positions=limits.max_positions,
         geometry_plan_ids=geometry_ids,geometry_audit=geometry_audit,a6_validated=result.status=='READY',
+        deadline_at=datetime.combine(now.date(),time(8,45),TZ),
         a6_degraded_conservative=result.status=='DEGRADED' and result.consecutive_failures==1)
     if candidate is not None:
         if (pm.get('status')!='READY' or pm.get('model_validated') is not True
                 or pm.get('decision_authority')!='VALIDATED_MODEL'):
             return dict(status='BLOCKED',reason_code='NATURAL_CANDIDATE_PM_NOT_READY',old_batch_preserved=True,pm=pm)
         from .reviewed_batch_natural import finish_natural_candidate
-        switched=finish_natural_candidate(settings,candidate,calendar=calendar)
+        switched=finish_natural_candidate(settings,candidate,calendar=calendar,observed_at=clock())
         if switched.get('reason_code')=='NATURAL_CANDIDATE_REVIEW_ZERO_ALLOCATION':
             return dict(status='NOOP',reason_code=switched['reason_code'],
                 old_batch_preserved=True,natural_batch_switch=switched,pm=pm)

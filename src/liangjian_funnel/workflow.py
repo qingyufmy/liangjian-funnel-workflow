@@ -4635,9 +4635,11 @@ class WorkflowApplication:
             }
 
         candidates: list[dict[str, Any]] = []
+        active_current_ids: set[str] = set()
         for lane_id in self.brokers:
             active_sources: set[str] = set()
             for active in self.store.list_active_plans(lane_id, at=current):
+                active_current_ids.add(str(active['plan_id']))
                 try:
                     active_source = json.loads(str(active.get("payload_json") or "{}")).get("source_run_id")
                     if active_source:
@@ -4683,7 +4685,8 @@ class WorkflowApplication:
         if not candidates:
             return {
                 "status": "READY",
-                "reason_code": "NO_CURRENT_A3_PLAN",
+                "reason_code": "NOTHING_PENDING_ALL_ACTIVE" if active_current_ids else "NO_CURRENT_A3_PLAN",
+                "active_plan_count": len(active_current_ids),
                 "as_of": current.isoformat(),
                 "activated": [],
                 "invalidated": [],
@@ -5664,6 +5667,11 @@ class WorkflowApplication:
                         contexts[symbol]["historical_5m"] = []
                         contexts[symbol]["historical_5m_readiness"] = {"status":"DATA_BLOCKED",
                             "reason_code":"HISTORICAL_5M_PREVIOUS_SESSION_UNPROVEN"}
+                from .runtime.entry_confirmation import apply_runtime_confirmation_context
+                contexts[symbol]=apply_runtime_confirmation_context(contexts[symbol],overlay=confirmation_overlay,
+                    daily_facts_by_plan=contexts[symbol].get('entry_confirmation_daily_facts_by_plan'),
+                    historical_bars=contexts[symbol].get('historical_5m'),
+                    historical_readiness=contexts[symbol].get('historical_5m_readiness'))
             # A cache/database write failure is a system-level boundary: the
             # entire lane must fail closed.  Provider gaps/fetch failures are
             # retained in ``data_errors`` and only block their own symbols.

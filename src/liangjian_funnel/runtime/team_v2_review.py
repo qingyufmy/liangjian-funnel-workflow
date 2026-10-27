@@ -17,6 +17,13 @@ from .team_v2_eod import _response
 from .team_v2_store import canonical
 
 
+class TeamA5ContextError(ValueError):
+    reason_code='A5_MODEL_CONTEXT_TOO_LARGE'
+    def __init__(self, diagnostics):
+        super().__init__(self.reason_code)
+        self.diagnostics=diagnostics
+
+
 def _hash(value):return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
@@ -112,7 +119,7 @@ def close_card(facts,*,review_status):
 def run_team_review(*,repository,client,journal,store,review_id,call_id,account_id,run_id,model,
         trade_date,source_trade_date,review_kind,clock,required_envelope,facts,
         signal_domain,counterexample_domain,confirmed_defect_symbols=frozenset(),
-        timeout_seconds=600,max_output_tokens=16384,allow_model_call=False):
+        timeout_seconds=600,max_output_tokens=16384,allow_model_call=False,max_input_tokens=None):
     if not allow_model_call:raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
     now=clock()
     if (not isinstance(now,datetime) or now.utcoffset() is None or review_kind not in {'MIDDAY','POST_CLOSE'}
@@ -131,8 +138,11 @@ def run_team_review(*,repository,client,journal,store,review_id,call_id,account_
         source_trade_date=source_trade_date,required_envelope=required_envelope,
         signal_domain=dict(sorted(signal_domain.items())),counterexample_domain=sorted(counterexample_domain),
         confirmed_defect_symbols=sorted(confirmed_defect_symbols),timeout_seconds=timeout_seconds,
-        max_output_tokens=max_output_tokens,prompt_hashes=dict(repository.prepare('A5',
-            dict(A5_FACT_SNAPSHOT=facts,EVIDENCE_CATALOG=catalog)).source_hashes))
+        max_output_tokens=max_output_tokens,prompt_hashes=dict(repository.source_hashes('A5')))
+    if max_input_tokens is not None:
+        if type(max_input_tokens) is not int or not 1024<=max_input_tokens<=1_000_000:
+            raise ValueError('A5_INPUT_TOKEN_LIMIT_INVALID')
+        context['max_input_tokens']=max_input_tokens
     binding=_hash(context)
     store.freeze_control_context('a5-review:'+review_id,source_sha256=binding,body=context)
     runtime=TeamReviewRuntime(store);previous=runtime.load(review_id,input_sha256=binding)
@@ -143,10 +153,8 @@ def run_team_review(*,repository,client,journal,store,review_id,call_id,account_
         confirmed_defect_symbols=confirmed_defect_symbols,metrics=facts['metrics'],numeric_domain=number_domain)
     from ..pipeline.team_v2_a5_projection import project_review_facts
     model_facts,input_projection=project_review_facts(facts)
-    request=repository.prepare_messages('A5',dict(A5_FACT_SNAPSHOT=model_facts,EVIDENCE_CATALOG=catalog),
-        required_envelope=required_envelope,session=session)
-    from ..pipeline.team_v2_prompts import with_runtime_contract
-    request=with_runtime_contract(request,dict(session=session,
+    from ..pipeline.team_v2_prompts import estimate_a5_message_chars,with_runtime_contract
+    contract=dict(session=session,
         schema='a5-daily-review/2.0.0',preserve_all_root_fields=True,
         purpose='深度复盘，质量优先；使用既有完整schema和证据引用，不因速度省略计划事实链。',
         quality_requirements=[
@@ -156,9 +164,39 @@ def run_team_review(*,repository,client,journal,store,review_id,call_id,account_
             'Agent产出是否被下游采用、逻辑矛盾、系统缺陷与策略原因分列；系统问题关联已有LJ编号。',
             '明日改进须可验证且有证据；不自行执行配置/策略变更。',
             '所有数字引用原事实及字段路径；未经提供的数值不能自行推算或补造。'],
-        scorecard_numbers='只引用A5_FACT_SNAPSHOT中原有数值，并在相关文字注明来源字段路径；未知明确待证。'))
-    # No silent truncation to fit provider limits, and no model repair recall.
-    if sum(len(m['content']) for m in request.messages)>250000:raise ValueError('A5_MODEL_CONTEXT_TOO_LARGE')
+        scorecard_numbers='只引用A5_FACT_SNAPSHOT中原有数值，并在相关文字注明来源字段路径；未知明确待证。')
+    values=dict(A5_FACT_SNAPSHOT=model_facts,EVIDENCE_CATALOG=catalog)
+    estimated_chars=estimate_a5_message_chars(repository,values,required_envelope=required_envelope,session=session,contract=contract)
+    estimate=dict(phase='PRE_CONSTRUCTION_CONTEXT_BUDGET',request_chars=estimated_chars,legacy_char_limit=250000,
+        source_fact_sha256=facts['input_hash'],transport_projection=input_projection)
+    store.freeze_control_context('a5-context-estimate:'+review_id,source_sha256=_hash(estimate),body=estimate)
+    if estimated_chars>250000:raise TeamA5ContextError(estimate)
+    request=repository.prepare_messages('A5',values,required_envelope=required_envelope,session=session)
+    request=with_runtime_contract(request,contract)
+    # Keep the complete final rendered request even when it is rejected before
+    # HTTP. This is a constructed UNSENT request, distinct from the client's
+    # archive of actual wire attempts and responses.
+    from ..pipeline.research.common import _estimate_message_tokens
+    request_original=dict(schema='team-a5-constructed-request/1',call_id=call_id,input_hash=request.input_hash,
+        messages=[dict(m) for m in request.messages],source_fact_sha256=facts['input_hash'],
+        prompt_hashes=dict(request.prompt.source_hashes),transport_projection=input_projection,
+        constructed_at=now.isoformat(),wire_dispatch_proven=False)
+    store.freeze_control_context('a5-request:'+review_id,
+        source_sha256=_hash({k:v for k,v in request_original.items() if k!='constructed_at'}),body=request_original)
+    chars=sum(len(m['content']) for m in request.messages)
+    if chars!=estimated_chars:raise ValueError('A5_CONTEXT_SIZE_ESTIMATE_MISMATCH')
+    estimated_tokens=_estimate_message_tokens(request.messages)
+    diagnostics=dict(phase='PRE_HTTP_CONTEXT_BUDGET',request_chars=chars,
+        estimated_input_tokens=estimated_tokens,input_token_limit=max_input_tokens,
+        legacy_char_limit=250000 if max_input_tokens is None else None,
+        input_hash=request.input_hash,source_fact_sha256=facts['input_hash'])
+    # 0856 retains the character ceiling as well as the configured token cap.
+    # Neither boundary is relaxed to accept an oversized natural original.
+    diagnostics['legacy_char_limit']=250000
+    too_large=chars>250000 or max_input_tokens is not None and estimated_tokens>max_input_tokens
+    if too_large:
+        store.freeze_control_context('a5-context-failure:'+review_id,source_sha256=_hash(diagnostics),body=diagnostics)
+        raise TeamA5ContextError(diagnostics)
     output,valid,issues=_response(request=request,client=client,journal=journal,call_id=call_id,
         run_id=run_id,model=model,source_trade_date=source_trade_date,trade_date=trade_date,
         timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens,

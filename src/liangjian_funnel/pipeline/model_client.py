@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, replace
@@ -102,7 +103,7 @@ class ModelHTTPError(ModelClientError):
 
 @dataclass(frozen=True, slots=True)
 class ModelCallResult:
-    """Safe model result; no reasoning text or raw response is retained."""
+    """Parsed result with hashed references to separate business originals."""
 
     model: str
     output: dict[str, Any]
@@ -116,6 +117,7 @@ class ModelCallResult:
     pm_stream_telemetry: Mapping[str, Any] | None = None
     a5_stream_telemetry: Mapping[str, Any] | None = None
     provider_stream_telemetry: Mapping[str, Any] | None = None
+    original_evidence: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.output_hash:
@@ -234,6 +236,12 @@ class OpenAICompatibleModelClient:
         safe_messages = [dict(message) for message in messages]
         started_all = time.perf_counter()
         overall_deadline = self.monotonic() + call_timeout
+        from .model_evidence import ModelCallEvidence, ModelEvidenceError
+        try:
+            evidence = ModelCallEvidence(self.settings,model=model,stage=stage,session=team_session,
+                input_hash=input_hash,prompt_hash=prompt_hash)
+        except (ModelEvidenceError, OSError, ValueError) as exc:
+            raise ModelClientError('MODEL_EVIDENCE_PERSIST_FAILED',attempts=0) from exc
         pm_premarket = str(stage or '').upper() == 'A3' and team_session == 'PM_PREMARKET'
         pm_metrics = None
         a5_metrics = None
@@ -352,10 +360,19 @@ class OpenAICompatibleModelClient:
                     if wire_metrics is not None:
                         body['stream_options'] = {'include_usage': True}
                     try:
+                        original = evidence.begin(attempt=total_attempts,body=body,
+                            timeout_seconds=remaining_timeout,clock=self.monotonic)
+                    except (OSError, ValueError) as exc:
+                        raise ModelClientError('MODEL_EVIDENCE_PERSIST_FAILED',attempts=total_attempts-1,
+                            diagnostics={'original_evidence':evidence.receipt()}) from exc
+                    try:
                         # Bound every transport phase by the remaining stage
                         # budget.  A fresh retry must never receive the full
                         # original timeout after earlier attempts/backoff have
                         # already consumed part of the wall-clock deadline.
+                        remaining_timeout=min(remaining_timeout,overall_deadline-self.monotonic())
+                        if remaining_timeout<=0:
+                            raise ModelNetworkError('MODEL_TOTAL_DEADLINE_EXCEEDED',attempts=total_attempts-1)
                         if _provider_metrics is not None:
                             _provider_metrics.dispatched += 1
                         with client.stream(
@@ -364,7 +381,11 @@ class OpenAICompatibleModelClient:
                             json=body,
                             timeout=remaining_timeout,
                         ) as response:
+                            original.attach(response)
                             status = response.status_code
+                            if status>=400:
+                                original.error=dict(exception_class='HTTPStatus',cause_classes=[],
+                                    phase='RESPONSE_HEADERS',http_status=status)
                             from ..runtime.provider_health import observe_http
                             observe_http(self.settings,model=model,
                                 role=str(stage or 'UNSPECIFIED')+':'+str(team_session or 'LEGACY'),status=status)
@@ -455,6 +476,7 @@ class OpenAICompatibleModelClient:
                                 raise StrictJSONError('FINPOINTS_STREAM_REQUIRED', attempts=total_attempts)
                             output = _strip_reasoning(strict_json_object(content))
                     except StrictJSONError as exc:
+                        original.failed(exc)
                         last_strict_error = exc
                         if _provider_metrics is not None and (exc.reason_code.startswith('STREAM_') or exc.reason_code == 'FINPOINTS_STREAM_REQUIRED'):
                             raise StrictJSONError(exc.reason_code, attempts=total_attempts, diagnostics=exc.diagnostics) from exc
@@ -478,6 +500,8 @@ class OpenAICompatibleModelClient:
                                 **({'a5_stream':a5_metrics.snapshot()} if a5_metrics else {})},
                         ) from exc
                     except ModelClientError as exc:
+                        original.failed(exc)
+                        exc.diagnostics['original_evidence']=evidence.receipt()
                         if a5_metrics is not None:exc.diagnostics['a5_stream']=a5_metrics.snapshot()
                         if pm_metrics is not None:
                             exc.diagnostics['pm_stream'] = pm_metrics.snapshot()
@@ -485,22 +509,45 @@ class OpenAICompatibleModelClient:
                                 exc.attempts = total_attempts
                         raise
                     except httpx.TimeoutException as exc:
+                        original.failed(exc)
+                        if (str(stage or '').upper()=='A4' and not pm_premarket
+                                and original.received==0 and variant_attempts<attempt_limit
+                                and self.monotonic()<overall_deadline):
+                            self._backoff(variant_attempts,deadline=overall_deadline)
+                            continue
                         raise ModelNetworkError(
                             ('PM_FIRST_PACKET_TIMEOUT' if pm_metrics.first_packet is None else 'PM_TOTAL_TIMEOUT')
                             if pm_metrics is not None else "MODEL_WALL_CLOCK_TIMEOUT",
                             attempts=total_attempts,
-                            diagnostics=({'pm_stream': pm_metrics.snapshot()} if pm_metrics else
-                                {'a5_stream':a5_metrics.snapshot()} if a5_metrics else None),
+                            diagnostics={**({'pm_stream': pm_metrics.snapshot()} if pm_metrics else
+                                {'a5_stream':a5_metrics.snapshot()} if a5_metrics else {}),
+                                'original_evidence':evidence.receipt()},
                         ) from exc
                     except (httpx.NetworkError, httpx.RemoteProtocolError, httpx.HTTPError) as exc:
-                        if _provider_metrics is not None and _provider_metrics.first_packet is not None:
-                            raise ModelNetworkError(attempts=total_attempts) from exc
+                        original.failed(exc)
+                        if original.received or (_provider_metrics is not None and _provider_metrics.first_packet is not None):
+                            raise ModelNetworkError(attempts=total_attempts,
+                                diagnostics={'original_evidence':evidence.receipt()}) from exc
                         if variant_attempts < attempt_limit:
                             self._backoff(variant_attempts, deadline=overall_deadline)
                             continue
                         raise ModelNetworkError(attempts=total_attempts,
-                            diagnostics=({'pm_stream': pm_metrics.snapshot()} if pm_metrics else
-                                {'a5_stream':a5_metrics.snapshot()} if a5_metrics else None)) from exc
+                            diagnostics={**({'pm_stream': pm_metrics.snapshot()} if pm_metrics else
+                                {'a5_stream':a5_metrics.snapshot()} if a5_metrics else {}),
+                                'original_evidence':evidence.receipt()}) from exc
+                    except OSError as exc:
+                        original.failed(exc)
+                        raise ModelClientError('MODEL_EVIDENCE_PERSIST_FAILED',attempts=total_attempts,
+                            diagnostics={'original_evidence':evidence.receipt()}) from exc
+                    finally:
+                        failure=sys.exception()
+                        try:
+                            original.finish()
+                        except (OSError, ValueError) as exc:
+                            raise ModelClientError('MODEL_EVIDENCE_PERSIST_FAILED',attempts=total_attempts,
+                                diagnostics={'original_evidence':evidence.receipt()}) from exc
+                        if isinstance(failure,ModelClientError):
+                            failure.diagnostics['original_evidence']=evidence.receipt()
                     return ModelCallResult(
                         model=model,
                         output=output,
@@ -512,6 +559,7 @@ class OpenAICompatibleModelClient:
                         reasoning_tokens=reasoning_tokens,
                         pm_stream_telemetry=pm_metrics.snapshot() if pm_metrics else None,
                         a5_stream_telemetry=a5_metrics.snapshot() if a5_metrics else None,
+                        original_evidence=evidence.receipt(),
                     )
 
         if last_strict_error is not None:

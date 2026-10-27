@@ -62,6 +62,19 @@ def run_candidate_review(**args):
         source_sha256=binding,body={'engine_only':day_state['engine_only']})
     engine_only=frozen_day['engine_only']
     latch.ensure_alert(args['account_id'],args['trade_date'],day_state)
+    truncations=[]
+    if pending and not engine_only:
+        from .team_v2_internal import InternalOutbox
+        outbox=InternalOutbox(store)
+        for pid in pending:
+            source_id='A4_REVIEW_TRUNCATED:'+hashlib.sha256(dump([args['decision_id'],pid]).encode()).hexdigest()
+            event=outbox.enqueue(account_id=args['account_id'],trade_date=args['trade_date'],
+                kind='A4_REVIEW_TRUNCATED',source_id=source_id,observed_at=args['decision_at'],priority=10,
+                body=dict(msg_type='text',content=dict(text='TRUNCATED：本节拍模型容量不足，'+
+                    args['all_plans'][pid].symbol+' 未送模型；容量2，候选'+str(len(entries)+len(exits))+
+                    '；本次不以未审核冒无信号，持仓退出仍按引擎保护。')))
+            truncations.append(dict(plan_id=pid,symbol=args['all_plans'][pid].symbol,
+                status='TRUNCATED',reason_code='A4_REVIEW_CAPACITY_TRUNCATED',notification_event_id=event))
     selected_entries={pid:entries[pid] for pid in selected if pid in entries}
     selected_exits={pid:exits[pid] for pid in selected if pid in exits}
     child=dict(args);call_id=args['call_id']+':REVIEW';capture=None;sent=False
@@ -72,7 +85,10 @@ def run_candidate_review(**args):
             except ModelClientError as exc:
                 # Stable diagnostic classification only. Never store exception
                 # text, request headers, endpoint tokens or credentials.
-                code='WALL_CLOCK_TIMEOUT' if exc.reason_code=='WALL_CLOCK_TIMEOUT' else 'OTHER_TRANSPORT_FAILURE'
+                code=('WALL_CLOCK_TIMEOUT' if exc.reason_code in {
+                    'WALL_CLOCK_TIMEOUT','MODEL_WALL_CLOCK_TIMEOUT','MODEL_TOTAL_DEADLINE_EXCEEDED'}
+                    else 'UNPARSEABLE_RESPONSE' if exc.reason_code in {'STRICT_JSON_INVALID','JSON_OBJECT_REQUIRED'}
+                    or exc.reason_code.startswith('STREAM_') else 'OTHER_TRANSPORT_FAILURE')
                 store.freeze_control_context(detail_id,source_sha256=binding,body={'reason_code':code})
                 raise
     if selected and not engine_only:
@@ -95,8 +111,11 @@ def run_candidate_review(**args):
         sent=args['journal'].has_call_claim(call_id)
         if sent:
             day_state=latch.record(account_id=args['account_id'],trade_date=args['trade_date'],
-                decision_id=args['decision_id'],valid=bool(capture['model_validated']),observed_at=args['decision_at'])
+                decision_id=args['decision_id'],valid=bool(capture['model_validated']),observed_at=args['decision_at'],
+                counts_as_failure=not capture['model_validated'] and not capture.get('explicit_original_decision',False))
             latch.ensure_alert(args['account_id'],args['trade_date'],day_state)
+            if capture['model_validated']:
+                latch.ensure_recovery_alert(args['account_id'],args['trade_date'],args['decision_at'])
     commands=[];vetoed=0;confirmed=0;fallback=0
     if engine_only:
         commands.extend((pid,({**entries,**exits})[pid],None,'ENGINE_ONLY_DAILY_REVIEW_FALLBACK')
@@ -133,15 +152,35 @@ def run_candidate_review(**args):
             if hint['risk_unit_hint']=='PROBE' and risk.risk_unit=='STANDARD':
                 risk=replace(risk,risk_unit='PROBE',risk_budget=risk.risk_budget*args['limits'].probe_multiplier)
         sid='A4:'+hashlib.sha256(dump([args['account_id'],args['decision_id'],'candidate',pid]).encode()).hexdigest()
+        pattern_binding=(args.get('input_projection',{}).get('evaluations',{}).get(pid,{}).get('entry_pattern_binding')
+            if action in {'BUY_SIGNAL','ADD_SIGNAL'} else None)
+        extra_policy={}
+        if engine_only and action in {'BUY_SIGNAL','ADD_SIGNAL'}:
+            from .team_v2_engine_only_policy import engine_only_geometry
+            extra_policy['engine_only_policy']=engine_only_geometry(args['all_plans'][pid],
+                entry_pattern_binding=pattern_binding,plan_rows=args.get('input_projection',{}).get('plan_rows',[]))
         outcome=admit_trader_signal(broker=args['broker'],signal_id=sid,action=action,plan=args['all_plans'][pid],
             envelope=risk,limits=args['limits'],all_plans=args['all_plans'],now=args['decision_at'],
             closed_5m_end=args['closed_5m_end'],mark_as_of=args['mark_as_of'],regime=args['regime'],
             live_market_ready=args['live_market_ready'],snapshot_ready=args['snapshot_ready'],mode=args['mode'],
             calendar=args['calendar'],input_sha256=capture.get('input_hash',binding) if capture else binding,
             pm_allocation=allocation,utilization_cap_pct=args.get('utilization_cap_pct'),
-            entry_pattern_binding=(args.get('input_projection',{}).get('evaluations',{}).get(pid,{}).get('entry_pattern_binding')
-                if action in {'BUY_SIGNAL','ADD_SIGNAL'} else None),
-            deadline_monotonic=deadline,monotonic=monotonic)
+            entry_pattern_binding=pattern_binding,
+            deadline_monotonic=deadline,monotonic=monotonic,**extra_policy)
+        if engine_only:
+            from .team_v2_internal import InternalOutbox
+            judgment=outcome.get('judgment') or {}
+            policy=extra_policy.get('engine_only_policy') or {}
+            plan=args['all_plans'][pid]
+            alert=InternalOutbox(store).enqueue(account_id=args['account_id'],trade_date=args['trade_date'],
+                kind='A4_ENGINE_ONLY_ADMISSION',source_id=sid,observed_at=args['decision_at'],priority=5,
+                body=dict(msg_type='text',content=dict(text='降级模式·仅引擎：'+plan.symbol+' '+action+
+                    '；绑定价 '+str(plan.price)+'；更严区间 '+str(policy.get('entry_low','不可用'))+'–'+str(policy.get('entry_high','不可用'))+
+                    '；严格禁追价 '+str(policy.get('no_chase',plan.no_chase))+'；止损 '+str(plan.stop_price)+
+                    '；正常总仓位上限50%，已有持仓及挂单占用计入，仅向下整手取整；结果 '+str(judgment.get('status','不可用'))+
+                    '；数量 '+str(judgment.get('shares',0))+'；原因 '+','.join(judgment.get('reason_codes',[]))+
+                    '；准入ID '+sid)))
+            outcome={**outcome,'engine_only_notification_event_id':alert}
         admissions.append({**outcome,'origin':origin,'source_call_id':call_id if sent else None})
     issues=capture.get('reason_codes',[]) if capture else []
     failure=store.read_control_context(detail_id,source_sha256=binding) if selected else None
@@ -160,6 +199,7 @@ def run_candidate_review(**args):
         candidate_review=dict(mode='ENGINE_ONLY_DAILY_REVIEW_FALLBACK' if engine_only else 'ENGINE_LED_SINGLE_REQUEST',candidate_count=len(entries)+len(exits),
             engine_candidates=[dict(plan_id=pid,action=action) for pid,action in {**entries,**exits}.items()],
             selected_count=0 if engine_only else len(selected),unreviewed_candidate_ids=[] if engine_only else pending,actual_model_objects=len(selected) if sent else 0,
+            truncated=truncations,
             confirmed_count=confirmed,veto_count=vetoed,failed_review_count=len(selected) if capture and not capture['model_validated'] else 0,
             timeout_count=len(selected) if timed_out and sent else None if unknown_failure else 0,
             transport_failure_classification=failure['reason_code'] if failure else 'UNKNOWN' if unknown_failure else 'NOT_TIMEOUT',

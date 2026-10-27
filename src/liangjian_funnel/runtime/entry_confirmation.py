@@ -54,6 +54,25 @@ def runtime_confirmation_overlay(root):
         'entry_pattern_execution_supported':True}
 
 
+def apply_runtime_confirmation_context(context,*,overlay,plan_id=None,daily_facts=None,
+        daily_facts_by_plan=None,historical_bars=None,historical_readiness=None):
+    """One context contract for live legacy, Team and archived A5 replay.
+
+    Callers acquire their own immutable inputs. This function does no I/O and
+    never substitutes a plan's self-reported daily bars for publication facts.
+    """
+    result={**context,**overlay}
+    if overlay:
+        if plan_id is not None:
+            result['entry_confirmation_plan_id']=plan_id
+            result['entry_confirmation_daily_facts']=daily_facts or {}
+        if daily_facts_by_plan is not None:
+            result['entry_confirmation_daily_facts_by_plan']=daily_facts_by_plan
+        if historical_bars is not None:result['historical_5m']=historical_bars
+        if historical_readiness is not None:result['historical_5m_readiness']=historical_readiness
+    return result
+
+
 def runtime_confirmation_facts(settings,plan_rows,*,current_trade_date,deadline_monotonic):
     """One existing-source read under the caller's unchanged absolute budget.
 

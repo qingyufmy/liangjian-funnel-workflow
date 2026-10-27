@@ -202,6 +202,10 @@ def _run_monitor_control(application,*,now=None,clock=None,client=None,tradabili
                     'reason_code':'HISTORICAL_5M_PREVIOUS_SESSION_UNPROVEN'}
             if context['historical_5m_readiness']['status']!='READY':
                 entry_proven[plan.plan_id]=False
+        from .entry_confirmation import apply_runtime_confirmation_context
+        context=apply_runtime_confirmation_context(context,overlay=confirmation_overlay,plan_id=plan.plan_id,
+            daily_facts=confirmation_facts.get(plan.plan_id,{}),historical_bars=context.get('historical_5m'),
+            historical_readiness=context.get('historical_5m_readiness'))
         contexts[plan.plan_id]=context
         from .team_v2_trader_inputs import model_closed_context
         model_contexts[plan.plan_id]=model_closed_context(context,bars,cutoff=cutoff)
@@ -295,7 +299,7 @@ def _run_monitor_control(application,*,now=None,clock=None,client=None,tradabili
         config_hash=morning['risk_limits_sha256'],prompt_version=prompt.role_version,model_name=settings.team_intraday_model,
         market_regime=regime,status='FROZEN',reason_codes=[])
     from .team_v2_model_deadline import BoundedTeamClient
-    bounded_client=BoundedTeamClient(client or OpenAICompatibleModelClient(settings,max_attempts=1),deadline=deadline)
+    bounded_client=BoundedTeamClient(client or OpenAICompatibleModelClient(settings,max_attempts=2),deadline=deadline)
     args=dict(repository=repository,client=bounded_client,
         journal=ModelJudgmentJournal(directory/'model.db'),store=store,broker=broker,decision_id=decision,
         minute_snapshot_id=packet['packet_sha256'],call_id='A4:'+decision,account_id=ACCOUNT,run_id='team-monitor:'+day,

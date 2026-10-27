@@ -1,0 +1,7 @@
+{
+  "schema_version": "deployment-host/1",
+  "ssh_alias": "aurum-vm",
+  "production_root": "/media/qy/120aebe1-8c98-412b-a490-3797cae5656b/Agu/liangjian-funnel-workflow",
+  "ssh_pin_module": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\monday-close-20261019\\release_monday.py",
+  "ssh_pin_module_sha256": "921fe79fae02157c22e018c78b30da8cc72c3a9752d63a515c549fb608c49060"
+}

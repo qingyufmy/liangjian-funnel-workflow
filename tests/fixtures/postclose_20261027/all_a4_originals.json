@@ -1,0 +1,1599 @@
+{
+  "at": "2026-10-27T20:18:19.299995+08:00",
+  "code_sha256": "052201caf9a91015bf5c040509583f15fc3eb8b58830c8e573232265b565b0dc",
+  "result": {
+    "production_writes": 0,
+    "model_http": 0,
+    "source_http": 0,
+    "rows": [
+      {
+        "call_id": "A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+        "run_id": "team-monitor:2026-10-27",
+        "role": "A4",
+        "session": "INTRADAY",
+        "source_trade_date": "2026-10-26",
+        "execution_trade_date": "2026-10-27",
+        "captured_at": "2026-10-27T10:06:36.519439+08:00",
+        "model": "deepseek-v4.1-flash",
+        "prompt_hash": "299d933320842531a3913c7d7bf7da9101189fc1f629365f96fec039e773965d",
+        "input_hash": "03864f8684bf692ef91ef55d3dd9099bf572fb9a4d5ef71d95c49776cc482d6a",
+        "catalog_hash": "3736dfc3da9576877dbd19267402501cc3e6641fc8f21499f4cb883630bcf9fb",
+        "output_hash": "2cda9d519bc0279614fd828142dad7779fe79593481109a133d7f03d06a59dc9",
+        "latency_ms": 15256,
+        "provider_attempts": 1,
+        "validated": 1,
+        "issues_json": "[]",
+        "sentinel_count": 1,
+        "output_json": "{\"decision_id\":\"team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW\",\"envelope\":{\"as_of\":\"2026-10-27T10:06:00+08:00\",\"config_hash\":\"411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73\",\"config_version\":\"team-v2/1\",\"execution_trade_date\":\"2026-10-27\",\"input_snapshot_ids\":[\"081db40f2e8c47ea608102f88b706aad02b64184c1e3a4af83786d3c67de5d69\"],\"knowledge_cutoff\":\"2026-10-27T10:06:20.919555+08:00\",\"market_regime\":\"ROTATION_NO_MAINLINE\",\"model_name\":\"deepseek-v4.1-flash\",\"prompt_version\":\"agent-4-trader/1.1.0\",\"reason_codes\":[],\"run_id\":\"team-monitor:2026-10-27\",\"schema_version\":\"team-envelope/1\",\"source_trade_date\":\"2026-10-26\",\"stage_id\":\"A4\",\"status\":\"FROZEN\"},\"handoff_notes\":{\"to_a3\":[\"计划几何（触发区73.214-73.8561、失效位71.8626、no_chase 77.8989）清晰可执行，但今日开盘价75.21已高于触发区上沿，回踩路径当日难以自然触发，建议评估是否需为高开情形补充替代入场路径\",\"A3_REWARD_RISK_BELOW_MINIMUM延后条件与A2资金流数据缺失绑定，建议在计划发布前先确认资金流数据可用性，避免盘中无法解除\",\"trade_brief中'严格等回踩区'的指引与引擎送入的BUY_SIGNAL候选存在张力，建议明确高开情形下的优先级\"],\"to_a6\":[\"000858.SZ本节拍为NO_ACTION，未消耗风险信封，PROBE单元与1批次上限保持原样\",\"若后续价格进入73.214-73.8561触发区并完成确认序列，请按PROBE单元放行；若价格先触及77.8989禁追线则本计划当日作废\",\"A3延后条件A3_REWARD_RISK_BELOW_MINIMUM需A2资金流数据补齐后方可解除，请勿在解除前放宽\"]},\"minute_snapshot_id\":\"081db40f2e8c47ea608102f88b706aad02b64184c1e3a4af83786d3c67de5d69\",\"position_actions\":[],\"schema_version\":\"a4-trader/1.0.0\",\"signals\":[{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"SWING\",\"note\":\"引擎送入BUY_SIGNAL候选，我否决：当前实时价76.19高于A3触发区上沿73.8561约3.2%，且已接近no_chase 77.8989，追入违反A3回踩几何与'不追涨'纪律；A3延后条件A3_REWARD_RISK_BELOW_MINIMUM未解除。请维持PROBE风险单元与1批次上限，等待价格回落至触发区后再评估。\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"NO_OPPOSING_EVIDENCE_FOUND\"],\"opposing_search_scope\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"reason_code\":\"ENTRY_ZONE_NOT_REACHED_PRICE_ABOVE_TRIGGER_HIGH\",\"supporting_refs\":[\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"LIVE:MARKET\"],\"symbol\":\"000858.SZ\",\"tech_reference_review\":[{\"item\":\"A3_TREND_ROUTE_APPROVED\",\"my_read\":\"A3已批准TREND_MA5日线主升路线，方向无异议\",\"status\":\"MET\"},{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"计划几何（触发区/失效位/no_chase）完整可执行，但当前价未落入触发区\",\"status\":\"MET\"},{\"item\":\"B_ACCEPTED\",\"my_read\":\"引擎已接受B类突破形态，但该形态对应的是突破路径，与A3要求的MA5回踩路径不同\",\"status\":\"MET\"},{\"item\":\"B_ATTEMPT_PREFIX\",\"my_read\":\"突破尝试前缀成立，仅作参考\",\"status\":\"MET\"},{\"item\":\"B_EFFECTIVE_BREAKOUT\",\"my_read\":\"有效突破成立，但价格已远离回踩区，追入违反A3几何\",\"status\":\"MET\"},{\"item\":\"B_KEY_BELOW_NO_CHASE\",\"my_read\":\"关键位仍在no_chase之下，但当前价76.19距no_chase 77.8989仅约2.2%，缓冲不足\",\"status\":\"MET\"},{\"item\":\"B_KEY_LEVEL\",\"my_read\":\"关键位有效\",\"status\":\"MET\"},{\"item\":\"B_NO_CHASE\",\"my_read\":\"未触发禁追线，但已接近，不构成入场理由\",\"status\":\"MET\"},{\"item\":\"B_RETEST\",\"my_read\":\"回踩成立，但回踩发生在昨日而非今日触发区\",\"status\":\"MET\"},{\"item\":\"B_RETEST_VOLUME\",\"my_read\":\"回踩缩量成立，属正面参考\",\"status\":\"MET\"},{\"item\":\"B_STOP_ONLY_RAISED\",\"my_read\":\"止损只上移不下移，符合纪律\",\"status\":\"MET\"},{\"item\":\"ENTRY_RR\",\"my_read\":\"引擎判定盈亏比达标，但A3仍标注A3_REWARD_RISK_BELOW_MINIMUM为延后条件，需A2资金流补齐后复核\",\"status\":\"MET\"},{\"item\":\"VOLUME_NOT_OVERHEATED\",\"my_read\":\"量能未过热，属正面参考\",\"status\":\"MET\"}],\"waiting_for\":\"价格回落进入A3回踩触发区73.214-73.8561（当前实时价76.19，高于触发区上沿且已接近no_chase 77.8989），且需在回踩区内出现闭合15分钟卖压减弱+闭合5分钟止跌/更高低点+5分钟收回VWAP的温和放量阳线确认；同时等待A2资金流数据补齐以解除A3_REWARD_RISK_BELOW_MINIMUM的延后条件\",\"what_would_change_my_mind\":[\"价格回落进入73.214-73.8561触发区并出现闭合15分钟卖压减弱+闭合5分钟止跌/更高低点+5分钟收回VWAP的温和放量阳线\",\"A2确认该股资金流数据补齐且转净流入，同时价格仍在触发区内\"]}],\"what_would_change_my_mind\":[\"价格回落进入73.214-73.8561触发区并完成15分钟卖压减弱+5分钟止跌/更高低点+VWAP收复的确认序列\",\"LIVE_MARKET_STATE由CAUTION/WEAK_ROTATION转为允许新开仓且板块CONSUMER_SERVICES同步转强\"]}",
+        "binding_sha256": "e9f7f124a864359c0da09510c7082504302d816ae5f4a37fdd6afacc57d1bf2e",
+        "catalog": {
+          "call_id": "A4:team:20261027T1006:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+          "catalog_json": "{\"categories\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"items\":[{\"category\":\"MARKET\",\"id\":\"LIVE:MARKET\",\"value\":{\"advances\":2021,\"as_of\":\"2026-10-27T10:05:00+08:00\",\"breadth\":0.381033,\"cache_bucket\":\"2026-10-27T10:05:00+08:00\",\"cache_hit\":true,\"cache_reused\":true,\"collection_elapsed_ms\":2628,\"coverage\":0.998028,\"current_session\":true,\"declines\":3283,\"diagnostics\":{\"attempts\":[{\"attempt\":1,\"elapsed_ms\":2628,\"full_market\":{\"complete\":true,\"expected_count\":5579,\"observed_count\":5568,\"ok\":true,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\"},\"index_fallback\":{\"expected_count\":4,\"observed_count\":0,\"quotes\":[],\"reason_code\":\"FULL_MARKET_READY\",\"source\":\"TENCENT_INDEX_FALLBACK\",\"status\":\"NOT_ATTEMPTED\"}}],\"cache_bucket\":\"2026-10-27T10:05:00+08:00\",\"cache_hit\":true,\"collection_elapsed_ms\":2628,\"recovered_after_retry\":false,\"total_attempts\":1},\"entry_permission\":\"CAUTION\",\"expected_count\":5579,\"fallback\":false,\"flats\":264,\"median_change_pct\":-0.314465,\"observed_count\":5568,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"regime\":\"WEAK_ROTATION\",\"schema_version\":\"a4-live-market-state/1.0.0\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\",\"suggested_position_cap_pct\":0.5,\"team_v2_regime\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"emotion_state\":\"DATA_BLOCK\",\"exit_authority_changed\":false,\"leader_open\":false,\"live_authority\":true,\"primary_status\":\"READY\",\"radar_open\":false,\"regime\":\"ROTATION_NO_MAINLINE\",\"source_input_sha256\":\"0b66e63fad3cc67780948a4d4ac593d98f26be61c3f037db9eb9ccfc2e902831\",\"state\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"config_version\":\"2026-10-16.1\",\"emotion_pending\":null,\"emotion_pending_count\":0,\"last_tick\":\"2026-10-27T10:05:00+08:00\",\"primary_confirmed\":\"ROTATION_NO_MAINLINE\",\"primary_pending\":null,\"primary_pending_count\":0},\"transitions\":[]},\"team_v2_source\":{\"baseline_sha256\":\"c7d1c197d4b692eb64f4e70ec740e9321c122699581c8f4ef06e37e31f90dc8f\",\"emotion\":{\"as_of\":\"2026-10-27T10:05:05+08:00\",\"authority\":\"EMOTION_STATISTICS_ONLY\",\"broken_board_count\":10,\"broken_board_rate\":0.23255813953488372,\"coverage\":0.9601837672281777,\"excluded_counts\":{\"BJ_EXCLUDED\":354,\"LIMIT_PRICE_INPUT_UNPROVEN\":1,\"LISTING_PERIOD_UNPROVEN_OR_LT5\":8,\"NO_TRADES_OR_QUOTE_MISSING\":9,\"ST_EXCLUDED\":194},\"expected_count\":5224,\"highest_streak\":5,\"limit_down_count\":3,\"limit_up_count\":33,\"minimum_listing_days\":5,\"observed_count\":5016,\"previous_streaks_sha256\":\"65df8c3e6edd10134dd7cf8194af1bb6351dd5412622747613b7144c09473136\",\"reason_codes\":[],\"schema_version\":\"DERIVED_IDENTITY_V1\",\"source_authenticated\":false,\"source_input_sha256\":\"13ebccd4162b6a42d423144eb161282b168b055215bad53567314e70459423e2\",\"status\":\"READY\",\"universe_complete\":true,\"universe_excludes_st\":true},\"frame_path\":\"state/team_v2/emotion_live/2026-10-27/10d88e9e29bf41d7deff25a9733565936a54b5c75c4d12e18221de3c5363d343.json.gz\",\"frame_sha256\":\"10d88e9e29bf41d7deff25a9733565936a54b5c75c4d12e18221de3c5363d343\",\"known_at\":\"2026-10-27T10:05:07.879347+08:00\",\"source_as_of\":\"2026-10-27T10:05:05+08:00\",\"status\":\"READY\"},\"trade_date\":\"2026-10-27\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"input_ref\":[\"ACTIVE_PLANS\",0,\"publication_facts\"],\"original_fact_sha256\":\"6b9c60c44a7a137513a4ca86b368a05b86091c33bafca59c5111decf1600b1a2\",\"original_payload_sha256\":\"6b9c60c44a7a137513a4ca86b368a05b86091c33bafca59c5111decf1600b1a2\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\"],\"original_fact_sha256\":\"7cf270a7f07b797c09c7f72c244a3b11cce4ae8fe01ba002053c9ba0a23e9bb8\",\"projected_fact_sha256\":\"713ffb144c3c6141d23dc93b9f9a195ea612f593a496d8f3629956e02bedbab5\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}}]}",
+          "catalog_sha256": "3736dfc3da9576877dbd19267402501cc3e6641fc8f21499f4cb883630bcf9fb"
+        },
+        "same_tick_original_flags": [
+          {
+            "event_id": "22b56e9f-4afb-5a72-8e83-5f1c16a7beb8",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+            "symbol": "603696.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "2d29093e-b76c-5609-b57b-ea40e1ccade6",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+            "symbol": "688016.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "37bd0fda-4c50-58c5-b6cf-3bbe8e2a2c7d",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+            "symbol": "600628.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "3a0e41bf-d7e8-5551-b79a-287146bd97aa",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+            "symbol": "603298.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "464f4944-a6e6-570e-9f36-dd8f359f4af0",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+            "symbol": "300519.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "62ca9ade-a61e-57ed-9395-82f224dbbbad",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+            "symbol": "688410.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "8cfa510e-1748-581d-b23a-2bc8fa27dc61",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+            "symbol": "301239.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "8d079464-e53b-55b3-a8f4-3c2b4c12d72e",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+            "symbol": "688111.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "9f691b28-593d-5b39-95f4-028b4f57bdf3",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+            "symbol": "300357.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "aba3404f-fd7a-51c2-8331-f9451cb18929",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+            "symbol": "000858.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          },
+          {
+            "event_id": "afa6d1c2-4b60-5abc-bc1b-610fc9ecc0ff",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+            "symbol": "688351.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "b39653a4-5578-5242-b3bb-db3b214a0e21",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+            "symbol": "300496.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "e1604884-0038-5195-9ce9-09319c19db4a",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+            "symbol": "688615.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "f563e249-73ad-59a3-baf6-9024b0622673",
+            "minute_end": "2026-10-27T10:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+            "symbol": "002603.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          }
+        ]
+      },
+      {
+        "call_id": "A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+        "run_id": "team-monitor:2026-10-27",
+        "role": "A4",
+        "session": "INTRADAY",
+        "source_trade_date": "2026-10-26",
+        "execution_trade_date": "2026-10-27",
+        "captured_at": "2026-10-27T10:11:39.229159+08:00",
+        "model": "deepseek-v4.1-flash",
+        "prompt_hash": "a46a44a89f3f525ec207ed0eca20ba2378f51e8e6b39132bd79742fa21989947",
+        "input_hash": "e0e1ceb38f8efefda7bc6cc9c206574511c51bdcc0089529226f4e3f7ad7a3dd",
+        "catalog_hash": "8b54c301c807c9ff4f7ef10a496b2d66baf7b24f3264da6c9267cf0c72a85666",
+        "output_hash": "6ed51cd35869906cb31f3fcefd9942717e473d3862f27eaa6cb6afd22dfdf32a",
+        "latency_ms": 17603,
+        "provider_attempts": 1,
+        "validated": 1,
+        "issues_json": "[]",
+        "sentinel_count": 0,
+        "output_json": "{\"decision_id\":\"team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW\",\"envelope\":{\"as_of\":\"2026-10-27T10:11:00+08:00\",\"config_hash\":\"411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73\",\"config_version\":\"team-v2/1\",\"execution_trade_date\":\"2026-10-27\",\"input_snapshot_ids\":[\"de6b3d680653e755dce3ae52c8d2af8f0c18a7aa04fee0f5e719c91968b2203f\"],\"knowledge_cutoff\":\"2026-10-27T10:11:21.282178+08:00\",\"market_regime\":\"ROTATION_NO_MAINLINE\",\"model_name\":\"deepseek-v4.1-flash\",\"prompt_version\":\"agent-4-trader/1.1.0\",\"reason_codes\":[],\"run_id\":\"team-monitor:2026-10-27\",\"schema_version\":\"team-envelope/1\",\"source_trade_date\":\"2026-10-26\",\"stage_id\":\"A4\",\"status\":\"FROZEN\"},\"handoff_notes\":{\"to_a3\":[\"计划触发区19.686-19.8829与今日实际开盘20.85存在较大缺口，回踩触发条件在强势高开日难以达成，建议A3评估是否需为TREND_MA5计划补充'高开脱离触发区'的处置规则\",\"trade_brief已提示日线ENTANGLED且周线BEAR_STACK结构偏弱，与今日高开强势形成张力，建议A3复核计划前提是否仍成立\"],\"to_a6\":[\"300357.SZ引擎BUY候选已否决，理由ENTRY_GEOMETRY_NOT_MET_PRICE_ABOVE_NO_CHASE，请勿按候选放行\",\"若后续价格回落至19.686-19.8829并完成15m/5m确认，请按PROBE风险单元与max_batches=1裁决\",\"当前LIVE_MARKET_STATE为CAUTION且regime=WEAK_ROTATION，建议仓位上限0.5，请一并纳入裁决\"]},\"minute_snapshot_id\":\"de6b3d680653e755dce3ae52c8d2af8f0c18a7aa04fee0f5e719c91968b2203f\",\"position_actions\":[],\"schema_version\":\"a4-trader/1.0.0\",\"signals\":[{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"T3\",\"note\":\"引擎BUY候选被否决：实时价21.27远高于A3回踩触发区上沿19.8829，追高入场将破坏计划几何与R:R；请勿按候选放行，等待价格回落触发区后再复核\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"LIVE:MARKET\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"reason_code\":\"ENTRY_GEOMETRY_NOT_MET_PRICE_ABOVE_NO_CHASE\",\"supporting_refs\":[\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\"],\"symbol\":\"300357.SZ\",\"tech_reference_review\":[{\"item\":\"A3_TREND_ROUTE_APPROVED\",\"my_read\":\"A3已批准TREND_MA5路线，但路线批准不等于当前价格位置合格\",\"status\":\"MET\"},{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"引擎几何校验通过，但实时价21.27已远离计划回踩区，几何已不再成立\",\"status\":\"MET\"},{\"item\":\"B_ACCEPTED\",\"my_read\":\"形态B被接受，但需价格回到触发区才可执行\",\"status\":\"MET\"},{\"item\":\"B_ATTEMPT_PREFIX\",\"my_read\":\"突破前缀成立，属昨日结构，不构成今日入场依据\",\"status\":\"MET\"},{\"item\":\"B_EFFECTIVE_BREAKOUT\",\"my_read\":\"有效突破为昨日事实，今日已高开高走脱离入场带\",\"status\":\"MET\"},{\"item\":\"B_KEY_BELOW_NO_CHASE\",\"my_read\":\"关键位低于禁追线，但当前价已高于触发区上沿约7%\",\"status\":\"MET\"},{\"item\":\"B_KEY_LEVEL\",\"my_read\":\"关键位有效，但价格未回踩至该位\",\"status\":\"MET\"},{\"item\":\"B_NO_CHASE\",\"my_read\":\"禁追线21.63未被突破，但入场带要求回踩而非追高\",\"status\":\"MET\"},{\"item\":\"B_RETEST\",\"my_read\":\"昨日回踩成立，今日尚未出现新的回踩确认\",\"status\":\"MET\"},{\"item\":\"B_RETEST_VOLUME\",\"my_read\":\"昨日回踩缩量成立，今日量价结构不同\",\"status\":\"MET\"},{\"item\":\"B_STOP_ONLY_RAISED\",\"my_read\":\"止损仅上移，未放宽\",\"status\":\"MET\"},{\"item\":\"ENTRY_RR\",\"my_read\":\"计划R:R成立，但以当前价入场将显著压缩R:R\",\"status\":\"MET\"},{\"item\":\"VOLUME_NOT_OVERHEATED\",\"my_read\":\"量能未过热，但价格位置不合格\",\"status\":\"MET\"}],\"waiting_for\":\"价格回落进入A3回踩触发区19.686-19.8829（当前21.27，高于no_chase 21.63以下但远高于触发区上沿19.8829），且闭合15分钟卖压减弱、闭合5分钟形成止跌/更高低点、5分钟收回VWAP并有一根温和放量阳线确认\",\"what_would_change_my_mind\":[\"价格回落至19.686-19.8829触发区并出现闭合15分钟卖压减弱+闭合5分钟止跌/更高低点+VWAP收复确认\",\"日线状态从ENTANGLED恶化为BEAR或放量跌破18.971失效位则计划作废\"]}],\"what_would_change_my_mind\":[\"若价格在10:11后快速回落至19.686-19.8829并完成闭合15分钟卖压减弱与闭合5分钟VWAP收复确认，则本节拍判断改为BUY_SIGNAL\",\"若LIVE_MARKET_STATE从CAUTION恶化为BLOCK或300357.SZ出现停牌/涨跌停不可成交，则本节拍所有计划转为BLOCK\"]}",
+        "binding_sha256": "8a3419ce09807e70480b1c30b6cacd835ceb0655cc4ac16231dff63cbf42be2b",
+        "catalog": {
+          "call_id": "A4:team:20261027T1011:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+          "catalog_json": "{\"categories\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"items\":[{\"category\":\"MARKET\",\"id\":\"LIVE:MARKET\",\"value\":{\"advances\":2377,\"as_of\":\"2026-10-27T10:10:00+08:00\",\"breadth\":0.449338,\"cache_bucket\":\"2026-10-27T10:10:00+08:00\",\"cache_hit\":true,\"cache_reused\":true,\"collection_elapsed_ms\":2616,\"coverage\":0.998028,\"current_session\":true,\"declines\":2913,\"diagnostics\":{\"attempts\":[{\"attempt\":1,\"elapsed_ms\":2616,\"full_market\":{\"complete\":true,\"expected_count\":5579,\"observed_count\":5568,\"ok\":true,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\"},\"index_fallback\":{\"expected_count\":4,\"observed_count\":0,\"quotes\":[],\"reason_code\":\"FULL_MARKET_READY\",\"source\":\"TENCENT_INDEX_FALLBACK\",\"status\":\"NOT_ATTEMPTED\"}}],\"cache_bucket\":\"2026-10-27T10:10:00+08:00\",\"cache_hit\":true,\"collection_elapsed_ms\":2616,\"recovered_after_retry\":false,\"total_attempts\":1},\"entry_permission\":\"CAUTION\",\"expected_count\":5579,\"fallback\":false,\"flats\":278,\"median_change_pct\":-0.128269,\"observed_count\":5568,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"regime\":\"WEAK_ROTATION\",\"schema_version\":\"a4-live-market-state/1.0.0\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\",\"suggested_position_cap_pct\":0.5,\"team_v2_regime\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"emotion_state\":\"DATA_BLOCK\",\"exit_authority_changed\":false,\"leader_open\":false,\"live_authority\":true,\"primary_status\":\"READY\",\"radar_open\":false,\"regime\":\"ROTATION_NO_MAINLINE\",\"source_input_sha256\":\"c8f8636f64ac2f0bfdeb6a82fb3ea0784c030e0d1166689f368fb1a2f7bc6c6b\",\"state\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"config_version\":\"2026-10-16.1\",\"emotion_pending\":null,\"emotion_pending_count\":0,\"last_tick\":\"2026-10-27T10:10:00+08:00\",\"primary_confirmed\":\"ROTATION_NO_MAINLINE\",\"primary_pending\":null,\"primary_pending_count\":0},\"transitions\":[]},\"team_v2_source\":{\"baseline_sha256\":\"c7d1c197d4b692eb64f4e70ec740e9321c122699581c8f4ef06e37e31f90dc8f\",\"emotion\":{\"as_of\":\"2026-10-27T10:10:03+08:00\",\"authority\":\"EMOTION_STATISTICS_ONLY\",\"broken_board_count\":13,\"broken_board_rate\":0.2826086956521739,\"coverage\":0.9601837672281777,\"excluded_counts\":{\"BJ_EXCLUDED\":354,\"LIMIT_PRICE_INPUT_UNPROVEN\":1,\"LISTING_PERIOD_UNPROVEN_OR_LT5\":8,\"NO_TRADES_OR_QUOTE_MISSING\":9,\"ST_EXCLUDED\":194},\"expected_count\":5224,\"highest_streak\":5,\"limit_down_count\":3,\"limit_up_count\":33,\"minimum_listing_days\":5,\"observed_count\":5016,\"previous_streaks_sha256\":\"65df8c3e6edd10134dd7cf8194af1bb6351dd5412622747613b7144c09473136\",\"reason_codes\":[],\"schema_version\":\"DERIVED_IDENTITY_V1\",\"source_authenticated\":false,\"source_input_sha256\":\"640c8a00e4903bab5e83cacf5b14f52891b170f52e604618f5ea53b0ee411a3c\",\"status\":\"READY\",\"universe_complete\":true,\"universe_excludes_st\":true},\"frame_path\":\"state/team_v2/emotion_live/2026-10-27/cdc7789c13411f254a0ddba59d28c7ed9df8b2281cd28bf7602965ad2f76ccbc.json.gz\",\"frame_sha256\":\"cdc7789c13411f254a0ddba59d28c7ed9df8b2281cd28bf7602965ad2f76ccbc\",\"known_at\":\"2026-10-27T10:10:23.847717+08:00\",\"source_as_of\":\"2026-10-27T10:10:03+08:00\",\"status\":\"READY\"},\"trade_date\":\"2026-10-27\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"input_ref\":[\"ACTIVE_PLANS\",0,\"publication_facts\"],\"original_fact_sha256\":\"0d263123507c8507b256c8d5480ff62ae403d67f4cf871607dbaf57df4745685\",\"original_payload_sha256\":\"0d263123507c8507b256c8d5480ff62ae403d67f4cf871607dbaf57df4745685\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\"],\"original_fact_sha256\":\"e3077c178d55b205c5615c578b4e37ea9cc67e984dc050adb8804b1a8d0574cb\",\"projected_fact_sha256\":\"76b525b5677d4b82b2284da81b45a1a3ab0bec080b05f024a0fac5ff38c62bba\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}}]}",
+          "catalog_sha256": "8b54c301c807c9ff4f7ef10a496b2d66baf7b24f3264da6c9267cf0c72a85666"
+        },
+        "same_tick_original_flags": [
+          {
+            "event_id": "0336f201-f9c6-5dd2-baf0-27b3fe965fbd",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+            "symbol": "688410.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "057536d0-2c7f-543d-b648-81cd2cb99e1c",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+            "symbol": "000858.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "2b51983a-2a02-52ce-afdc-6d71e1038c39",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+            "symbol": "603298.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "4075f9cf-b287-5535-bf36-376e5acb0e8e",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+            "symbol": "300357.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          },
+          {
+            "event_id": "4240404d-3c1f-5291-be29-ca966fa010fd",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+            "symbol": "300519.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "4d4b08b8-73c3-5a0a-919c-3ed765493905",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+            "symbol": "688351.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "5842ab22-315d-570a-8611-9b3cf6abcd9d",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+            "symbol": "600628.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "5ca0a44e-5550-5036-9cdf-b8fe3bfab130",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+            "symbol": "688615.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "69e49a01-c4c4-568a-9096-6b7ec0f5665d",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+            "symbol": "603696.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "8052c5e6-3a63-59d1-8a8c-174578aec9fe",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+            "symbol": "300496.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "8c9a0225-c01a-5e32-9876-406b81a593d5",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+            "symbol": "002603.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "9fac219c-b2d8-5428-a53f-84205f27106c",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+            "symbol": "301239.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "b3bc59ac-8431-5d1c-98e8-a6024a66f047",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+            "symbol": "688111.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "c9851bc8-c939-5fb9-829c-123f6469130c",
+            "minute_end": "2026-10-27T10:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+            "symbol": "688016.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          }
+        ]
+      },
+      {
+        "call_id": "A4:team:20261027T1031:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+        "run_id": "team-monitor:2026-10-27",
+        "role": "A4",
+        "session": "INTRADAY",
+        "source_trade_date": "2026-10-26",
+        "execution_trade_date": "2026-10-27",
+        "captured_at": "2026-10-27T10:31:34.773383+08:00",
+        "model": "deepseek-v4.1-flash",
+        "prompt_hash": "a651f76e8906164b875fba5ee1a030a3c2afe7821b5d2184a8a897403338f30d",
+        "input_hash": "274f6c7b1979e65115cd651c8fc029f26ba1809141965e0cc429df6dfd2695a2",
+        "catalog_hash": "fc6ac8b35dac10bf94f7778743977e077182bc59ee37ee841a8c9c1fde9de040",
+        "output_hash": "13bf8f55ee04985b3d972942b3ef8d0da17a6945882de72d45bde3b4675404b2",
+        "latency_ms": 12895,
+        "provider_attempts": 1,
+        "validated": 0,
+        "issues_json": "[\"TRADER_TECH_REFERENCE_INVALID\"]",
+        "sentinel_count": 0,
+        "output_json": "{\"decision_id\":\"team:20261027T1031:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW\",\"envelope\":{\"as_of\":\"2026-10-27T10:31:00+08:00\",\"config_hash\":\"411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73\",\"config_version\":\"team-v2/1\",\"execution_trade_date\":\"2026-10-27\",\"input_snapshot_ids\":[\"813557cfa4475a42e23519615d4cd800ec4afda348c6bb74fd1b4d5c379390c4\"],\"knowledge_cutoff\":\"2026-10-27T10:31:21.482456+08:00\",\"market_regime\":\"ROTATION_NO_MAINLINE\",\"model_name\":\"deepseek-v4.1-flash\",\"prompt_version\":\"agent-4-trader/1.1.0\",\"reason_codes\":[],\"run_id\":\"team-monitor:2026-10-27\",\"schema_version\":\"team-envelope/1\",\"source_trade_date\":\"2026-10-26\",\"stage_id\":\"A4\",\"status\":\"FROZEN\"},\"handoff_notes\":{\"to_a3\":[\"计划入场带19.686-19.8829与当日实际走势（开盘20.85、10:30已至21.49）脱节，回踩区在开盘即被跳过，建议A3对TREND_MA5在跳空/强势开盘情形下补充'回踩区未触及即视为计划失效或改挂突破确认'的分支\",\"日线ENTANGLED+周线BEAR_STACK的偏弱结构下，追价风险高，计划几何应更贴近当日VWAP而非前日MA5\"],\"to_a6\":[\"300357.SZ本节拍不建仓，PROBE批次额度保留；若价格回落至19.686-19.8829并完成确认，请按原信封放行1批\",\"当前价21.48距失效位18.971约-11.7%，若在追价区成交，R结构将严重恶化，故必须等回踩\"]},\"minute_snapshot_id\":\"813557cfa4475a42e23519615d4cd800ec4afda348c6bb74fd1b4d5c379390c4\",\"position_actions\":[],\"schema_version\":\"a4-trader/1.0.0\",\"signals\":[{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"T3\",\"note\":\"候选BUY_SIGNAL被否决：价格已越过A3入场带与no_chase几何，属追价；信封eligible=true但本节拍不消耗批次，批次额度保留待回踩确认\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"LIVE:MARKET\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"reason_code\":\"ENTRY_GEOMETRY_VIOLATED_NO_CHASE\",\"supporting_refs\":[\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\"],\"symbol\":\"300357.SZ\",\"tech_reference_review\":[{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"引擎参考项虽标MET，但实时价21.48相对A3回踩区19.686-19.8829已偏离约8%，几何上已不成立，按计划纪律不得追价\",\"status\":\"UNMET\"},{\"item\":\"B_RETEST\",\"my_read\":\"当日5m序列自09:35起单边上行，未出现对回踩区的回踩确认，无右侧回踩结构可依\",\"status\":\"UNMET\"},{\"item\":\"B_RETEST_VOLUME\",\"my_read\":\"无回踩即无回踩缩量证据，无法验证卖压是否真正释放\",\"status\":\"UNMET\"},{\"item\":\"VOLUME_NOT_OVERHEATED\",\"my_read\":\"10:29-10:30两根1m放量（624900/288000股）伴随价格冲高至21.58，属拉升末端放量，非回踩缩量，不构成入场依据\",\"status\":\"UNMET\"}],\"waiting_for\":\"价格回落至A3回踩区19.686-19.8829（且≤no_chase 21.63）后，重新出现闭合15分钟卖压减弱+闭合5分钟止跌/更高低点+5分钟收回VWAP的温和放量阳线确认；当前价21.48已高于入场带约8%，属追价区，不参与\",\"what_would_change_my_mind\":[\"价格回落进入19.686-19.8829区间并出现闭合5分钟更高低点+收回VWAP的温和放量阳线\",\"日线结构由ENTANGLED转为明确多头且回踩不破19.8829\"]}],\"what_would_change_my_mind\":[\"若LIVE_MARKET_STATE由CAUTION/WEAK_ROTATION转为READY且广度回升至0.5以上，同时价格回踩至计划区，则本节拍否决结论可被推翻\",\"若300357.SZ出现放量跌破日线失效位18.971，则本计划应整体作废而非等待回踩\"]}",
+        "binding_sha256": "dc304ae1c708b1c68d0822c6013cf46eb6a28248af5206d3e5f804f28941d093",
+        "catalog": {
+          "call_id": "A4:team:20261027T1031:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+          "catalog_json": "{\"categories\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"items\":[{\"category\":\"MARKET\",\"id\":\"LIVE:MARKET\",\"value\":{\"advances\":2267,\"as_of\":\"2026-10-27T10:30:00+08:00\",\"breadth\":0.42677,\"cache_bucket\":\"2026-10-27T10:30:00+08:00\",\"cache_hit\":true,\"cache_reused\":true,\"collection_elapsed_ms\":2665,\"coverage\":0.998028,\"current_session\":true,\"declines\":3045,\"diagnostics\":{\"attempts\":[{\"attempt\":1,\"elapsed_ms\":2665,\"full_market\":{\"complete\":true,\"expected_count\":5579,\"observed_count\":5568,\"ok\":true,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\"},\"index_fallback\":{\"expected_count\":4,\"observed_count\":0,\"quotes\":[],\"reason_code\":\"FULL_MARKET_READY\",\"source\":\"TENCENT_INDEX_FALLBACK\",\"status\":\"NOT_ATTEMPTED\"}}],\"cache_bucket\":\"2026-10-27T10:30:00+08:00\",\"cache_hit\":true,\"collection_elapsed_ms\":2665,\"recovered_after_retry\":false,\"total_attempts\":1},\"entry_permission\":\"CAUTION\",\"expected_count\":5579,\"fallback\":false,\"flats\":256,\"median_change_pct\":-0.190897,\"observed_count\":5568,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"regime\":\"WEAK_ROTATION\",\"schema_version\":\"a4-live-market-state/1.0.0\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\",\"suggested_position_cap_pct\":0.5,\"team_v2_regime\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"emotion_state\":\"EMOTION_ON\",\"exit_authority_changed\":false,\"leader_open\":true,\"live_authority\":true,\"primary_status\":\"READY\",\"radar_open\":true,\"regime\":\"ROTATION_NO_MAINLINE\",\"source_input_sha256\":\"4e0dc3b22b44eb55248f67a5a5c3f4384c1d19d5c0bad9a656e0a19486a805c1\",\"state\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"config_version\":\"2026-10-16.1\",\"emotion_confirmed\":\"EMOTION_ON\",\"emotion_pending\":null,\"emotion_pending_count\":0,\"last_tick\":\"2026-10-27T10:30:00+08:00\",\"primary_confirmed\":\"ROTATION_NO_MAINLINE\",\"primary_pending\":null,\"primary_pending_count\":0},\"transitions\":[{\"current\":\"EMOTION_ON\",\"kind\":\"emotion\",\"previous\":null,\"tick\":\"2026-10-27T10:30:00+08:00\"}]},\"team_v2_source\":{\"baseline_sha256\":\"c7d1c197d4b692eb64f4e70ec740e9321c122699581c8f4ef06e37e31f90dc8f\",\"emotion\":{\"as_of\":\"2026-10-27T10:30:04+08:00\",\"authority\":\"EMOTION_STATISTICS_ONLY\",\"broken_board_count\":13,\"broken_board_rate\":0.23636363636363636,\"coverage\":0.9601837672281777,\"excluded_counts\":{\"BJ_EXCLUDED\":354,\"LIMIT_PRICE_INPUT_UNPROVEN\":1,\"LISTING_PERIOD_UNPROVEN_OR_LT5\":8,\"NO_TRADES_OR_QUOTE_MISSING\":9,\"ST_EXCLUDED\":194},\"expected_count\":5224,\"highest_streak\":5,\"limit_down_count\":3,\"limit_up_count\":42,\"minimum_listing_days\":5,\"observed_count\":5016,\"previous_streaks_sha256\":\"65df8c3e6edd10134dd7cf8194af1bb6351dd5412622747613b7144c09473136\",\"reason_codes\":[],\"schema_version\":\"DERIVED_IDENTITY_V1\",\"source_authenticated\":false,\"source_input_sha256\":\"662affd10db3ba51f4d2359d6b4ba3188e0fa0cdc661532136f7f9faec8e4c0a\",\"status\":\"READY\",\"universe_complete\":true,\"universe_excludes_st\":true},\"frame_path\":\"state/team_v2/emotion_live/2026-10-27/f5be16d4cf7431a5cbd87840baa6b340bb2ca851f7c6dec0cd42aad1f8a8bf44.json.gz\",\"frame_sha256\":\"f5be16d4cf7431a5cbd87840baa6b340bb2ca851f7c6dec0cd42aad1f8a8bf44\",\"known_at\":\"2026-10-27T10:30:08.774909+08:00\",\"source_as_of\":\"2026-10-27T10:30:04+08:00\",\"status\":\"READY\"},\"trade_date\":\"2026-10-27\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"input_ref\":[\"ACTIVE_PLANS\",0,\"publication_facts\"],\"original_fact_sha256\":\"0d263123507c8507b256c8d5480ff62ae403d67f4cf871607dbaf57df4745685\",\"original_payload_sha256\":\"0d263123507c8507b256c8d5480ff62ae403d67f4cf871607dbaf57df4745685\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\"],\"original_fact_sha256\":\"d88d054748c940c50ff0f02aaef6c9e1f1156fb1dd483a89f64ebfae7238f92f\",\"projected_fact_sha256\":\"1b15eae9cc8c5de0bf1ee288d8d09376d626521ba8576922243c988a27cb4e8f\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}}]}",
+          "catalog_sha256": "fc6ac8b35dac10bf94f7778743977e077182bc59ee37ee841a8c9c1fde9de040"
+        },
+        "same_tick_original_flags": [
+          {
+            "event_id": "3b32ddda-2b55-58bf-aada-49c1beba85f7",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+            "symbol": "300519.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "5addb34f-c3a6-5ea2-ac70-8c05af90324d",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+            "symbol": "600628.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "6691e554-adf6-5ffb-b04d-76e498e2eb2b",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+            "symbol": "002603.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "70aab812-4691-5e4d-b494-c5ddeb353784",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+            "symbol": "300496.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "7b854fbc-a512-5b3f-b451-54d3e626625b",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+            "symbol": "688111.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "a6139884-a1c6-57f7-9793-ba505659dbab",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+            "symbol": "000858.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "b2b6ff5d-f6e6-5a3a-8ec6-72e250717d65",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+            "symbol": "688351.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "b71a14da-eb4d-56aa-9552-661726db37dd",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+            "symbol": "603298.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "c64e85a4-4e45-54f8-82f9-f1182c37ac3a",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+            "symbol": "688615.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "cf12f2a8-4f97-5813-94db-cc4e98bb548b",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+            "symbol": "688016.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "d60ac41e-63a5-5ccd-805f-145e194c6455",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+            "symbol": "603696.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "de6c83ae-d3ab-5847-beda-ddf20655a392",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+            "symbol": "688410.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "e2713ba6-c523-5a8d-9430-3c108864bf22",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+            "symbol": "301239.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "e3ad9480-3e40-58e7-bee8-49ee4eefa424",
+            "minute_end": "2026-10-27T10:31:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+            "symbol": "300357.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          }
+        ]
+      },
+      {
+        "call_id": "A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+        "run_id": "team-monitor:2026-10-27",
+        "role": "A4",
+        "session": "INTRADAY",
+        "source_trade_date": "2026-10-26",
+        "execution_trade_date": "2026-10-27",
+        "captured_at": "2026-10-27T10:46:35.094725+08:00",
+        "model": "deepseek-v4.1-flash",
+        "prompt_hash": "db655c3c8d71f19fb2976f622b71c7e44a394d39c0fd2240218e5156ed9bb59f",
+        "input_hash": "053c98828ac33015f3e80bc6031d0e676426b3038714f785cbc9184f7f8ed398",
+        "catalog_hash": "3ddb2a34b880620da0010c7c214bdc254ef0563c5c0348478aedd94dad068bd3",
+        "output_hash": "8f7eecda8cce0365828c494f6c13f67db1eaee5141266e803bb3b5a22e57aae6",
+        "latency_ms": 12904,
+        "provider_attempts": 1,
+        "validated": 1,
+        "issues_json": "[]",
+        "sentinel_count": 0,
+        "output_json": "{\"decision_id\":\"team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW\",\"envelope\":{\"as_of\":\"2026-10-27T10:46:00+08:00\",\"config_hash\":\"411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73\",\"config_version\":\"team-v2/1\",\"execution_trade_date\":\"2026-10-27\",\"input_snapshot_ids\":[\"3eca9b0488a72eb3a988ba31b929f1e778a59b0d9daca8f09aeb70af459f8ada\"],\"knowledge_cutoff\":\"2026-10-27T10:46:21.797051+08:00\",\"market_regime\":\"ROTATION_NO_MAINLINE\",\"model_name\":\"deepseek-v4.1-flash\",\"prompt_version\":\"agent-4-trader/1.1.0\",\"reason_codes\":[],\"run_id\":\"team-monitor:2026-10-27\",\"schema_version\":\"team-envelope/1\",\"source_trade_date\":\"2026-10-26\",\"stage_id\":\"A4\",\"status\":\"FROZEN\"},\"handoff_notes\":{\"to_a3\":[\"微电生理入场带与失效位几何合理，但今日大盘广度0.35、中位-0.47%，TREND_MA5回踩确认在弱环境中易失败，建议后续同类PROBE计划把确认门槛写得更明确\",\"周线BEAR_STACK与量比放大并存，trade_brief的likely_failure_path（放量突破后回落跌破17.7851）正在被验证，请关注是否需下调优先级\"],\"to_a6\":[\"688351.SH本轮BUY候选否决，原因=确认序列未完成（5m未收回VWAP、15m卖压未缓解），非几何问题\",\"若下一节拍出现5m放量阳线收回VWAP 18.9726，请按PROBE单批次放行\",\"当前WEAK_ROTATION+CAUTION，建议维持suggested_position_cap_pct=0.5不放松\"]},\"minute_snapshot_id\":\"3eca9b0488a72eb3a988ba31b929f1e778a59b0d9daca8f09aeb70af459f8ada\",\"position_actions\":[],\"schema_version\":\"a4-trader/1.0.0\",\"signals\":[{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"T3\",\"note\":\"引擎BUY候选我否决：价格虽在带内，但5m连续收阴、收盘18.63低于5m VWAP 18.9726，右侧确认序列未完成；且LIVE_MARKET_STATE为WEAK_ROTATION/CAUTION、广度0.35、中位-0.47%，环境不支持在未确认时试探。请维持PROBE上限，待确认后再评估。\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"LIVE:MARKET\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"reason_code\":\"ENTRY_GEOMETRY_NOT_MET_PRICE_BELOW_ZONE\",\"supporting_refs\":[\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\"],\"symbol\":\"688351.SH\",\"tech_reference_review\":[{\"item\":\"A_15M_SUPPORT\",\"my_read\":\"15m 低点18.59未破失效位17.7851，支撑名义成立但收盘逐级下移\",\"status\":\"MET\"},{\"item\":\"A_CONTRACTION\",\"my_read\":\"回踩段5m量能较09:35–09:50放量段收缩，缩量回踩成立\",\"status\":\"MET\"},{\"item\":\"A_PULLBACK\",\"my_read\":\"自19.24高点回落至18.59，回踩幅度在计划几何内\",\"status\":\"MET\"},{\"item\":\"A_STABILIZED\",\"my_read\":\"引擎判止跌，但1m/5m收盘仍逐级走低，止跌证据偏弱\",\"status\":\"MET\"},{\"item\":\"A_SUPPORT\",\"my_read\":\"价格仍在MA5参考17.692与失效位17.7851之上\",\"status\":\"MET\"},{\"item\":\"ENTRY_ZONE\",\"my_read\":\"18.62落在18.4922–18.6771带内且≤no_chase 19.467\",\"status\":\"MET\"},{\"item\":\"ENTRY_RR\",\"my_read\":\"以失效位17.7851定义R，几何未破坏\",\"status\":\"MET\"},{\"item\":\"VOLUME_NOT_OVERHEATED\",\"my_read\":\"量比放大但未过热\",\"status\":\"MET\"},{\"item\":\"A3_TREND_ROUTE_APPROVED\",\"my_read\":\"A3趋势路线已批准\",\"status\":\"MET\"},{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"几何被接受，但确认序列未完成\",\"status\":\"MET\"}],\"waiting_for\":\"价格回到A3入场带18.4922–18.6771内（当前18.62已进入带内但需先出现15m止跌+5m收回VWAP的右侧确认）；当前5m连续收阴、15m卖压未缓解、5m收盘18.63低于5m VWAP 18.9726，确认序列未完成\",\"what_would_change_my_mind\":[\"5m出现一根温和放量阳线并收回5m VWAP 18.9726，且15m卖压缓解\",\"价格跌破17.7851失效位则计划作废\"]}],\"what_would_change_my_mind\":[\"若5m收回VWAP 18.9726且15m卖压缓解，我会把本节拍判断改为BUY_SIGNAL\",\"若LIVE_MARKET_STATE转为READY且广度回升至0.5以上，弱环境否决理由减弱\"]}",
+        "binding_sha256": "d8a2914f24cd7a612734282ef898a19f77715874427567e20547f7e668290b37",
+        "catalog": {
+          "call_id": "A4:team:20261027T1046:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+          "catalog_json": "{\"categories\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"items\":[{\"category\":\"MARKET\",\"id\":\"LIVE:MARKET\",\"value\":{\"advances\":1872,\"as_of\":\"2026-10-27T10:45:00+08:00\",\"breadth\":0.350365,\"cache_bucket\":\"2026-10-27T10:45:00+08:00\",\"cache_hit\":true,\"cache_reused\":true,\"collection_elapsed_ms\":2619,\"coverage\":0.998028,\"current_session\":true,\"declines\":3471,\"diagnostics\":{\"attempts\":[{\"attempt\":1,\"elapsed_ms\":2619,\"full_market\":{\"complete\":true,\"expected_count\":5579,\"observed_count\":5568,\"ok\":true,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\"},\"index_fallback\":{\"expected_count\":4,\"observed_count\":0,\"quotes\":[],\"reason_code\":\"FULL_MARKET_READY\",\"source\":\"TENCENT_INDEX_FALLBACK\",\"status\":\"NOT_ATTEMPTED\"}}],\"cache_bucket\":\"2026-10-27T10:45:00+08:00\",\"cache_hit\":true,\"collection_elapsed_ms\":2619,\"recovered_after_retry\":false,\"total_attempts\":1},\"entry_permission\":\"CAUTION\",\"expected_count\":5579,\"fallback\":false,\"flats\":225,\"median_change_pct\":-0.473514,\"observed_count\":5568,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"regime\":\"WEAK_ROTATION\",\"schema_version\":\"a4-live-market-state/1.0.0\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\",\"suggested_position_cap_pct\":0.5,\"team_v2_regime\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"emotion_state\":\"EMOTION_ON\",\"exit_authority_changed\":false,\"leader_open\":true,\"live_authority\":true,\"primary_status\":\"READY\",\"radar_open\":true,\"regime\":\"ROTATION_NO_MAINLINE\",\"source_input_sha256\":\"4226b9926a54dd4739de2c0745c0f81ac27692514d1341e2fc2d609fb8d48dd8\",\"state\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"config_version\":\"2026-10-16.1\",\"emotion_confirmed\":\"EMOTION_ON\",\"emotion_pending\":null,\"emotion_pending_count\":0,\"last_tick\":\"2026-10-27T10:45:00+08:00\",\"primary_confirmed\":\"ROTATION_NO_MAINLINE\",\"primary_pending\":null,\"primary_pending_count\":0},\"transitions\":[]},\"team_v2_source\":{\"baseline_sha256\":\"c7d1c197d4b692eb64f4e70ec740e9321c122699581c8f4ef06e37e31f90dc8f\",\"emotion\":{\"as_of\":\"2026-10-27T10:45:04+08:00\",\"authority\":\"EMOTION_STATISTICS_ONLY\",\"broken_board_count\":13,\"broken_board_rate\":0.23214285714285715,\"coverage\":0.9601837672281777,\"excluded_counts\":{\"BJ_EXCLUDED\":354,\"LIMIT_PRICE_INPUT_UNPROVEN\":1,\"LISTING_PERIOD_UNPROVEN_OR_LT5\":8,\"NO_TRADES_OR_QUOTE_MISSING\":9,\"ST_EXCLUDED\":194},\"expected_count\":5224,\"highest_streak\":5,\"limit_down_count\":3,\"limit_up_count\":43,\"minimum_listing_days\":5,\"observed_count\":5016,\"previous_streaks_sha256\":\"65df8c3e6edd10134dd7cf8194af1bb6351dd5412622747613b7144c09473136\",\"reason_codes\":[],\"schema_version\":\"DERIVED_IDENTITY_V1\",\"source_authenticated\":false,\"source_input_sha256\":\"fd66b36cf716a1748c84f8209f4aac843ad52ac29dcfdf4835cecd4104dc23ad\",\"status\":\"READY\",\"universe_complete\":true,\"universe_excludes_st\":true},\"frame_path\":\"state/team_v2/emotion_live/2026-10-27/288ab70a1f6bbec0c65c646c6e6e60d53f63329e66a36b3ef7788c86c3d29aa6.json.gz\",\"frame_sha256\":\"288ab70a1f6bbec0c65c646c6e6e60d53f63329e66a36b3ef7788c86c3d29aa6\",\"known_at\":\"2026-10-27T10:45:09.242995+08:00\",\"source_as_of\":\"2026-10-27T10:45:04+08:00\",\"status\":\"READY\"},\"trade_date\":\"2026-10-27\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"input_ref\":[\"ACTIVE_PLANS\",0,\"publication_facts\"],\"original_fact_sha256\":\"3860e6b325b277364f676df7f52a28ecd0595d38a41175b5a334bdf6df8fb553\",\"original_payload_sha256\":\"3860e6b325b277364f676df7f52a28ecd0595d38a41175b5a334bdf6df8fb553\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\"],\"original_fact_sha256\":\"90d2feb3f761f26d1de5a543548166ae82112c50d244c69903df18f141fed9b5\",\"projected_fact_sha256\":\"62b4ca245fcb4f960bdcd76e62d39e14298795ac3c5328f3ddd5d589f0c4cdc5\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}}]}",
+          "catalog_sha256": "3ddb2a34b880620da0010c7c214bdc254ef0563c5c0348478aedd94dad068bd3"
+        },
+        "same_tick_original_flags": [
+          {
+            "event_id": "25221376-d552-53ed-b6a1-94c892fab19d",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+            "symbol": "300357.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_RETEST\",\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "45bd5684-5f35-5781-8a6e-ddb1b3a7c432",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+            "symbol": "603298.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "6cd343d1-6940-52fd-acc3-19f90c0ffcc1",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+            "symbol": "688410.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "94cc9430-133d-5376-93c1-a9e066cd855e",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+            "symbol": "300519.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "9a74d6d7-4531-5e1f-baaa-adb18f037c05",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+            "symbol": "688016.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"ENTRY_ZONE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"A_CONTRACTION\",\"A_STABILIZED\"]"
+          },
+          {
+            "event_id": "b2c7d02f-9e5c-5ec6-93b7-ee1fb9fe4829",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+            "symbol": "002603.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "bf08063a-ab28-519e-a069-bbba9da57fc0",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+            "symbol": "000858.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "cb5efec0-661d-5bfc-993c-90e8a38aa3d1",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+            "symbol": "600628.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "d5a4a575-c878-5e90-bfbb-dbf8a218aebe",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+            "symbol": "300496.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "d5ca49fe-c0e9-5ad9-b761-789a58f5eef3",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+            "symbol": "688351.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_CONTRACTION\",\"A_STABILIZED\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"ENTRY_ZONE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          },
+          {
+            "event_id": "dae5648e-2b37-5a41-a24f-505ee2c0866d",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+            "symbol": "688111.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "e3176cec-0cb2-549d-a15a-770d10a227b7",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+            "symbol": "301239.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "e6fc3e40-0c8b-5426-9bc2-6435f4e823fd",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+            "symbol": "688615.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "ecbb15dd-1a4a-5325-ad8b-a12cfee8c160",
+            "minute_end": "2026-10-27T10:46:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+            "symbol": "603696.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          }
+        ]
+      },
+      {
+        "call_id": "A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+        "run_id": "team-monitor:2026-10-27",
+        "role": "A4",
+        "session": "INTRADAY",
+        "source_trade_date": "2026-10-26",
+        "execution_trade_date": "2026-10-27",
+        "captured_at": "2026-10-27T10:51:35.915195+08:00",
+        "model": "deepseek-v4.1-flash",
+        "prompt_hash": "e608649611ad3c1e436501246dd5b3d537a62614dd244e15591d46abce79fc32",
+        "input_hash": "f746af8edf94af0d3418c88675a7f8090159a4e0ce56cfd8b0050f71cb80c39f",
+        "catalog_hash": "eb32c0f111b17dd9d26b6731385fb2aa9e581d9c1bbcf2c06005a36fbf05bda8",
+        "output_hash": "3c83d4e4ef199726f4ff2334f8ec188a29ed97f253948bfcc09d2f3175d8d0f0",
+        "latency_ms": 14253,
+        "provider_attempts": 1,
+        "validated": 1,
+        "issues_json": "[]",
+        "sentinel_count": 0,
+        "output_json": "{\"decision_id\":\"team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW\",\"envelope\":{\"as_of\":\"2026-10-27T10:51:00+08:00\",\"config_hash\":\"411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73\",\"config_version\":\"team-v2/1\",\"execution_trade_date\":\"2026-10-27\",\"input_snapshot_ids\":[\"e8aef71f51384afc40c8f10298a5ff562d4ff4f4cccbd1816d54abba3f11e77b\"],\"knowledge_cutoff\":\"2026-10-27T10:51:21.234832+08:00\",\"market_regime\":\"ROTATION_NO_MAINLINE\",\"model_name\":\"deepseek-v4.1-flash\",\"prompt_version\":\"agent-4-trader/1.1.0\",\"reason_codes\":[],\"run_id\":\"team-monitor:2026-10-27\",\"schema_version\":\"team-envelope/1\",\"source_trade_date\":\"2026-10-26\",\"stage_id\":\"A4\",\"status\":\"FROZEN\"},\"handoff_notes\":{\"to_a3\":[\"入场带 18.4922–18.6771 相对日线 MA5 17.692 偏高，今日开盘后价格直接下穿带下沿，计划几何对当日弱势开盘的容错不足。\",\"trade_brief 已提示周线 BEAR_STACK 仅 PROBE，实际盘中走势与提示一致；建议后续同类 TREND_MA5 计划把入场带下沿更贴近 MA5 参考位。\"],\"to_a6\":[\"688351.SH 本节拍为 NO_ACTION，非 BUY；引擎候选 BUY_SIGNAL 已被我否决，请勿撮合。\",\"若后续价格回到 18.4922–18.6771 且 5m 收回 VWAP，我会重新确认；在此之前该计划保持观察不占用风险容量。\"]},\"minute_snapshot_id\":\"e8aef71f51384afc40c8f10298a5ff562d4ff4f4cccbd1816d54abba3f11e77b\",\"position_actions\":[],\"schema_version\":\"a4-trader/1.0.0\",\"signals\":[{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"T3\",\"note\":\"引擎送入 BUY_SIGNAL 候选，我否决：现价 18.63 已跌破 A3 入场带下沿 18.4922，且 5m 仍为更低低点、价格远低于 5m VWAP 18.9662，右侧确认序列未完成。市场 LIVE_MARKET_STATE 为 WEAK_ROTATION/CAUTION（广度 0.331，中位 -0.51%），不支持在破位下行中接刀。请勿按候选执行买入。\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"LIVE:MARKET\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"reason_code\":\"ENTRY_GEOMETRY_NOT_MET_PRICE_BELOW_ZONE\",\"supporting_refs\":[\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\"],\"symbol\":\"688351.SH\",\"tech_reference_review\":[{\"item\":\"A_15M_SUPPORT\",\"my_read\":\"引擎判 15m 支撑成立，但最近两根 15m 收 18.74/18.63 仍在下行，支撑有效性存疑\",\"status\":\"MET\"},{\"item\":\"A_PULLBACK\",\"my_read\":\"回踩已发生，但回踩深度已越过入场带下沿 18.4922，属超预期回踩\",\"status\":\"MET\"},{\"item\":\"A_STABILIZED\",\"my_read\":\"引擎判止跌，但 5m 序列 18.74→18.64→18.63→18.61 仍为更低低点，未见右侧止跌\",\"status\":\"MET\"},{\"item\":\"A_SUPPORT\",\"my_read\":\"支撑位参考成立，但价格已在其下方运行，参考意义弱化\",\"status\":\"MET\"},{\"item\":\"ENTRY_ZONE\",\"my_read\":\"引擎判入场带成立，但现价 18.63 已低于带下沿 18.4922 之上不足，实际未在带内\",\"status\":\"MET\"},{\"item\":\"ENTRY_RR\",\"my_read\":\"以失效位 17.7851 计的 R 结构成立，但入场点未到，RR 无法兑现\",\"status\":\"MET\"},{\"item\":\"VOLUME_NOT_OVERHEATED\",\"my_read\":\"量能未过热，但当前是缩量下行而非缩量回踩企稳\",\"status\":\"MET\"},{\"item\":\"A_CONTRACTION\",\"my_read\":\"缩量成立，但缩量伴随价格持续走低，属卖压未消而非健康收缩\",\"status\":\"MET\"},{\"item\":\"A3_TREND_ROUTE_APPROVED\",\"my_read\":\"A3 趋势路线已批准，但批准的是计划几何，不是当前时点的入场许可\",\"status\":\"MET\"},{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"几何被接受，但现价已跌破入场带下沿，几何在当前时点不满足\",\"status\":\"MET\"}],\"waiting_for\":\"价格回到入场带 18.4922–18.6771 且 ≤ no_chase 19.467；随后需闭合 5m 收回 VWAP（当前 5m VWAP 18.9662，现价 18.63 明显低于）并出现一根温和放量阳线确认；同时 15m 卖压需缓解（最近两根 15m 收 18.74→18.63，仍在走弱）\",\"what_would_change_my_mind\":[\"价格回到 18.4922–18.6771 区间内，且闭合 5m 收回 VWAP 18.9662 并出现温和放量阳线\",\"15m 连续两根收在 18.63 上方且卖压明显减弱，同时 LIVE_MARKET_STATE 广度回升\"]}],\"what_would_change_my_mind\":[\"若 688351.SH 在 15m 级别出现连续两根收在 18.63 上方且量能温和放大，我会把本节拍判断从 NO_ACTION 改为 BUY_SIGNAL\",\"若 LIVE_MARKET_STATE 从 WEAK_ROTATION/CAUTION 转为 READY 且广度回升至 0.5 以上，我会放宽对入场时点的等待条件\"]}",
+        "binding_sha256": "a7bd98b2f5c4794ebb7a829a77ded23829ce67378ac96ab45dfbcf1e5c8a0c69",
+        "catalog": {
+          "call_id": "A4:team:20261027T1051:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+          "catalog_json": "{\"categories\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"items\":[{\"category\":\"MARKET\",\"id\":\"LIVE:MARKET\",\"value\":{\"advances\":1766,\"as_of\":\"2026-10-27T10:50:00+08:00\",\"breadth\":0.331332,\"cache_bucket\":\"2026-10-27T10:50:00+08:00\",\"cache_hit\":true,\"cache_reused\":true,\"collection_elapsed_ms\":2611,\"coverage\":0.998028,\"current_session\":true,\"declines\":3564,\"diagnostics\":{\"attempts\":[{\"attempt\":1,\"elapsed_ms\":2611,\"full_market\":{\"complete\":true,\"expected_count\":5579,\"observed_count\":5568,\"ok\":true,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\"},\"index_fallback\":{\"expected_count\":4,\"observed_count\":0,\"quotes\":[],\"reason_code\":\"FULL_MARKET_READY\",\"source\":\"TENCENT_INDEX_FALLBACK\",\"status\":\"NOT_ATTEMPTED\"}}],\"cache_bucket\":\"2026-10-27T10:50:00+08:00\",\"cache_hit\":true,\"collection_elapsed_ms\":2611,\"recovered_after_retry\":false,\"total_attempts\":1},\"entry_permission\":\"CAUTION\",\"expected_count\":5579,\"fallback\":false,\"flats\":238,\"median_change_pct\":-0.513084,\"observed_count\":5568,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"regime\":\"WEAK_ROTATION\",\"schema_version\":\"a4-live-market-state/1.0.0\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\",\"suggested_position_cap_pct\":0.5,\"team_v2_regime\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"emotion_state\":\"EMOTION_ON\",\"exit_authority_changed\":false,\"leader_open\":true,\"live_authority\":true,\"primary_status\":\"READY\",\"radar_open\":true,\"regime\":\"ROTATION_NO_MAINLINE\",\"source_input_sha256\":\"8a608c7a1e6be6ba1da9c766291098a2216c5722b8434f6bb4fd76f903f06a00\",\"state\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"config_version\":\"2026-10-16.1\",\"emotion_confirmed\":\"EMOTION_ON\",\"emotion_pending\":\"EMOTION_OFF\",\"emotion_pending_count\":1,\"last_tick\":\"2026-10-27T10:50:00+08:00\",\"primary_confirmed\":\"ROTATION_NO_MAINLINE\",\"primary_pending\":\"RISK_OFF_RETREAT\",\"primary_pending_count\":1},\"transitions\":[]},\"team_v2_source\":{\"baseline_sha256\":\"c7d1c197d4b692eb64f4e70ec740e9321c122699581c8f4ef06e37e31f90dc8f\",\"emotion\":{\"as_of\":\"2026-10-27T10:50:01+08:00\",\"authority\":\"EMOTION_STATISTICS_ONLY\",\"broken_board_count\":14,\"broken_board_rate\":0.24561403508771928,\"coverage\":0.9601837672281777,\"excluded_counts\":{\"BJ_EXCLUDED\":354,\"LIMIT_PRICE_INPUT_UNPROVEN\":1,\"LISTING_PERIOD_UNPROVEN_OR_LT5\":8,\"NO_TRADES_OR_QUOTE_MISSING\":9,\"ST_EXCLUDED\":194},\"expected_count\":5224,\"highest_streak\":5,\"limit_down_count\":3,\"limit_up_count\":43,\"minimum_listing_days\":5,\"observed_count\":5016,\"previous_streaks_sha256\":\"65df8c3e6edd10134dd7cf8194af1bb6351dd5412622747613b7144c09473136\",\"reason_codes\":[],\"schema_version\":\"DERIVED_IDENTITY_V1\",\"source_authenticated\":false,\"source_input_sha256\":\"11114c8a4c3f448b80b6eae8b247ec4a53f28da00e9232bd7bcf277c6316a582\",\"status\":\"READY\",\"universe_complete\":true,\"universe_excludes_st\":true},\"frame_path\":\"state/team_v2/emotion_live/2026-10-27/61817951d3f822f359ede0a2bd8d8a67cdb6e35cd281e0c28ca851f831ebed39.json.gz\",\"frame_sha256\":\"61817951d3f822f359ede0a2bd8d8a67cdb6e35cd281e0c28ca851f831ebed39\",\"known_at\":\"2026-10-27T10:50:24.206927+08:00\",\"source_as_of\":\"2026-10-27T10:50:01+08:00\",\"status\":\"READY\"},\"trade_date\":\"2026-10-27\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"input_ref\":[\"ACTIVE_PLANS\",0,\"publication_facts\"],\"original_fact_sha256\":\"3860e6b325b277364f676df7f52a28ecd0595d38a41175b5a334bdf6df8fb553\",\"original_payload_sha256\":\"3860e6b325b277364f676df7f52a28ecd0595d38a41175b5a334bdf6df8fb553\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\"],\"original_fact_sha256\":\"07f7b823ae267e1bcb7e90510faaf0723ba437a1d647830d744704c3af24fcfd\",\"projected_fact_sha256\":\"d5f4ab10fcd19eb3ed15150f7ac718075e1973e95951180bbcc8a914336b9709\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}}]}",
+          "catalog_sha256": "eb32c0f111b17dd9d26b6731385fb2aa9e581d9c1bbcf2c06005a36fbf05bda8"
+        },
+        "same_tick_original_flags": [
+          {
+            "event_id": "65e82926-4ec6-5297-b2f2-aeb18a199c3e",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+            "symbol": "300519.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "71af5be6-0029-54ba-96db-fafd52298fd1",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+            "symbol": "002603.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "877719ae-b172-5f61-892b-0534ba1824ab",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+            "symbol": "688351.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_CONTRACTION\",\"A_STABILIZED\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"ENTRY_ZONE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          },
+          {
+            "event_id": "95aa75a3-2260-5901-8685-12e8a708f659",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+            "symbol": "603298.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "9b5be38f-add4-52e1-a8ac-054421c2fc0c",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+            "symbol": "300496.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "bbbf699d-0242-59f4-92b8-293f9fbb2d36",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+            "symbol": "300357.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_RETEST\",\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "bc7a004a-ba7e-5a16-a159-07cdcedcae11",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+            "symbol": "688615.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "c714b0b7-403c-5330-bea8-fcbc2a63ec14",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+            "symbol": "688410.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "d7662e95-d6cf-5a11-925d-9226bdfb9941",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+            "symbol": "000858.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "da8b40ff-f027-57f4-b9e5-9718875b498d",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+            "symbol": "688016.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_STABILIZED\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"ENTRY_ZONE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"A_CONTRACTION\"]"
+          },
+          {
+            "event_id": "e6fd04a1-526d-52c3-b085-0119e0127935",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+            "symbol": "603696.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "f170e848-aa25-57e3-9b42-441c488d8eb3",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+            "symbol": "688111.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "f5249c18-02b2-5bb3-98a9-9763bce7cf8a",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+            "symbol": "301239.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "fbfda9e0-6873-58b5-b538-9433094831d2",
+            "minute_end": "2026-10-27T10:51:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+            "symbol": "600628.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          }
+        ]
+      },
+      {
+        "call_id": "A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+        "run_id": "team-monitor:2026-10-27",
+        "role": "A4",
+        "session": "INTRADAY",
+        "source_trade_date": "2026-10-26",
+        "execution_trade_date": "2026-10-27",
+        "captured_at": "2026-10-27T10:56:44.995685+08:00",
+        "model": "deepseek-v4.1-flash",
+        "prompt_hash": "b1deb83a06353ac740b764aa324bcbf474415f6eff423602c1386995e5584456",
+        "input_hash": "1e1297f17e5ae5b23b15cb72b3869bdacd3f26391a88ce94b72512942334dd5b",
+        "catalog_hash": "27fb8caa9b1fb878b39c81557b3d09b8b39f7b47edc8bb37a3f914d3df4518cb",
+        "output_hash": "bf21b170acf182213ab5357e0e7a6100bf6250b17fda857597262a8cdbbf39a4",
+        "latency_ms": 22380,
+        "provider_attempts": 1,
+        "validated": 0,
+        "issues_json": "[\"TRADER_TECH_REFERENCE_INVALID\"]",
+        "sentinel_count": 0,
+        "output_json": "{\"decision_id\":\"team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW\",\"envelope\":{\"as_of\":\"2026-10-27T10:56:00+08:00\",\"config_hash\":\"411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73\",\"config_version\":\"team-v2/1\",\"execution_trade_date\":\"2026-10-27\",\"input_snapshot_ids\":[\"0ea5e03f890fd8ff8fad84bd3bfb045a44fce647af5e767ecf92ad1b9207aa4d\"],\"knowledge_cutoff\":\"2026-10-27T10:56:22.162188+08:00\",\"market_regime\":\"RISK_OFF_RETREAT\",\"model_name\":\"deepseek-v4.1-flash\",\"prompt_version\":\"agent-4-trader/1.1.0\",\"reason_codes\":[],\"run_id\":\"team-monitor:2026-10-27\",\"schema_version\":\"team-envelope/1\",\"source_trade_date\":\"2026-10-26\",\"stage_id\":\"A4\",\"status\":\"FROZEN\"},\"handoff_notes\":{\"to_a3\":[\"688351.SH：A3回踩区18.4922-18.6771与现价18.58重叠，但5m连续下移低点说明回踩尚未结束，回踩区下沿可再观察是否需下移\",\"000858.SZ：A3回踩区73.214-73.8561相对现价76.03偏低约3%，计划几何与当日实际走势脱节，若继续上行该计划将无法在带内成交，建议A3复核是否作废或重设\",\"两只均为PROBE且周线/资金流证据偏弱，在RISK_OFF_RETREAT环境下建议A3降低当日新开仓预期\"],\"to_a6\":[\"两个引擎BUY候选均被我否决为NO_ACTION：688351.SH为5m结构未止跌+未收复VWAP，000858.SZ为价格已高于A3回踩区上沿属追高\",\"当前LIVE_MARKET_STATE为RISK_OFF_RETREAT/EMOTION_OFF、广度0.306、中位-0.63%，PROBE级右侧确认门槛应保持严格，请勿因候选存在而放宽\",\"000858.SZ信封已a6_tightened=true，若后续价格回到回踩区请维持收紧条件\"]},\"minute_snapshot_id\":\"0ea5e03f890fd8ff8fad84bd3bfb045a44fce647af5e767ecf92ad1b9207aa4d\",\"position_actions\":[],\"schema_version\":\"a4-trader/1.0.0\",\"signals\":[{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"T3\",\"note\":\"引擎BUY候选我否决：5m结构仍在下移低点、未收复VWAP，且全市场RISK_OFF_RETREAT/EMOTION_OFF、广度0.306、中位-0.63%，PROBE级右侧确认不足；请勿按候选直接放行\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"LIVE:MARKET\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"reason_code\":\"ENTRY_ZONE_NOT_REACHED_AND_MARKET_RISK_OFF\",\"supporting_refs\":[\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\"],\"symbol\":\"688351.SH\",\"tech_reference_review\":[{\"item\":\"A_15M_SUPPORT\",\"my_read\":\"15m 收在18.59-18.76，仍在MA5 18.874下方但未破失效位17.7851，支撑名义成立\",\"status\":\"MET\"},{\"item\":\"A_PULLBACK\",\"my_read\":\"自19.24高点回落至18.58，回踩幅度符合MA5回踩定义\",\"status\":\"MET\"},{\"item\":\"A_CONTRACTION\",\"my_read\":\"5m量能自50.8万手递减至4.4万手，缩量回踩成立\",\"status\":\"MET\"},{\"item\":\"A_STABILIZED\",\"my_read\":\"5m连续低点18.80→18.59→18.55仍在下移，未见止跌/更高低点\",\"status\":\"UNMET\"},{\"item\":\"A_SUPPORT\",\"my_read\":\"未触及日线失效位17.7851，几何未破\",\"status\":\"MET\"},{\"item\":\"ENTRY_ZONE\",\"my_read\":\"现价18.58在18.4922-18.6771带内且远低于no_chase 19.467\",\"status\":\"MET\"},{\"item\":\"ENTRY_RR\",\"my_read\":\"引擎已判定盈亏比达标，我不重算\",\"status\":\"MET\"},{\"item\":\"VOLUME_NOT_OVERHEATED\",\"my_read\":\"量比未过热，无追涨特征\",\"status\":\"MET\"},{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"几何被接受，但几何达标不等于右侧确认\",\"status\":\"MET\"},{\"item\":\"A3_TREND_ROUTE_APPROVED\",\"my_read\":\"A3路线已批准，但周线BEAR_STACK仅PROBE\",\"status\":\"MET\"}],\"waiting_for\":\"价格回落进入A3回踩区18.4922-18.6771（现价18.58仍在带内但5m结构为连续下移低点、无VWAP收复），且需闭合5m出现止跌/更高低点并收回VWAP；同时LIVE_MARKET_STATE需脱离RISK_OFF_RETREAT/EMOTION_OFF\",\"what_would_change_my_mind\":[\"闭合5m出现更高低点并收回VWAP 18.96且有一根温和放量阳线\",\"LIVE_MARKET_STATE脱离RISK_OFF_RETREAT且entry_permission回到正常\"]},{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"T3\",\"note\":\"引擎BUY候选我否决：现价76.03已高于A3回踩区上沿73.8561，属追高位置而非计划几何内；且A6已a6_tightened=true、A2资金流数据缺失、全市场RISK_OFF_RETREAT，PROBE级不应在带外入场\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"LIVE:MARKET\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"reason_code\":\"PRICE_ABOVE_ENTRY_ZONE_AND_MARKET_RISK_OFF\",\"supporting_refs\":[\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\"],\"symbol\":\"000858.SZ\",\"tech_reference_review\":[{\"item\":\"B_EFFECTIVE_BREAKOUT\",\"my_read\":\"5m自75.64上行至76.30，突破形态成立\",\"status\":\"MET\"},{\"item\":\"B_RETEST\",\"my_read\":\"引擎判定回踩成立，但回踩位在75.9附近，高于A3回踩区73.214-73.8561\",\"status\":\"MET\"},{\"item\":\"B_RETEST_VOLUME\",\"my_read\":\"回踩缩量成立\",\"status\":\"MET\"},{\"item\":\"B_KEY_LEVEL\",\"my_read\":\"关键位未破\",\"status\":\"MET\"},{\"item\":\"B_KEY_BELOW_NO_CHASE\",\"my_read\":\"关键位低于no_chase 77.8989\",\"status\":\"MET\"},{\"item\":\"B_NO_CHASE\",\"my_read\":\"现价76.03低于no_chase 77.8989，未触发禁追\",\"status\":\"MET\"},{\"item\":\"B_STOP_ONLY_RAISED\",\"my_read\":\"止损仅上移，未放宽\",\"status\":\"MET\"},{\"item\":\"B_ACCEPTED\",\"my_read\":\"B形态被接受\",\"status\":\"MET\"},{\"item\":\"B_ATTEMPT_PREFIX\",\"my_read\":\"突破尝试前缀成立\",\"status\":\"MET\"},{\"item\":\"ENTRY_RR\",\"my_read\":\"引擎判定盈亏比达标\",\"status\":\"MET\"},{\"item\":\"VOLUME_NOT_OVERHEATED\",\"my_read\":\"量能未过热\",\"status\":\"MET\"},{\"item\":\"A3_TREND_ROUTE_APPROVED\",\"my_read\":\"A3路线已批准\",\"status\":\"MET\"},{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"几何被接受\",\"status\":\"MET\"}],\"waiting_for\":\"价格回落进入A3回踩区73.214-73.8561（现价76.03已高于带且接近no_chase 77.8989），且需闭合15m卖压减弱+闭合5m更高低点并收回VWAP；同时LIVE_MARKET_STATE需脱离RISK_OFF_RETREAT\",\"what_would_change_my_mind\":[\"价格回落至73.214-73.8561回踩区并出现闭合5m更高低点+收回VWAP\",\"LIVE_MARKET_STATE脱离RISK_OFF_RETREAT且A2资金流数据补齐转净流入\"]}],\"what_would_change_my_mind\":[\"LIVE_MARKET_STATE由RISK_OFF_RETREAT转为非风险收缩且广度回升至0.5以上，我会重新评估两个候选\",\"任一标的出现闭合5m更高低点+收回VWAP+温和放量阳线，我会对相应候选改判BUY_SIGNAL\"]}",
+        "binding_sha256": "915166c3481883b80741190bdc960a75118d88b2b1dfb5815481fa29bea0d6e9",
+        "catalog": {
+          "call_id": "A4:team:20261027T1056:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+          "catalog_json": "{\"categories\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"items\":[{\"category\":\"MARKET\",\"id\":\"LIVE:MARKET\",\"value\":{\"advances\":1638,\"as_of\":\"2026-10-27T10:55:00+08:00\",\"breadth\":0.30554,\"cache_bucket\":\"2026-10-27T10:55:00+08:00\",\"cache_hit\":true,\"cache_reused\":true,\"collection_elapsed_ms\":2684,\"coverage\":0.998207,\"current_session\":true,\"declines\":3723,\"diagnostics\":{\"attempts\":[{\"attempt\":1,\"elapsed_ms\":2684,\"full_market\":{\"complete\":true,\"expected_count\":5578,\"observed_count\":5568,\"ok\":true,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\"},\"index_fallback\":{\"expected_count\":4,\"observed_count\":0,\"quotes\":[],\"reason_code\":\"FULL_MARKET_READY\",\"source\":\"TENCENT_INDEX_FALLBACK\",\"status\":\"NOT_ATTEMPTED\"}}],\"cache_bucket\":\"2026-10-27T10:55:00+08:00\",\"cache_hit\":true,\"collection_elapsed_ms\":2684,\"recovered_after_retry\":false,\"total_attempts\":1},\"entry_permission\":\"CAUTION\",\"expected_count\":5578,\"fallback\":false,\"flats\":207,\"median_change_pct\":-0.631414,\"observed_count\":5568,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"regime\":\"WEAK_ROTATION\",\"schema_version\":\"a4-live-market-state/1.0.0\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\",\"suggested_position_cap_pct\":0.5,\"team_v2_regime\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"emotion_state\":\"EMOTION_OFF\",\"exit_authority_changed\":false,\"leader_open\":false,\"live_authority\":true,\"primary_status\":\"READY\",\"radar_open\":false,\"regime\":\"RISK_OFF_RETREAT\",\"source_input_sha256\":\"609ad4e6de78c2be3e54d147b93366ec345a229c9f509bd0a51ba90d61e39e52\",\"state\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"config_version\":\"2026-10-16.1\",\"emotion_confirmed\":\"EMOTION_OFF\",\"emotion_pending\":null,\"emotion_pending_count\":0,\"last_tick\":\"2026-10-27T10:55:00+08:00\",\"primary_confirmed\":\"RISK_OFF_RETREAT\",\"primary_pending\":null,\"primary_pending_count\":0},\"transitions\":[{\"current\":\"RISK_OFF_RETREAT\",\"kind\":\"primary\",\"previous\":\"ROTATION_NO_MAINLINE\",\"tick\":\"2026-10-27T10:55:00+08:00\"},{\"current\":\"EMOTION_OFF\",\"kind\":\"emotion\",\"previous\":\"EMOTION_ON\",\"tick\":\"2026-10-27T10:55:00+08:00\"}]},\"team_v2_source\":{\"baseline_sha256\":\"c7d1c197d4b692eb64f4e70ec740e9321c122699581c8f4ef06e37e31f90dc8f\",\"emotion\":{\"as_of\":\"2026-10-27T10:55:06+08:00\",\"authority\":\"EMOTION_STATISTICS_ONLY\",\"broken_board_count\":14,\"broken_board_rate\":0.2413793103448276,\"coverage\":0.9601837672281777,\"excluded_counts\":{\"BJ_EXCLUDED\":354,\"LIMIT_PRICE_INPUT_UNPROVEN\":1,\"LISTING_PERIOD_UNPROVEN_OR_LT5\":8,\"NO_TRADES_OR_QUOTE_MISSING\":9,\"ST_EXCLUDED\":194},\"expected_count\":5224,\"highest_streak\":5,\"limit_down_count\":4,\"limit_up_count\":44,\"minimum_listing_days\":5,\"observed_count\":5016,\"previous_streaks_sha256\":\"65df8c3e6edd10134dd7cf8194af1bb6351dd5412622747613b7144c09473136\",\"reason_codes\":[],\"schema_version\":\"DERIVED_IDENTITY_V1\",\"source_authenticated\":false,\"source_input_sha256\":\"f703a9e57a3cfaa625578cd30e022217252c8b0340a7a7d483e7c8039b70e7e7\",\"status\":\"READY\",\"universe_complete\":true,\"universe_excludes_st\":true},\"frame_path\":\"state/team_v2/emotion_live/2026-10-27/8ae3d6f2c5fd7897e2b8418a6f65c5445c99842fe14e9d96dda4e5aeb0cd0de9.json.gz\",\"frame_sha256\":\"8ae3d6f2c5fd7897e2b8418a6f65c5445c99842fe14e9d96dda4e5aeb0cd0de9\",\"known_at\":\"2026-10-27T10:55:25.132794+08:00\",\"source_as_of\":\"2026-10-27T10:55:06+08:00\",\"status\":\"READY\"},\"trade_date\":\"2026-10-27\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"input_ref\":[\"ACTIVE_PLANS\",0,\"publication_facts\"],\"original_fact_sha256\":\"3860e6b325b277364f676df7f52a28ecd0595d38a41175b5a334bdf6df8fb553\",\"original_payload_sha256\":\"3860e6b325b277364f676df7f52a28ecd0595d38a41175b5a334bdf6df8fb553\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"input_ref\":[\"ACTIVE_PLANS\",1,\"publication_facts\"],\"original_fact_sha256\":\"6b9c60c44a7a137513a4ca86b368a05b86091c33bafca59c5111decf1600b1a2\",\"original_payload_sha256\":\"6b9c60c44a7a137513a4ca86b368a05b86091c33bafca59c5111decf1600b1a2\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75\"],\"original_fact_sha256\":\"672572e59e3159ae440b967895cdeec4d084fc9c19b54e5b1e7e9fbcb20ad291\",\"projected_fact_sha256\":\"ff774e02d8624d51c24521e01905fef98b62bd21bd853f1137de65955cbad6c2\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\"],\"original_fact_sha256\":\"acbab962100e3ee41eaa674dfac81c2a103d10dba07f377b190bb3ab2b762cf7\",\"projected_fact_sha256\":\"82589a30f91c6c5d2ae3c0c0f9147f899a996d621d9eacb5d699b8717e062ecd\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}}]}",
+          "catalog_sha256": "27fb8caa9b1fb878b39c81557b3d09b8b39f7b47edc8bb37a3f914d3df4518cb"
+        },
+        "same_tick_original_flags": [
+          {
+            "event_id": "0509734c-83d2-54a3-80f4-42446b861436",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+            "symbol": "300519.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "1ef0e6e5-eddf-55e5-9507-f973d0cfdc06",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+            "symbol": "603696.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "2846c468-0f35-5b13-aafa-4afbea15c9c8",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+            "symbol": "688410.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "461dae5c-af82-5304-b6bf-44edcef6c887",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+            "symbol": "688111.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "4cfa7153-628e-5ead-8182-db833a42cc97",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+            "symbol": "688351.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_CONTRACTION\",\"A_STABILIZED\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"ENTRY_ZONE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          },
+          {
+            "event_id": "7b0a6773-f176-5e41-9ebf-17880988b08c",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+            "symbol": "688615.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "87a9b013-3b28-5b0e-b33d-aa4e6b6b9561",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+            "symbol": "600628.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "9736d80e-a3ed-5b3a-a4cd-7e5d9e3c3fec",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+            "symbol": "603298.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "987aadfc-7d64-5fc5-ac3e-634d7aa4f9fe",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+            "symbol": "300357.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_RETEST\",\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "9964566d-0271-55e1-80a2-585e42ab88fc",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+            "symbol": "301239.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "b169b617-652a-551c-8bc0-97267896955a",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+            "symbol": "688016.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"ENTRY_ZONE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"A_CONTRACTION\",\"A_STABILIZED\"]"
+          },
+          {
+            "event_id": "c333eb0a-019d-56d8-864a-5e88817cd1f1",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+            "symbol": "002603.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "c36fb14e-f32b-513d-a6d2-ed3fa48b67b9",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+            "symbol": "300496.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "eafb1909-ca70-5ca8-ac5e-ff98ff4d39ac",
+            "minute_end": "2026-10-27T10:56:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+            "symbol": "000858.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          }
+        ]
+      },
+      {
+        "call_id": "A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+        "run_id": "team-monitor:2026-10-27",
+        "role": "A4",
+        "session": "INTRADAY",
+        "source_trade_date": "2026-10-26",
+        "execution_trade_date": "2026-10-27",
+        "captured_at": "2026-10-27T11:01:41.699335+08:00",
+        "model": "deepseek-v4.1-flash",
+        "prompt_hash": "894bcb231610da9b98031b8db4f5a4e8786a85c1025c62092b26daf908212b59",
+        "input_hash": "666f2d4d54234b985efcb4329dc3a4c558a315a6ee68cd95e2f168014f8c6756",
+        "catalog_hash": "6efae06b50100dd78645b573104f9d31dc1d6b4026bbebc22f87ea2c1cf1fbdb",
+        "output_hash": "66f05a9b634bc966320b59756cfb938b16797047f23cb01076b40d71d2b84041",
+        "latency_ms": 20591,
+        "provider_attempts": 1,
+        "validated": 1,
+        "issues_json": "[]",
+        "sentinel_count": 1,
+        "output_json": "{\"decision_id\":\"team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW\",\"envelope\":{\"as_of\":\"2026-10-27T11:01:00+08:00\",\"config_hash\":\"411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73\",\"config_version\":\"team-v2/1\",\"execution_trade_date\":\"2026-10-27\",\"input_snapshot_ids\":[\"b33bd2090756a5c7ded44d246f9f7186cb6df820af0b8b1410fed62d63372455\"],\"knowledge_cutoff\":\"2026-10-27T11:01:20.730152+08:00\",\"market_regime\":\"RISK_OFF_RETREAT\",\"model_name\":\"deepseek-v4.1-flash\",\"prompt_version\":\"agent-4-trader/1.1.0\",\"reason_codes\":[],\"run_id\":\"team-monitor:2026-10-27\",\"schema_version\":\"team-envelope/1\",\"source_trade_date\":\"2026-10-26\",\"stage_id\":\"A4\",\"status\":\"FROZEN\"},\"handoff_notes\":{\"to_a3\":[\"计划几何自洽（入场带、no_chase、失效位、止损均合理），但入场带73.214-73.8561与昨收75.63、今开75.21之间存在约2.9%的缺口，实际触发概率偏低，建议评估是否需在回踩区上沿附近补充次级触发条件\",\"trade_brief已标注资金流数据缺失、盈亏比待确认，建议A3在A2补齐资金流前对该计划维持P3优先级，不因凑槽位而放宽入场位置\",\"失效位71.8626与止损75.65311的几何关系请复核：止损价高于失效位，若按止损执行则实际风险敞口与失效位定义不一致\"],\"to_a6\":[\"000858.SZ本节拍NO_ACTION，未消耗批次，PROBE信封保持eligible，请勿按候选自动成交\",\"若后续价格进入73.214-73.8561并完成右侧确认，我会重新送BUY_SIGNAL，届时请按PROBE风险单位裁决股数\",\"当前LIVE_MARKET_STATE为WEAK_ROTATION/entry_permission=CAUTION、team_v2为RISK_OFF_RETREAT，若盘中进一步转弱请提前收紧该计划\"]},\"minute_snapshot_id\":\"b33bd2090756a5c7ded44d246f9f7186cb6df820af0b8b1410fed62d63372455\",\"position_actions\":[],\"schema_version\":\"a4-trader/1.0.0\",\"signals\":[{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"T3\",\"note\":\"引擎BUY候选被否决：现价76.00高于入场带上沿73.8561约2.9%，位置条件不满足，且A3简报标注资金流数据缺失、盈亏比待确认。信封eligible=true、max_batches=1保留，等待回踩区确认后重新送入。\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"NO_OPPOSING_EVIDENCE_FOUND\"],\"opposing_search_scope\":[\"MARKET\",\"STOCK_TECH\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"reason_code\":\"ENTRY_ZONE_NOT_REACHED\",\"supporting_refs\":[\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"LIVE:MARKET\"],\"symbol\":\"000858.SZ\",\"tech_reference_review\":[{\"item\":\"A3_TREND_ROUTE_APPROVED\",\"my_read\":\"A3趋势路线已批准，日线主升结构成立，但批准不等于当前价位可入场\",\"status\":\"MET\"},{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"几何被接受，但现价76.00已高于入场带上沿73.8561，几何内无成交价\",\"status\":\"MET\"},{\"item\":\"B_ACCEPTED\",\"my_read\":\"突破形态被接受，但该形态对应的是突破路径，与当前回踩等待路径不同\",\"status\":\"MET\"},{\"item\":\"B_ATTEMPT_PREFIX\",\"my_read\":\"突破尝试前缀成立，属历史结构，不构成当前入场触发\",\"status\":\"MET\"},{\"item\":\"B_EFFECTIVE_BREAKOUT\",\"my_read\":\"有效突破成立，但价格已远离突破位，追入即违反no_chase=77.8989与回踩纪律\",\"status\":\"MET\"},{\"item\":\"B_KEY_BELOW_NO_CHASE\",\"my_read\":\"关键位低于禁追线，说明计划几何自洽，不改变当前不入场的判断\",\"status\":\"MET\"},{\"item\":\"B_KEY_LEVEL\",\"my_read\":\"关键位成立，作为后续回踩确认的参照\",\"status\":\"MET\"},{\"item\":\"B_NO_CHASE\",\"my_read\":\"禁追线77.8989未被触及，但现价76.00仍高于入场带，不满足入场位置条件\",\"status\":\"MET\"},{\"item\":\"B_RETEST\",\"my_read\":\"回踩项成立，但回踩尚未落到A3定义的73.214-73.8561区间\",\"status\":\"MET\"},{\"item\":\"B_RETEST_VOLUME\",\"my_read\":\"回踩缩量成立，属正面证据，需在真正进入回踩区后重新验证\",\"status\":\"MET\"},{\"item\":\"B_STOP_ONLY_RAISED\",\"my_read\":\"止损只上移不下移，纪律保持\",\"status\":\"MET\"},{\"item\":\"ENTRY_RR\",\"my_read\":\"盈亏比达标，但A3简报标注资金流数据缺失、盈亏比待确认，需A2补齐后再核\",\"status\":\"MET\"},{\"item\":\"VOLUME_NOT_OVERHEATED\",\"my_read\":\"量能未过热，属正面证据，不构成入场触发\",\"status\":\"MET\"}],\"waiting_for\":\"价格回落进入A3回踩区73.214-73.8561（现价76.00，高于入场带上沿约2.9%），且需在回踩区出现闭合15分钟卖压减弱+闭合5分钟止跌/更高低点+5分钟收回VWAP的温和放量阳线；同时等待A2资金流数据补齐以确认盈亏比\",\"what_would_change_my_mind\":[\"价格回落进入73.214-73.8561且闭合15分钟卖压减弱、闭合5分钟形成止跌/更高低点并收回VWAP\",\"A2确认该股资金流数据补齐且转净流入，同时价格进入回踩区\"]}],\"what_would_change_my_mind\":[\"价格有效跌破日线失效位71.8626，则该计划整体作废，不再等待回踩\",\"LIVE_MARKET_STATE由WEAK_ROTATION进一步恶化或entry_permission降级，则本节拍对所有计划一律NO_ACTION\"]}",
+        "binding_sha256": "921ad7424c82f84dc952a5226e15c4fb75a599b1fccaac8b0a71b360c24a4165",
+        "catalog": {
+          "call_id": "A4:team:20261027T1101:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+          "catalog_json": "{\"categories\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"items\":[{\"category\":\"MARKET\",\"id\":\"LIVE:MARKET\",\"value\":{\"advances\":1468,\"as_of\":\"2026-10-27T11:00:00+08:00\",\"breadth\":0.272508,\"cache_bucket\":\"2026-10-27T11:00:00+08:00\",\"cache_hit\":true,\"cache_reused\":true,\"collection_elapsed_ms\":2605,\"coverage\":0.998207,\"current_session\":true,\"declines\":3919,\"diagnostics\":{\"attempts\":[{\"attempt\":1,\"elapsed_ms\":2605,\"full_market\":{\"complete\":true,\"expected_count\":5578,\"observed_count\":5568,\"ok\":true,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\"},\"index_fallback\":{\"expected_count\":4,\"observed_count\":0,\"quotes\":[],\"reason_code\":\"FULL_MARKET_READY\",\"source\":\"TENCENT_INDEX_FALLBACK\",\"status\":\"NOT_ATTEMPTED\"}}],\"cache_bucket\":\"2026-10-27T11:00:00+08:00\",\"cache_hit\":true,\"collection_elapsed_ms\":2605,\"recovered_after_retry\":false,\"total_attempts\":1},\"entry_permission\":\"CAUTION\",\"expected_count\":5578,\"fallback\":false,\"flats\":181,\"median_change_pct\":-0.787402,\"observed_count\":5568,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"regime\":\"WEAK_ROTATION\",\"schema_version\":\"a4-live-market-state/1.0.0\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\",\"suggested_position_cap_pct\":0.5,\"team_v2_regime\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"emotion_state\":\"EMOTION_OFF\",\"exit_authority_changed\":false,\"leader_open\":false,\"live_authority\":true,\"primary_status\":\"READY\",\"radar_open\":false,\"regime\":\"RISK_OFF_RETREAT\",\"source_input_sha256\":\"db25e97f0be8f8b466a14936b4bbece04aaadb7938834e74417248a5c6622e78\",\"state\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"config_version\":\"2026-10-16.1\",\"emotion_confirmed\":\"EMOTION_OFF\",\"emotion_pending\":null,\"emotion_pending_count\":0,\"last_tick\":\"2026-10-27T11:00:00+08:00\",\"primary_confirmed\":\"RISK_OFF_RETREAT\",\"primary_pending\":null,\"primary_pending_count\":0},\"transitions\":[]},\"team_v2_source\":{\"baseline_sha256\":\"c7d1c197d4b692eb64f4e70ec740e9321c122699581c8f4ef06e37e31f90dc8f\",\"emotion\":{\"as_of\":\"2026-10-27T11:00:05+08:00\",\"authority\":\"EMOTION_STATISTICS_ONLY\",\"broken_board_count\":14,\"broken_board_rate\":0.2413793103448276,\"coverage\":0.9601837672281777,\"excluded_counts\":{\"BJ_EXCLUDED\":354,\"LIMIT_PRICE_INPUT_UNPROVEN\":1,\"LISTING_PERIOD_UNPROVEN_OR_LT5\":8,\"NO_TRADES_OR_QUOTE_MISSING\":9,\"ST_EXCLUDED\":194},\"expected_count\":5224,\"highest_streak\":5,\"limit_down_count\":3,\"limit_up_count\":44,\"minimum_listing_days\":5,\"observed_count\":5016,\"previous_streaks_sha256\":\"65df8c3e6edd10134dd7cf8194af1bb6351dd5412622747613b7144c09473136\",\"reason_codes\":[],\"schema_version\":\"DERIVED_IDENTITY_V1\",\"source_authenticated\":false,\"source_input_sha256\":\"b8892729f5f80b6c3f592e6415f9ad7b45385e5a4130d198a7fdc833abebe288\",\"status\":\"READY\",\"universe_complete\":true,\"universe_excludes_st\":true},\"frame_path\":\"state/team_v2/emotion_live/2026-10-27/5b6bad30d13831621c35ff5ef8bb4f54a487322c5d70a7f20f51509898945cee.json.gz\",\"frame_sha256\":\"5b6bad30d13831621c35ff5ef8bb4f54a487322c5d70a7f20f51509898945cee\",\"known_at\":\"2026-10-27T11:00:23.611356+08:00\",\"source_as_of\":\"2026-10-27T11:00:05+08:00\",\"status\":\"READY\"},\"trade_date\":\"2026-10-27\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"input_ref\":[\"ACTIVE_PLANS\",0,\"publication_facts\"],\"original_fact_sha256\":\"6b9c60c44a7a137513a4ca86b368a05b86091c33bafca59c5111decf1600b1a2\",\"original_payload_sha256\":\"6b9c60c44a7a137513a4ca86b368a05b86091c33bafca59c5111decf1600b1a2\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\"],\"original_fact_sha256\":\"c7439d961c2984ce5acb7b7c677267d76177eed6ba32ad1e742ddce4fffd13c7\",\"projected_fact_sha256\":\"ae96f5d4442fc5b92b10497136be6d177f9309092c5d9b75dd5bfe6dfadd8b80\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}}]}",
+          "catalog_sha256": "6efae06b50100dd78645b573104f9d31dc1d6b4026bbebc22f87ea2c1cf1fbdb"
+        },
+        "same_tick_original_flags": [
+          {
+            "event_id": "2869e710-fba9-5bb9-ad76-18526497b5db",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+            "symbol": "603298.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "31241c4b-e55f-5b20-9b85-e12fb91df0ed",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+            "symbol": "688351.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_CONTRACTION\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"A_STABILIZED\",\"ENTRY_ZONE\"]"
+          },
+          {
+            "event_id": "358e5747-df67-5ec8-821f-2fd7ad3c9593",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+            "symbol": "300519.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "3c336744-4d3a-503e-8d96-614881fe370f",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+            "symbol": "300357.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_RETEST\",\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "56a510ce-6e73-5510-a0c7-54430ba70966",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+            "symbol": "002603.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "653c7946-e423-50aa-bd14-c0dde87cecfd",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+            "symbol": "688111.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "68acd01e-9e4d-5f3d-9526-5d442544cf79",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+            "symbol": "688615.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "88b4619a-29c9-53e2-8d7f-30e87de517df",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+            "symbol": "301239.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "9ef89d1a-b203-50b4-9f8a-9f7c776f7485",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+            "symbol": "000858.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          },
+          {
+            "event_id": "d2062c1c-b8b5-530f-8cad-37a63e460175",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+            "symbol": "603696.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "d9d42671-0517-5ec6-b459-9ae62ad4cee0",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+            "symbol": "300496.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "f104ed3b-8636-53a0-aa06-b4ca0a6ac31f",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+            "symbol": "688410.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "f8a53c61-136b-5a3b-b7de-2b9199bdf809",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+            "symbol": "600628.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "ff50cdd9-6e25-5527-80b1-006d6f964f0e",
+            "minute_end": "2026-10-27T11:01:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+            "symbol": "688016.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"ENTRY_ZONE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"A_CONTRACTION\",\"A_STABILIZED\"]"
+          }
+        ]
+      },
+      {
+        "call_id": "A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+        "run_id": "team-monitor:2026-10-27",
+        "role": "A4",
+        "session": "INTRADAY",
+        "source_trade_date": "2026-10-26",
+        "execution_trade_date": "2026-10-27",
+        "captured_at": "2026-10-27T13:11:40.856963+08:00",
+        "model": "deepseek-v4.1-flash",
+        "prompt_hash": "d793cbe33ef6881bd81cd86070f51a58e38dd19fc6d8fa4001ea2d14e7fea5dc",
+        "input_hash": "07b3ff7e7c29394bb8d1e716d746986b6d57687f7dd4ab7010115b58360634ac",
+        "catalog_hash": "2dccf5dc3ef7520a46d1e3bbabe6a707e6338aac5ac61e3193471e913434c87d",
+        "output_hash": "5237e4cac79d9d718c0e4c8caa0e23c3beed6c090afa30c9849be84e1ac75f5f",
+        "latency_ms": 16264,
+        "provider_attempts": 1,
+        "validated": 1,
+        "issues_json": "[]",
+        "sentinel_count": 1,
+        "output_json": "{\"decision_id\":\"team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW\",\"envelope\":{\"as_of\":\"2026-10-27T13:11:00+08:00\",\"config_hash\":\"411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73\",\"config_version\":\"team-v2/1\",\"execution_trade_date\":\"2026-10-27\",\"input_snapshot_ids\":[\"7b40d90d41d4f55463ad6117119423921e18a19a188c7c8fe94e3e9bf7a6e287\"],\"knowledge_cutoff\":\"2026-10-27T13:11:24.175535+08:00\",\"market_regime\":\"RISK_OFF_RETREAT\",\"model_name\":\"deepseek-v4.1-flash\",\"prompt_version\":\"agent-4-trader/1.1.0\",\"reason_codes\":[],\"run_id\":\"team-monitor:2026-10-27\",\"schema_version\":\"team-envelope/1\",\"source_trade_date\":\"2026-10-26\",\"stage_id\":\"A4\",\"status\":\"FROZEN\"},\"handoff_notes\":{\"to_a3\":[\"TREND_MA5计划几何合理，但今日大盘RISK_OFF_RETREAT下回踩确认难度高，建议评估是否将此类计划在弱市日降级或延后\",\"trade_brief提示的周线BEAR_STACK与今日市场环境叠加，使该计划胜率进一步下降，值得在计划质量上记录\"],\"to_a6\":[\"688016.SH 本节拍否决引擎BUY候选，理由为5m未收回VWAP且无放量确认，非几何或风控问题\",\"市场处于RISK_OFF_RETREAT且广度极弱，即使确认完成也建议按PROBE最小批次执行\",\"若价格先跌破84.858并放量，请按结构失效处理，不必等硬止损82.85\"]},\"minute_snapshot_id\":\"7b40d90d41d4f55463ad6117119423921e18a19a188c7c8fe94e3e9bf7a6e287\",\"position_actions\":[],\"schema_version\":\"a4-trader/1.0.0\",\"signals\":[{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"SWING\",\"note\":\"引擎候选为BUY_SIGNAL，但我判定确认序列未完成：5m未收回VWAP、无放量阳线，且LIVE_MARKET_STATE为RISK_OFF_RETREAT/EMOTION_OFF、广度0.209、中位跌幅-1.25%，entry_permission=CAUTION。本节拍不买，请勿按候选放行；若后续5m确认完成再评估。\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"NO_OPPOSING_EVIDENCE_FOUND\"],\"opposing_search_scope\":[\"MARKET\",\"STOCK_TECH\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"reason_code\":\"ENTRY_CONFIRMATION_NOT_COMPLETE\",\"supporting_refs\":[\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"LIVE:MARKET\"],\"symbol\":\"688016.SH\",\"tech_reference_review\":[{\"item\":\"A_15M_SUPPORT\",\"my_read\":\"15m 收在85.35-85.5区间，未破MA5参考84.858，支撑尚在\",\"status\":\"MET\"},{\"item\":\"A_PULLBACK\",\"my_read\":\"回踩至MA5区且量能较昨日明显收缩，符合回踩缩量\",\"status\":\"MET\"},{\"item\":\"A_STABILIZED\",\"my_read\":\"1m 13:01-13:10 在85.11-85.38窄幅横盘，止跌迹象存在\",\"status\":\"MET\"},{\"item\":\"A_SUPPORT\",\"my_read\":\"价格位于入场带内且高于失效位82.85\",\"status\":\"MET\"},{\"item\":\"ENTRY_ZONE\",\"my_read\":\"现价85.19在84.858-85.7066带内且远低于no_chase 89.5997\",\"status\":\"MET\"},{\"item\":\"ENTRY_RR\",\"my_read\":\"以失效位82.85为R，风险约2.7%，几何可接受\",\"status\":\"MET\"},{\"item\":\"VOLUME_NOT_OVERHEATED\",\"my_read\":\"当日量能未过热，无追涨风险\",\"status\":\"MET\"},{\"item\":\"A_CONTRACTION\",\"my_read\":\"5m量能自早盘10万级降至1万级，收缩明显\",\"status\":\"MET\"},{\"item\":\"A3_TREND_ROUTE_APPROVED\",\"my_read\":\"A3已批准TREND_MA5路线\",\"status\":\"MET\"},{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"几何在计划范围内\",\"status\":\"MET\"}],\"waiting_for\":\"价格已进入A3日线MA5回踩区(84.858-85.7066)且未触发失效位82.85，但5分钟尚未收回VWAP(85.77)且无温和放量阳线确认；13:05-13:10两根5m收在85.19/85.38、量能60710/10233，属缩量弱反弹，需等待5m收盘站上VWAP并出现放量阳线，或15m卖压进一步缓解后形成更高低点\",\"what_would_change_my_mind\":[\"5m收盘站上VWAP 85.77并伴随放量阳线，则转为BUY_SIGNAL\",\"5m放量跌破84.858且15分钟不能收回，则确认结构转弱，放弃该计划\"]}],\"what_would_change_my_mind\":[\"若5m收盘连续两根站上VWAP 85.77且量能温和放大，则本节拍判断改为可入场\",\"若LIVE_MARKET_STATE由RISK_OFF_RETREAT转为中性且广度回升至0.4以上，则弱市约束解除，可重新评估入场\"]}",
+        "binding_sha256": "cc125076fa7d014db7f0ba210c60eca12f5167cc62d61183b6c23726cca70be9",
+        "catalog": {
+          "call_id": "A4:team:20261027T1311:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+          "catalog_json": "{\"categories\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"items\":[{\"category\":\"MARKET\",\"id\":\"LIVE:MARKET\",\"value\":{\"advances\":1139,\"as_of\":\"2026-10-27T13:10:00+08:00\",\"breadth\":0.208684,\"cache_bucket\":\"2026-10-27T13:10:00+08:00\",\"cache_hit\":true,\"cache_reused\":true,\"collection_elapsed_ms\":2613,\"coverage\":0.998028,\"current_session\":true,\"declines\":4319,\"diagnostics\":{\"attempts\":[{\"attempt\":1,\"elapsed_ms\":2613,\"full_market\":{\"complete\":true,\"expected_count\":5579,\"observed_count\":5568,\"ok\":true,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\"},\"index_fallback\":{\"expected_count\":4,\"observed_count\":0,\"quotes\":[],\"reason_code\":\"FULL_MARKET_READY\",\"source\":\"TENCENT_INDEX_FALLBACK\",\"status\":\"NOT_ATTEMPTED\"}}],\"cache_bucket\":\"2026-10-27T13:10:00+08:00\",\"cache_hit\":true,\"collection_elapsed_ms\":2613,\"recovered_after_retry\":false,\"total_attempts\":1},\"entry_permission\":\"CAUTION\",\"expected_count\":5579,\"fallback\":false,\"flats\":110,\"median_change_pct\":-1.250252,\"observed_count\":5568,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"regime\":\"WEAK_ROTATION\",\"schema_version\":\"a4-live-market-state/1.0.0\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\",\"suggested_position_cap_pct\":0.5,\"team_v2_regime\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"emotion_state\":\"EMOTION_OFF\",\"exit_authority_changed\":false,\"leader_open\":false,\"live_authority\":true,\"primary_status\":\"READY\",\"radar_open\":false,\"regime\":\"RISK_OFF_RETREAT\",\"source_input_sha256\":\"4c442f59d171792d9e8b12010524154f6e7a9e0b34e3cea56c4c8e23123cd742\",\"state\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"config_version\":\"2026-10-16.1\",\"emotion_confirmed\":\"EMOTION_OFF\",\"emotion_pending\":null,\"emotion_pending_count\":0,\"last_tick\":\"2026-10-27T13:10:00+08:00\",\"primary_confirmed\":\"RISK_OFF_RETREAT\",\"primary_pending\":null,\"primary_pending_count\":0},\"transitions\":[]},\"team_v2_source\":{\"baseline_sha256\":\"c7d1c197d4b692eb64f4e70ec740e9321c122699581c8f4ef06e37e31f90dc8f\",\"emotion\":{\"as_of\":\"2026-10-27T13:10:05+08:00\",\"authority\":\"EMOTION_STATISTICS_ONLY\",\"broken_board_count\":16,\"broken_board_rate\":0.25806451612903225,\"coverage\":0.9601837672281777,\"excluded_counts\":{\"BJ_EXCLUDED\":354,\"LIMIT_PRICE_INPUT_UNPROVEN\":1,\"LISTING_PERIOD_UNPROVEN_OR_LT5\":8,\"NO_TRADES_OR_QUOTE_MISSING\":9,\"ST_EXCLUDED\":194},\"expected_count\":5224,\"highest_streak\":5,\"limit_down_count\":5,\"limit_up_count\":46,\"minimum_listing_days\":5,\"observed_count\":5016,\"previous_streaks_sha256\":\"65df8c3e6edd10134dd7cf8194af1bb6351dd5412622747613b7144c09473136\",\"reason_codes\":[],\"schema_version\":\"DERIVED_IDENTITY_V1\",\"source_authenticated\":false,\"source_input_sha256\":\"733a151d516c18c21278e73af1ffd4a73584cd95ff3bde8be178fd4b2dc730a3\",\"status\":\"READY\",\"universe_complete\":true,\"universe_excludes_st\":true},\"frame_path\":\"state/team_v2/emotion_live/2026-10-27/e8db33234c37a64c27d9eac6df04ec80230af97d799dabe9b466b3cd6604f67c.json.gz\",\"frame_sha256\":\"e8db33234c37a64c27d9eac6df04ec80230af97d799dabe9b466b3cd6604f67c\",\"known_at\":\"2026-10-27T13:10:26.464906+08:00\",\"source_as_of\":\"2026-10-27T13:10:05+08:00\",\"status\":\"READY\"},\"trade_date\":\"2026-10-27\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"input_ref\":[\"ACTIVE_PLANS\",0,\"publication_facts\"],\"original_fact_sha256\":\"a170902becc741c1968523dd0898ab707ec2e6d680db1a50150a3e1fbc2d406d\",\"original_payload_sha256\":\"a170902becc741c1968523dd0898ab707ec2e6d680db1a50150a3e1fbc2d406d\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\"],\"original_fact_sha256\":\"7412780f03b6364bb67bb8fddad1c4a0a1d71c87189f8396e6090e2c5e0e3491\",\"projected_fact_sha256\":\"45afd8a303fdf04a82c1e1e6fa01cd7cf3e2d11092310f1c19291d25ac66bb66\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}}]}",
+          "catalog_sha256": "2dccf5dc3ef7520a46d1e3bbabe6a707e6338aac5ac61e3193471e913434c87d"
+        },
+        "same_tick_original_flags": [
+          {
+            "event_id": "22dd92e8-e259-5866-895b-6457af575b36",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+            "symbol": "300519.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "4b398f98-4cce-5761-bd73-e2c768d23eb9",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+            "symbol": "688016.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_CONTRACTION\",\"A_STABILIZED\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"ENTRY_ZONE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          },
+          {
+            "event_id": "4c710e7a-a7ee-5eb6-bb12-8562d9bce5c8",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+            "symbol": "603298.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "55dd5baa-8c23-5ef0-915b-17922b21c7ac",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+            "symbol": "300496.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "5962f5e1-8ddf-5c10-9a63-6751b8d7c821",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+            "symbol": "600628.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "7bf0d7c5-0b72-5f8c-a1fb-0074c38f4db3",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+            "symbol": "688111.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "7e6747a9-b406-5256-b4fd-bca6606168e9",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+            "symbol": "301239.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "a14ad5f6-5181-51b4-85b9-94d7a9f6a507",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+            "symbol": "002603.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "aca0617f-e8d2-5e45-8d19-526c12d72ac1",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+            "symbol": "688615.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "c3eb0438-da86-54cd-900a-73b86d77309b",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+            "symbol": "688351.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"A_CONTRACTION\",\"A_STABILIZED\",\"ENTRY_ZONE\"]"
+          },
+          {
+            "event_id": "dbbcaed2-e4dc-5e7f-814f-e1c2da2d355d",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+            "symbol": "000858.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "f1057406-dcfd-5f8d-aa3d-1f3c6c7f0eca",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+            "symbol": "300357.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "f49f5251-2683-5742-a4e1-7d2e21aea9dc",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+            "symbol": "603696.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "f9beeed7-ef0e-5853-96e5-eae06a122919",
+            "minute_end": "2026-10-27T13:11:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+            "symbol": "688410.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          }
+        ]
+      },
+      {
+        "call_id": "A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+        "run_id": "team-monitor:2026-10-27",
+        "role": "A4",
+        "session": "INTRADAY",
+        "source_trade_date": "2026-10-26",
+        "execution_trade_date": "2026-10-27",
+        "captured_at": "2026-10-27T13:16:39.922228+08:00",
+        "model": "deepseek-v4.1-flash",
+        "prompt_hash": "5645970f785471854b9037a045b3fca06b1797a7fdddfafa6e851ec817e6cb07",
+        "input_hash": "1917d936816b7907ac3e14d472d318c062f919cfec20bba536da3a650e9a8cf8",
+        "catalog_hash": "5277f080c2d2192cb489a570ea3d8497cec6d7835c082b774aefe50a9ea80bed",
+        "output_hash": "3343c77494d88a7d75b04b8e15265373b707d38733699476b4299ad80c11081f",
+        "latency_ms": 16737,
+        "provider_attempts": 1,
+        "validated": 0,
+        "issues_json": "[\"TRADER_TECH_REFERENCE_INVALID\"]",
+        "sentinel_count": 1,
+        "output_json": "{\"decision_id\":\"team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW\",\"envelope\":{\"as_of\":\"2026-10-27T13:16:00+08:00\",\"config_hash\":\"411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73\",\"config_version\":\"team-v2/1\",\"execution_trade_date\":\"2026-10-27\",\"input_snapshot_ids\":[\"db4e63349b0b1147cfdd6e0a5c0152b2535d95f0cd51619f85f477d20070ae45\"],\"knowledge_cutoff\":\"2026-10-27T13:16:22.756760+08:00\",\"market_regime\":\"RISK_OFF_RETREAT\",\"model_name\":\"deepseek-v4.1-flash\",\"prompt_version\":\"agent-4-trader/1.1.0\",\"reason_codes\":[],\"run_id\":\"team-monitor:2026-10-27\",\"schema_version\":\"team-envelope/1\",\"source_trade_date\":\"2026-10-26\",\"stage_id\":\"A4\",\"status\":\"FROZEN\"},\"handoff_notes\":{\"to_a3\":[\"计划几何（入场带/失效位/no_chase）清晰可用，但周线 BEAR_STACK 与今日 RISK_OFF 叠加，TREND_MA5 回踩确认门槛偏严，可能整日不触发\",\"trade_brief 的 5m 收回 VWAP 条件与引擎 A_STABILIZED 判定一致，建议后续计划把 VWAP 收复写成显式确认项\"],\"to_a6\":[\"688016.SH 本节拍 NO_ACTION，未消耗 PROBE 信封；若下一节拍出现 5m 更高低点+VWAP 收复再评估\",\"当前 RISK_OFF_RETREAT/EMOTION_OFF 下建议维持 PROBE 上限，不因单票形态放宽\"]},\"minute_snapshot_id\":\"db4e63349b0b1147cfdd6e0a5c0152b2535d95f0cd51619f85f477d20070ae45\",\"position_actions\":[],\"schema_version\":\"a4-trader/1.0.0\",\"signals\":[{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"T3\",\"note\":\"引擎候选 BUY_SIGNAL 我否决：A_STABILIZED 未满足，5m 仍下行且未收复 VWAP；市场 RISK_OFF_RETREAT + EMOTION_OFF + 广度 0.2016，CAUTION 环境下不宜在未确认结构上开 PROBE 仓\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"NO_OPPOSING_EVIDENCE_FOUND\"],\"opposing_search_scope\":[\"MARKET\",\"STOCK_TECH\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"reason_code\":\"ENTRY_GEOMETRY_NOT_CONFIRMED\",\"supporting_refs\":[\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"LIVE:MARKET\"],\"symbol\":\"688016.SH\",\"tech_reference_review\":[{\"item\":\"A_15M_SUPPORT\",\"my_read\":\"15m 低点 85.11 未破失效位 82.85，支撑结构尚在\",\"status\":\"MET\"},{\"item\":\"A_PULLBACK\",\"my_read\":\"自 87.65 高点回落至 85.28，回踩幅度符合 MA5 回踩区定义\",\"status\":\"MET\"},{\"item\":\"A_CONTRACTION\",\"my_read\":\"5m 量能自 105336 手逐级缩至 7097 手，回踩缩量成立\",\"status\":\"MET\"},{\"item\":\"A_STABILIZED\",\"my_read\":\"5m 收盘仍逐级走低（85.35→85.19→85.38→85.25），未见止跌/更高低点\",\"status\":\"UNMET\"},{\"item\":\"A_SUPPORT\",\"my_read\":\"价格 85.28 位于 MA5 84.858 上方，日线支撑未破\",\"status\":\"MET\"},{\"item\":\"ENTRY_ZONE\",\"my_read\":\"85.28 落在 84.858–85.7066 入场带内且远低于 no_chase 89.5997\",\"status\":\"MET\"},{\"item\":\"ENTRY_RR\",\"my_read\":\"以 82.85 失效位计 R 结构完整，未因追价压缩盈亏比\",\"status\":\"MET\"},{\"item\":\"VOLUME_NOT_OVERHEATED\",\"my_read\":\"13:01 后放量 31405 手属午后开盘正常回补，非过热\",\"status\":\"MET\"},{\"item\":\"A3_TREND_ROUTE_APPROVED\",\"my_read\":\"A3 已批准 TREND_MA5 路线\",\"status\":\"MET\"},{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"几何条件已接受，仅缺右侧确认\",\"status\":\"MET\"}],\"waiting_for\":\"价格需先进入 A3 回踩区 84.858–85.7066 并出现闭合 5m 止跌/更高低点 + 收回 5m VWAP（85.7092）的温和放量阳线；当前价 85.28 虽在带内但 5m 收盘序列 85.35→85.19→85.38→85.25 仍为下行结构，且 5m VWAP 未收复\",\"what_would_change_my_mind\":[\"闭合 5m 出现更高低点并收回 5m VWAP 85.7092 且伴温和放量阳线\",\"价格跌破 84.858 日线 MA5 参考位则本计划当日作废\"]}],\"what_would_change_my_mind\":[\"若 5m 连续两根收在 85.35 上方且量能温和放大，则本节拍否决结论需推翻\",\"若 LIVE_MARKET_STATE 转为 READY 且广度回升至 0.4 以上，则对 PROBE 入场的市场层否决可放宽\"]}",
+        "binding_sha256": "67cc65925f536392eaa55904b42a974feb5635eaaca948165484da2dbe88fac9",
+        "catalog": {
+          "call_id": "A4:team:20261027T1316:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+          "catalog_json": "{\"categories\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"items\":[{\"category\":\"MARKET\",\"id\":\"LIVE:MARKET\",\"value\":{\"advances\":1097,\"as_of\":\"2026-10-27T13:15:00+08:00\",\"breadth\":0.201617,\"cache_bucket\":\"2026-10-27T13:15:00+08:00\",\"cache_hit\":true,\"cache_reused\":true,\"collection_elapsed_ms\":2598,\"coverage\":0.998028,\"current_session\":true,\"declines\":4344,\"diagnostics\":{\"attempts\":[{\"attempt\":1,\"elapsed_ms\":2598,\"full_market\":{\"complete\":true,\"expected_count\":5579,\"observed_count\":5568,\"ok\":true,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\"},\"index_fallback\":{\"expected_count\":4,\"observed_count\":0,\"quotes\":[],\"reason_code\":\"FULL_MARKET_READY\",\"source\":\"TENCENT_INDEX_FALLBACK\",\"status\":\"NOT_ATTEMPTED\"}}],\"cache_bucket\":\"2026-10-27T13:15:00+08:00\",\"cache_hit\":true,\"collection_elapsed_ms\":2598,\"recovered_after_retry\":false,\"total_attempts\":1},\"entry_permission\":\"CAUTION\",\"expected_count\":5579,\"fallback\":false,\"flats\":127,\"median_change_pct\":-1.30719,\"observed_count\":5568,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"regime\":\"WEAK_ROTATION\",\"schema_version\":\"a4-live-market-state/1.0.0\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\",\"suggested_position_cap_pct\":0.5,\"team_v2_regime\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"emotion_state\":\"EMOTION_OFF\",\"exit_authority_changed\":false,\"leader_open\":false,\"live_authority\":true,\"primary_status\":\"READY\",\"radar_open\":false,\"regime\":\"RISK_OFF_RETREAT\",\"source_input_sha256\":\"0faa3ecf180d2f71b00edf9bf070d20c87552088cf8d98a0164faf8f2c996665\",\"state\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"config_version\":\"2026-10-16.1\",\"emotion_confirmed\":\"EMOTION_OFF\",\"emotion_pending\":null,\"emotion_pending_count\":0,\"last_tick\":\"2026-10-27T13:15:00+08:00\",\"primary_confirmed\":\"RISK_OFF_RETREAT\",\"primary_pending\":null,\"primary_pending_count\":0},\"transitions\":[]},\"team_v2_source\":{\"baseline_sha256\":\"c7d1c197d4b692eb64f4e70ec740e9321c122699581c8f4ef06e37e31f90dc8f\",\"emotion\":{\"as_of\":\"2026-10-27T13:15:06+08:00\",\"authority\":\"EMOTION_STATISTICS_ONLY\",\"broken_board_count\":16,\"broken_board_rate\":0.25806451612903225,\"coverage\":0.9601837672281777,\"excluded_counts\":{\"BJ_EXCLUDED\":354,\"LIMIT_PRICE_INPUT_UNPROVEN\":1,\"LISTING_PERIOD_UNPROVEN_OR_LT5\":8,\"NO_TRADES_OR_QUOTE_MISSING\":9,\"ST_EXCLUDED\":194},\"expected_count\":5224,\"highest_streak\":5,\"limit_down_count\":8,\"limit_up_count\":46,\"minimum_listing_days\":5,\"observed_count\":5016,\"previous_streaks_sha256\":\"65df8c3e6edd10134dd7cf8194af1bb6351dd5412622747613b7144c09473136\",\"reason_codes\":[],\"schema_version\":\"DERIVED_IDENTITY_V1\",\"source_authenticated\":false,\"source_input_sha256\":\"39d172195fa375b8bdc8223a7d9ceaad7018a7fc855ef21588ab75b93fe7d864\",\"status\":\"READY\",\"universe_complete\":true,\"universe_excludes_st\":true},\"frame_path\":\"state/team_v2/emotion_live/2026-10-27/286449ce5c38d49b9d8a2906310ff6362a8108b938f5a62e5590df165a778590.json.gz\",\"frame_sha256\":\"286449ce5c38d49b9d8a2906310ff6362a8108b938f5a62e5590df165a778590\",\"known_at\":\"2026-10-27T13:15:24.542912+08:00\",\"source_as_of\":\"2026-10-27T13:15:06+08:00\",\"status\":\"READY\"},\"trade_date\":\"2026-10-27\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"input_ref\":[\"ACTIVE_PLANS\",0,\"publication_facts\"],\"original_fact_sha256\":\"a170902becc741c1968523dd0898ab707ec2e6d680db1a50150a3e1fbc2d406d\",\"original_payload_sha256\":\"a170902becc741c1968523dd0898ab707ec2e6d680db1a50150a3e1fbc2d406d\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9\"],\"original_fact_sha256\":\"ce2de2ba7b5177cc7ee215ce533f807e5b57ef4008d3c4dae9f1c4ab98e2de88\",\"projected_fact_sha256\":\"1bcfdbc852f0d188d95b24607c23d9478380e30627b80b5d15b141cf0cc48ce3\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}}]}",
+          "catalog_sha256": "5277f080c2d2192cb489a570ea3d8497cec6d7835c082b774aefe50a9ea80bed"
+        },
+        "same_tick_original_flags": [
+          {
+            "event_id": "25ca5112-f7a8-53c2-a1e1-c7aadfb3a281",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+            "symbol": "300496.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "4ad7742b-19c7-5d1f-84d9-0f4fc131307f",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+            "symbol": "688016.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_CONTRACTION\",\"A_STABILIZED\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"ENTRY_ZONE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          },
+          {
+            "event_id": "4b28b999-06f3-5327-bc0e-0c9ea9a14a68",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+            "symbol": "600628.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "4fb35697-768a-522c-bb51-48811e5410af",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+            "symbol": "300519.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "81c4f53e-1071-5380-9bdb-60098a1e6e9d",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+            "symbol": "301239.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "86da3d21-bf21-587c-878f-040b84fb4b3c",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+            "symbol": "688615.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "870967ae-8ffa-54cd-875e-53bb276143f4",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+            "symbol": "603696.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "a920eccb-8fd7-5888-ae8d-b60c73d43a8c",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+            "symbol": "688410.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "aa07fc10-772b-5f7c-83c7-efbf3e8d4fc3",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+            "symbol": "002603.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "b36be6fc-4b23-53e9-bdf3-e20b8ea18387",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+            "symbol": "000858.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "b6ffd552-4771-5529-a326-18d074e7d239",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+            "symbol": "603298.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "bb3efbbe-f80c-589e-8ea6-a8401bfb053e",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+            "symbol": "300357.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "cec60317-a1ba-5b44-af30-486f2ed79a4f",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+            "symbol": "688351.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_STABILIZED\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"A_CONTRACTION\",\"ENTRY_ZONE\"]"
+          },
+          {
+            "event_id": "f2cb6692-88b7-5b96-adfc-3f4775f0c5bf",
+            "minute_end": "2026-10-27T13:16:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+            "symbol": "688111.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          }
+        ]
+      },
+      {
+        "call_id": "A4:team:20261027T1321:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+        "run_id": "team-monitor:2026-10-27",
+        "role": "A4",
+        "session": "INTRADAY",
+        "source_trade_date": "2026-10-26",
+        "execution_trade_date": "2026-10-27",
+        "captured_at": "2026-10-27T13:21:41.777854+08:00",
+        "model": "deepseek-v4.1-flash",
+        "prompt_hash": "665277496878b6dff3fa4951e06f07b3e0c23dcf2421bde2cfe54c7edc0769c3",
+        "input_hash": "0562fc04d5d731e12d963b2d2c2bb276042853cbf16dfcecdc41cfc5b3ba098e",
+        "catalog_hash": "42e1925457a40b6acfc8ef31fa56764681f3804992151d419042f47f12340712",
+        "output_hash": "07089e32d88fe29e1f135dbc7e0f2fc58b91af2e42857c0074db58ae0dc7e9d9",
+        "latency_ms": 20198,
+        "provider_attempts": 1,
+        "validated": 0,
+        "issues_json": "[\"TRADER_TECH_REFERENCE_INVALID\"]",
+        "sentinel_count": 0,
+        "output_json": "{\"decision_id\":\"team:20261027T1321:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW\",\"envelope\":{\"as_of\":\"2026-10-27T13:21:00+08:00\",\"config_hash\":\"411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73\",\"config_version\":\"team-v2/1\",\"execution_trade_date\":\"2026-10-27\",\"input_snapshot_ids\":[\"7e2c680d1f032aaae4979fbb2b94cbd87c952212d6e413051b43146c83a328c5\"],\"knowledge_cutoff\":\"2026-10-27T13:21:21.132314+08:00\",\"market_regime\":\"RISK_OFF_RETREAT\",\"model_name\":\"deepseek-v4.1-flash\",\"prompt_version\":\"agent-4-trader/1.1.0\",\"reason_codes\":[],\"run_id\":\"team-monitor:2026-10-27\",\"schema_version\":\"team-envelope/1\",\"source_trade_date\":\"2026-10-26\",\"stage_id\":\"A4\",\"status\":\"FROZEN\"},\"handoff_notes\":{\"to_a3\":[\"两只TREND_MA5计划入场带均设在日线MA5回踩区，但今日价格未回落至该区，计划几何与当日实际走势脱节，建议A3评估是否需在计划中增加'价格未回踩则当日作废'的显式条件\",\"000858.SZ计划已带A3_REWARD_RISK_BELOW_MINIMUM待确认标记，建议A3在盈亏比未确认前降低该计划优先级或暂缓发布\"],\"to_a6\":[\"两只候选均为BUY候选但价格均高于A3入场带，本节拍全部NO_ACTION，无新增风险敞口\",\"若后续价格回落至回踩区，需A6确认信封仍eligible且市场entry_permission未进一步收紧\",\"当前LIVE_MARKET_STATE为CAUTION且team_v2_regime为RISK_OFF_RETREAT，建议A6维持收紧姿态\"]},\"minute_snapshot_id\":\"7e2c680d1f032aaae4979fbb2b94cbd87c952212d6e413051b43146c83a328c5\",\"position_actions\":[],\"schema_version\":\"a4-trader/1.0.0\",\"signals\":[{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"T3\",\"note\":\"计划几何未满足，本节拍不买；若价格回落至回踩区再评估，届时需A6确认信封仍eligible\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"LIVE:MARKET\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"reason_code\":\"PRICE_OUTSIDE_ENTRY_ZONE_ABOVE_NO_CHASE\",\"supporting_refs\":[\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\"],\"symbol\":\"300357.SZ\",\"tech_reference_review\":[{\"item\":\"A3_TREND_ROUTE_APPROVED\",\"my_read\":\"A3趋势路线已批准，但入场几何未满足\",\"status\":\"MET\"},{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"现价21.14远高于入场带19.686-19.8829，几何不成立，不可追\",\"status\":\"UNMET\"},{\"item\":\"B_EFFECTIVE_BREAKOUT\",\"my_read\":\"引擎标记突破有效，但价格已脱离回踩区，追入违反不追涨纪律\",\"status\":\"MET\"},{\"item\":\"B_RETEST\",\"my_read\":\"引擎标记回踩成立，但当前价未回到回踩区，无法在计划几何内入场\",\"status\":\"MET\"},{\"item\":\"ENTRY_RR\",\"my_read\":\"盈亏比达标，但仅在计划入场带内成立，现价入场R被压缩\",\"status\":\"MET\"}],\"waiting_for\":\"价格回落进入A3回踩区19.686-19.8829（当前21.14，高于no_chase 21.63以下但远高于入场带），且需闭合15分钟卖压减弱、闭合5分钟形成止跌/更高低点、5分钟收回VWAP并有一根温和放量阳线确认\",\"what_would_change_my_mind\":[\"价格回落至19.686-19.8829且闭合5分钟出现止跌/更高低点并收回VWAP\",\"日线状态从ENTANGLED恶化为BEAR则直接放弃该计划\"]},{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"T3\",\"note\":\"计划几何未满足且A3标注盈亏比待确认，本节拍不买；若价格回落至回踩区再评估\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"LIVE:MARKET\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"reason_code\":\"PRICE_OUTSIDE_ENTRY_ZONE_ABOVE_NO_CHASE\",\"supporting_refs\":[\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\"],\"symbol\":\"000858.SZ\",\"tech_reference_review\":[{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"现价75.86高于入场带73.214-73.8561，几何不成立，不可追\",\"status\":\"UNMET\"},{\"item\":\"ENTRY_RR\",\"my_read\":\"A3已标注A3_REWARD_RISK_BELOW_MINIMUM，现价入场盈亏比进一步恶化\",\"status\":\"UNMET\"}],\"waiting_for\":\"价格回落进入A3回踩区73.214-73.8561（当前75.86，高于入场带且接近no_chase 77.8989），且需闭合15分钟卖压减弱、闭合5分钟形成止跌/更高低点、5分钟收回VWAP并有一根温和放量阳线确认；同时A3已标注A3_REWARD_RISK_BELOW_MINIMUM待确认\",\"what_would_change_my_mind\":[\"价格回落至73.214-73.8561且闭合5分钟出现止跌/更高低点并收回VWAP\",\"A2确认该股资金流数据补齐且转净流入，同时价格回到回踩区\"]}],\"what_would_change_my_mind\":[\"若LIVE_MARKET_STATE从CAUTION转为ALLOW且价格回落至任一计划回踩区并出现右侧确认，则本节拍判断需修正为BUY_SIGNAL\",\"若任一标的价格跌破A3日线失效位（300357.SZ 18.971 / 000858.SZ 71.8626），则该计划当日作废，判断需修正为CANCEL_SIGNAL\"]}",
+        "binding_sha256": "f987f3d3345fdd0f84396e194b2d8eba61074cb45b5be478747e8ea3a3c2fd09",
+        "catalog": {
+          "call_id": "A4:team:20261027T1321:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+          "catalog_json": "{\"categories\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"items\":[{\"category\":\"MARKET\",\"id\":\"LIVE:MARKET\",\"value\":{\"advances\":1162,\"as_of\":\"2026-10-27T13:20:00+08:00\",\"breadth\":0.213133,\"cache_bucket\":\"2026-10-27T13:20:00+08:00\",\"cache_hit\":true,\"cache_reused\":true,\"collection_elapsed_ms\":2641,\"coverage\":0.998028,\"current_session\":true,\"declines\":4290,\"diagnostics\":{\"attempts\":[{\"attempt\":1,\"elapsed_ms\":2641,\"full_market\":{\"complete\":true,\"expected_count\":5579,\"observed_count\":5568,\"ok\":true,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\"},\"index_fallback\":{\"expected_count\":4,\"observed_count\":0,\"quotes\":[],\"reason_code\":\"FULL_MARKET_READY\",\"source\":\"TENCENT_INDEX_FALLBACK\",\"status\":\"NOT_ATTEMPTED\"}}],\"cache_bucket\":\"2026-10-27T13:20:00+08:00\",\"cache_hit\":true,\"collection_elapsed_ms\":2641,\"recovered_after_retry\":false,\"total_attempts\":1},\"entry_permission\":\"CAUTION\",\"expected_count\":5579,\"fallback\":false,\"flats\":116,\"median_change_pct\":-1.257715,\"observed_count\":5568,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"regime\":\"WEAK_ROTATION\",\"schema_version\":\"a4-live-market-state/1.0.0\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\",\"suggested_position_cap_pct\":0.5,\"team_v2_regime\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"emotion_state\":\"EMOTION_OFF\",\"exit_authority_changed\":false,\"leader_open\":false,\"live_authority\":true,\"primary_status\":\"READY\",\"radar_open\":false,\"regime\":\"RISK_OFF_RETREAT\",\"source_input_sha256\":\"216806aa09b7595c4fa6d05aa36726b85ccaeb8dfb596d077d3ff332004c9b10\",\"state\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"config_version\":\"2026-10-16.1\",\"emotion_confirmed\":\"EMOTION_OFF\",\"emotion_pending\":null,\"emotion_pending_count\":0,\"last_tick\":\"2026-10-27T13:20:00+08:00\",\"primary_confirmed\":\"RISK_OFF_RETREAT\",\"primary_pending\":null,\"primary_pending_count\":0},\"transitions\":[]},\"team_v2_source\":{\"baseline_sha256\":\"c7d1c197d4b692eb64f4e70ec740e9321c122699581c8f4ef06e37e31f90dc8f\",\"emotion\":{\"as_of\":\"2026-10-27T13:20:05+08:00\",\"authority\":\"EMOTION_STATISTICS_ONLY\",\"broken_board_count\":16,\"broken_board_rate\":0.25,\"coverage\":0.9601837672281777,\"excluded_counts\":{\"BJ_EXCLUDED\":354,\"LIMIT_PRICE_INPUT_UNPROVEN\":1,\"LISTING_PERIOD_UNPROVEN_OR_LT5\":8,\"NO_TRADES_OR_QUOTE_MISSING\":9,\"ST_EXCLUDED\":194},\"expected_count\":5224,\"highest_streak\":5,\"limit_down_count\":8,\"limit_up_count\":48,\"minimum_listing_days\":5,\"observed_count\":5016,\"previous_streaks_sha256\":\"65df8c3e6edd10134dd7cf8194af1bb6351dd5412622747613b7144c09473136\",\"reason_codes\":[],\"schema_version\":\"DERIVED_IDENTITY_V1\",\"source_authenticated\":false,\"source_input_sha256\":\"77c5fa11321151e0d9e865ffe101695fa98ceaf963880935bcd9d88b80eed1f2\",\"status\":\"READY\",\"universe_complete\":true,\"universe_excludes_st\":true},\"frame_path\":\"state/team_v2/emotion_live/2026-10-27/93a8647b29a5afed66e1e611ab48fdc37e29ef35dae309262c460ad78dc4bc2f.json.gz\",\"frame_sha256\":\"93a8647b29a5afed66e1e611ab48fdc37e29ef35dae309262c460ad78dc4bc2f\",\"known_at\":\"2026-10-27T13:20:24.195196+08:00\",\"source_as_of\":\"2026-10-27T13:20:05+08:00\",\"status\":\"READY\"},\"trade_date\":\"2026-10-27\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"input_ref\":[\"ACTIVE_PLANS\",0,\"publication_facts\"],\"original_fact_sha256\":\"0d263123507c8507b256c8d5480ff62ae403d67f4cf871607dbaf57df4745685\",\"original_payload_sha256\":\"0d263123507c8507b256c8d5480ff62ae403d67f4cf871607dbaf57df4745685\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"input_ref\":[\"ACTIVE_PLANS\",1,\"publication_facts\"],\"original_fact_sha256\":\"6b9c60c44a7a137513a4ca86b368a05b86091c33bafca59c5111decf1600b1a2\",\"original_payload_sha256\":\"6b9c60c44a7a137513a4ca86b368a05b86091c33bafca59c5111decf1600b1a2\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\"],\"original_fact_sha256\":\"c0d0e36d3ad259fc563c25a52b095fd551b16d91ce91a9e09d250b323f4f9d2d\",\"projected_fact_sha256\":\"e219de5324a8c14e01477a70688426c6a8d338f786aa8c88595f2322afcbadf2\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347\"],\"original_fact_sha256\":\"450550d29449b19c55b46bfbd6526ba93808418270783256467b8da703011b4d\",\"projected_fact_sha256\":\"64ec028d4ebaa077230729fd8a68727a25dfcc822c49ff5bd5600d0b6db5cdf2\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}}]}",
+          "catalog_sha256": "42e1925457a40b6acfc8ef31fa56764681f3804992151d419042f47f12340712"
+        },
+        "same_tick_original_flags": [
+          {
+            "event_id": "0be68cdb-156f-54a0-aafb-391dc5ce306f",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+            "symbol": "688410.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "3f1a14c8-cd1f-5ccb-939c-4453be69ee68",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+            "symbol": "300357.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          },
+          {
+            "event_id": "6362203e-2d97-539e-9ad1-95f3c0e75a79",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+            "symbol": "300496.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "6ae1c3be-d2a5-58cc-b114-9f9b67c71a3d",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+            "symbol": "603696.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "6da32181-38a1-5aec-b5c7-95c4800b8443",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+            "symbol": "603298.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "7b84cc5d-733c-5029-847a-e5e84c204966",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+            "symbol": "688615.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "7e188768-d3f3-5f57-ab7e-2a767c374354",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+            "symbol": "600628.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          },
+          {
+            "event_id": "83119707-3850-51d1-8683-ed5c39b7a596",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+            "symbol": "301239.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "8889be4a-1012-5758-91c8-dca79f16571d",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+            "symbol": "688351.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_STABILIZED\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"A_CONTRACTION\",\"ENTRY_ZONE\"]"
+          },
+          {
+            "event_id": "8b0c7d09-5ce7-56a7-a9c4-b9bd47be452b",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+            "symbol": "002603.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "9584958f-0bd4-57dd-adad-36dfbc2a6761",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+            "symbol": "688111.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "9aa5864b-5f49-58a6-9722-eddaeba3e561",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+            "symbol": "300519.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "bee0ee21-d4fb-564a-8e2c-d4c9ed4d557a",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+            "symbol": "000858.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          },
+          {
+            "event_id": "cb40e24c-c259-5036-a3dd-b2cf58138b3e",
+            "minute_end": "2026-10-27T13:21:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+            "symbol": "688016.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_CONTRACTION\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"ENTRY_ZONE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"A_STABILIZED\"]"
+          }
+        ]
+      },
+      {
+        "call_id": "A4:team:20261027T1406:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+        "run_id": "team-monitor:2026-10-27",
+        "role": "A4",
+        "session": "INTRADAY",
+        "source_trade_date": "2026-10-26",
+        "execution_trade_date": "2026-10-27",
+        "captured_at": "2026-10-27T14:06:45.707031+08:00",
+        "model": "deepseek-v4.1-flash",
+        "prompt_hash": "fc72035bdf3290cc236d347e5c1c5be3e4061f2ee69c2309d22cf870d916265a",
+        "input_hash": "0a21b60c5932099fab780913161b11fe76bc3bae240e1347e579bfaedb49799c",
+        "catalog_hash": "acdbb2d51fa244f1ee30434be74920254887705f9fc1d9ae23a81a37923aec45",
+        "output_hash": "f47e492c3d399029f66de3604017c633f48f294845bae5c13cc0c3aa4dfa8917",
+        "latency_ms": 23692,
+        "provider_attempts": 1,
+        "validated": 0,
+        "issues_json": "[\"TRADER_TECH_REFERENCE_INVALID\"]",
+        "sentinel_count": 1,
+        "output_json": "{\"decision_id\":\"team:20261027T1406:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW\",\"envelope\":{\"as_of\":\"2026-10-27T14:06:00+08:00\",\"config_hash\":\"411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73\",\"config_version\":\"team-v2/1\",\"execution_trade_date\":\"2026-10-27\",\"input_snapshot_ids\":[\"7d026cbcc70050e189e62fed1e9b00e5aa2667d21b409ae209c2f3e9bfc3fbe0\"],\"knowledge_cutoff\":\"2026-10-27T14:06:21.550908+08:00\",\"market_regime\":\"RISK_OFF_RETREAT\",\"model_name\":\"deepseek-v4.1-flash\",\"prompt_version\":\"agent-4-trader/1.1.0\",\"reason_codes\":[],\"run_id\":\"team-monitor:2026-10-27\",\"schema_version\":\"team-envelope/1\",\"source_trade_date\":\"2026-10-26\",\"stage_id\":\"A4\",\"status\":\"FROZEN\"},\"handoff_notes\":{\"to_a3\":[\"计划触发区19.686-19.8829与当前价21.12偏离较大，今日大概率无法在计划几何内成交，建议评估是否顺延或作废\",\"日线ENTANGLED且周线BEAR_STACK，trade_brief已提示结构偏弱，与今日RISK_OFF_RETREAT环境一致，计划质量本身无异议\",\"若明日继续有效，建议明确是否允许在突破后回踩确认入场，避免计划长期悬空\"],\"to_a6\":[\"本节拍无BUY/ADD，风险容量无需为本计划预留；若价格进入触发区再评估\",\"市场为RISK_OFF_RETREAT且entry_permission=CAUTION，即使几何满足也应从严控制单批规模\",\"计划失效位18.971与现价21.12距离较大，若未来入场需重新核对R与止损距离\"]},\"minute_snapshot_id\":\"7d026cbcc70050e189e62fed1e9b00e5aa2667d21b409ae209c2f3e9bfc3fbe0\",\"position_actions\":[],\"schema_version\":\"a4-trader/1.0.0\",\"signals\":[{\"action\":\"NO_ACTION\",\"handoff_to_a6\":{\"batches_hint\":1,\"holding_horizon\":\"T3\",\"note\":\"计划几何未满足，本节拍不买；若后续价格进入触发区并完成右侧确认，再按PROBE单批执行\",\"risk_unit_hint\":\"PROBE\"},\"opposing_refs\":[\"NO_OPPOSING_EVIDENCE_FOUND\"],\"opposing_search_scope\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"plan_id\":\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"reason_code\":\"ENTRY_GEOMETRY_NOT_MET_PRICE_ABOVE_NO_CHASE\",\"supporting_refs\":[\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"LIVE:MARKET\"],\"symbol\":\"300357.SZ\",\"tech_reference_review\":[{\"item\":\"A3_TREND_ROUTE_APPROVED\",\"my_read\":\"A3已批准TREND_MA5路线，但批准不等于当前价位可入场\",\"status\":\"MET\"},{\"item\":\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\",\"my_read\":\"现价21.12不在A3回踩触发区19.686-19.8829内，几何条件不满足，无法确认入场\",\"status\":\"UNMET\"},{\"item\":\"B_ACCEPTED\",\"my_read\":\"引擎参考项已满足，但参考项不能替代计划几何\",\"status\":\"MET\"},{\"item\":\"B_ATTEMPT_PREFIX\",\"my_read\":\"参考项满足，不构成入场依据\",\"status\":\"MET\"},{\"item\":\"B_EFFECTIVE_BREAKOUT\",\"my_read\":\"参考项满足，但当前价已远离触发区，属追价风险区\",\"status\":\"MET\"},{\"item\":\"B_KEY_BELOW_NO_CHASE\",\"my_read\":\"现价21.12低于no_chase 21.63，但位置仍不在计划几何内\",\"status\":\"MET\"},{\"item\":\"B_KEY_LEVEL\",\"my_read\":\"参考项满足\",\"status\":\"MET\"},{\"item\":\"B_NO_CHASE\",\"my_read\":\"未触及禁追线，但计划要求的是回踩区入场而非突破追入\",\"status\":\"MET\"},{\"item\":\"B_RETEST\",\"my_read\":\"参考项满足\",\"status\":\"MET\"},{\"item\":\"B_RETEST_VOLUME\",\"my_read\":\"参考项满足\",\"status\":\"MET\"},{\"item\":\"B_STOP_ONLY_RAISED\",\"my_read\":\"参考项满足\",\"status\":\"MET\"},{\"item\":\"ENTRY_RR\",\"my_read\":\"参考项满足，但RR基于计划入场区计算，现价入场会显著恶化RR\",\"status\":\"MET\"},{\"item\":\"VOLUME_NOT_OVERHEATED\",\"my_read\":\"参考项满足\",\"status\":\"MET\"}],\"waiting_for\":\"价格回落进入A3回踩触发区19.686-19.8829（当前21.12远高于触发区上沿，且已高于no_chase 21.63以下但仍在计划几何之外）；同时等待15m卖压缓解与5m收回VWAP的右侧确认\",\"what_would_change_my_mind\":[\"价格回落进入19.686-19.8829触发区，且15m卖压缓解、5m收回VWAP并出现温和放量阳线确认\",\"日线状态从ENTANGLED恶化为BEAR或放量跌破失效位18.971（则计划作废）\"]}],\"what_would_change_my_mind\":[\"价格进入19.686-19.8829触发区并完成15m止跌+5m反转+VWAP收复的右侧确认，则本节拍判断翻转为BUY_SIGNAL\",\"市场regime从RISK_OFF_RETREAT转为允许新开仓且计划几何满足，则重新评估入场\"]}",
+        "binding_sha256": "609cdf6aa6688f4a018995786c240b8075d2e46745e85a325a22e930580891db",
+        "catalog": {
+          "call_id": "A4:team:20261027T1406:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc:REVIEW",
+          "catalog_json": "{\"categories\":[\"MARKET\",\"STOCK_TECH\",\"PLAN\"],\"items\":[{\"category\":\"MARKET\",\"id\":\"LIVE:MARKET\",\"value\":{\"advances\":1156,\"as_of\":\"2026-10-27T14:05:00+08:00\",\"breadth\":0.211993,\"cache_bucket\":\"2026-10-27T14:05:00+08:00\",\"cache_hit\":true,\"cache_reused\":true,\"collection_elapsed_ms\":2594,\"coverage\":0.998028,\"current_session\":true,\"declines\":4297,\"diagnostics\":{\"attempts\":[{\"attempt\":1,\"elapsed_ms\":2594,\"full_market\":{\"complete\":true,\"expected_count\":5579,\"observed_count\":5568,\"ok\":true,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\"},\"index_fallback\":{\"expected_count\":4,\"observed_count\":0,\"quotes\":[],\"reason_code\":\"FULL_MARKET_READY\",\"source\":\"TENCENT_INDEX_FALLBACK\",\"status\":\"NOT_ATTEMPTED\"}}],\"cache_bucket\":\"2026-10-27T14:05:00+08:00\",\"cache_hit\":true,\"collection_elapsed_ms\":2594,\"recovered_after_retry\":false,\"total_attempts\":1},\"entry_permission\":\"CAUTION\",\"expected_count\":5579,\"fallback\":false,\"flats\":115,\"median_change_pct\":-1.402114,\"observed_count\":5568,\"reason_code\":\"A4_LIVE_MARKET_CAUTION\",\"regime\":\"WEAK_ROTATION\",\"schema_version\":\"a4-live-market-state/1.0.0\",\"source\":\"HITHINK_FULL_MARKET\",\"status\":\"READY\",\"suggested_position_cap_pct\":0.5,\"team_v2_regime\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"emotion_state\":\"EMOTION_OFF\",\"exit_authority_changed\":false,\"leader_open\":false,\"live_authority\":true,\"primary_status\":\"READY\",\"radar_open\":false,\"regime\":\"RISK_OFF_RETREAT\",\"source_input_sha256\":\"918e958b2e73cd6e19dbd8a79fc98bcff82ef000411789261fd74ab1c733e797\",\"state\":{\"config_sha256\":\"a2478f4a6828a57a6538a230e9f464cf32b715394d259bbf752055a9eaec9ef3\",\"config_version\":\"2026-10-16.1\",\"emotion_confirmed\":\"EMOTION_OFF\",\"emotion_pending\":null,\"emotion_pending_count\":0,\"last_tick\":\"2026-10-27T14:05:00+08:00\",\"primary_confirmed\":\"RISK_OFF_RETREAT\",\"primary_pending\":null,\"primary_pending_count\":0},\"transitions\":[]},\"team_v2_source\":{\"baseline_sha256\":\"c7d1c197d4b692eb64f4e70ec740e9321c122699581c8f4ef06e37e31f90dc8f\",\"emotion\":{\"as_of\":\"2026-10-27T14:05:05+08:00\",\"authority\":\"EMOTION_STATISTICS_ONLY\",\"broken_board_count\":16,\"broken_board_rate\":0.23880597014925373,\"coverage\":0.9601837672281777,\"excluded_counts\":{\"BJ_EXCLUDED\":354,\"LIMIT_PRICE_INPUT_UNPROVEN\":1,\"LISTING_PERIOD_UNPROVEN_OR_LT5\":8,\"NO_TRADES_OR_QUOTE_MISSING\":9,\"ST_EXCLUDED\":194},\"expected_count\":5224,\"highest_streak\":5,\"limit_down_count\":12,\"limit_up_count\":51,\"minimum_listing_days\":5,\"observed_count\":5016,\"previous_streaks_sha256\":\"65df8c3e6edd10134dd7cf8194af1bb6351dd5412622747613b7144c09473136\",\"reason_codes\":[],\"schema_version\":\"DERIVED_IDENTITY_V1\",\"source_authenticated\":false,\"source_input_sha256\":\"3baf0c387d32c39042d948a29a195252e541331f5f188fc75e26426a3a04a20b\",\"status\":\"READY\",\"universe_complete\":true,\"universe_excludes_st\":true},\"frame_path\":\"state/team_v2/emotion_live/2026-10-27/4089c4385ce437fdf1fb14b798e2cfb9d9e25412093ac639784168f325444d39.json.gz\",\"frame_sha256\":\"4089c4385ce437fdf1fb14b798e2cfb9d9e25412093ac639784168f325444d39\",\"known_at\":\"2026-10-27T14:05:08.725645+08:00\",\"source_as_of\":\"2026-10-27T14:05:05+08:00\",\"status\":\"READY\"},\"trade_date\":\"2026-10-27\"}},{\"category\":\"PLAN\",\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"value\":{\"id\":\"PLAN:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"input_ref\":[\"ACTIVE_PLANS\",0,\"publication_facts\"],\"original_fact_sha256\":\"0d263123507c8507b256c8d5480ff62ae403d67f4cf871607dbaf57df4745685\",\"original_payload_sha256\":\"0d263123507c8507b256c8d5480ff62ae403d67f4cf871607dbaf57df4745685\"}},{\"category\":\"STOCK_TECH\",\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"value\":{\"id\":\"TECH:recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\",\"input_ref\":[\"BARS\",\"recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34\"],\"original_fact_sha256\":\"ee724b3aa30f6214e95ca2c558287373617d38866f9e93733a0a5c4e9b088cb7\",\"projected_fact_sha256\":\"9d3c2389ce77ea65cb1f185ee5dbe4c6c94f343cfd2beae80683d691c841aaec\",\"projection\":\"R3_1M_LAST60_5M_15M_ALL_CLOSED_TODAY_ENGINE_STATS_UNCHANGED\"}}]}",
+          "catalog_sha256": "acdbb2d51fa244f1ee30434be74920254887705f9fc1d9ae23a81a37923aec45"
+        },
+        "same_tick_original_flags": [
+          {
+            "event_id": "0fad94ba-bf38-5993-a063-e9f5e097499d",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+            "symbol": "300496.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "6ae2410f-cf26-5c2e-ac06-0d05cc1c9727",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+            "symbol": "688615.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "88568218-b8ee-5d52-b78e-71a797791dbb",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+            "symbol": "603298.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "8cfb55f0-c445-5676-82ae-b6600e2b045e",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+            "symbol": "000858.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_ACCEPTED\"]"
+          },
+          {
+            "event_id": "a0497e7d-f9b5-5e80-98dd-3fd3be7bbf51",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+            "symbol": "688410.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "a16ece4b-6a5d-5cdf-bd80-5a6930432f72",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+            "symbol": "300357.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"B_NO_CHASE\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\",\"A4_LIVE_ENTRY_GEOMETRY_ACCEPTED\"]",
+            "unmet": "[]"
+          },
+          {
+            "event_id": "b6a1c20f-6f1f-54fa-94f3-ca2f6363ceef",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+            "symbol": "002603.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "db520f4f-20a5-51d0-bef5-0434d7784093",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+            "symbol": "300519.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "e05731bc-e64b-5e19-96fa-9a5c276af4d1",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+            "symbol": "688351.SH",
+            "met": "[\"A_SUPPORT\",\"A_PULLBACK\",\"A_STABILIZED\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"A_CONTRACTION\",\"ENTRY_ZONE\"]"
+          },
+          {
+            "event_id": "f383fecb-5176-5569-8a40-d92fa1c18ce3",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+            "symbol": "603696.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_KEY_BELOW_NO_CHASE\",\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "f8df4bdd-eeb2-53d1-90d9-325b7774e4ca",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+            "symbol": "301239.SZ",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "f991f417-8238-5212-909a-5c09ff4e053d",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+            "symbol": "688016.SH",
+            "met": "[\"A_SUPPORT\",\"A_CONTRACTION\",\"A_STABILIZED\",\"A_15M_SUPPORT\",\"ENTRY_RR\",\"ENTRY_ZONE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"A_PULLBACK\"]"
+          },
+          {
+            "event_id": "fb99126e-ba71-5e62-94c8-cea6fe555edb",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+            "symbol": "688111.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          },
+          {
+            "event_id": "fc06eb0f-fac5-56ec-a1fa-e6a24afb0976",
+            "minute_end": "2026-10-27T14:06:00+08:00",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+            "symbol": "600628.SH",
+            "met": "[\"B_KEY_LEVEL\",\"B_KEY_BELOW_NO_CHASE\",\"B_ATTEMPT_PREFIX\",\"B_NO_CHASE\",\"A3_TREND_ROUTE_APPROVED\",\"VOLUME_NOT_OVERHEATED\"]",
+            "unmet": "[\"B_EFFECTIVE_BREAKOUT\",\"B_RETEST\",\"B_RETEST_VOLUME\",\"B_ACCEPTED\",\"B_STOP_ONLY_RAISED\",\"ENTRY_RR\"]"
+          }
+        ]
+      }
+    ],
+    "close_notification_deliveries": [],
+    "close_internal_notifications": [
+      {
+        "event_id": "7499cd427160ceb26c9cfa4a0fc74de9272aece9caf4b8708936a7a062cd626e",
+        "kind": "ALERT",
+        "source_id": "NO_REPORT_TODAY",
+        "status": "SENT",
+        "result_code": "INTERNAL_SENT",
+        "observed_at": "2026-10-27T17:10:00.760165+08:00",
+        "body_sha256": "60d4a66aa3a82179ac14157caf1c2b9e23733d1b7c5e2852ed1127d66e9e78be"
+      },
+      {
+        "event_id": "33e4b0a3a4bc22938531df810c47524ea0d992cf0466e379069af067a6476f0f",
+        "kind": "NATURAL_CLOSE_TIMEOUT",
+        "source_id": "2026-10-27:close:5400104",
+        "status": "SENT",
+        "result_code": "INTERNAL_SENT",
+        "observed_at": "2026-10-27T17:11:26.185728+08:00",
+        "body_sha256": "77dd93b09b3f57a48b13963f84bcabed6afd441eedd7f42d4a337fe02e4daa19"
+      },
+      {
+        "event_id": "efd801b1068ca318b0ee89be51ead59d414fa6c1561d4a3e7192d96f4edabb16",
+        "kind": "TEAM_A5_POST_CLOSE_FAILURE",
+        "source_id": "2026-10-27:team-a5-close:2111",
+        "status": "SENT",
+        "result_code": "INTERNAL_SENT",
+        "observed_at": "2026-10-27T18:33:19.688481+08:00",
+        "body_sha256": "aa188fd4b3c859aa3acb8519e0226e8a3b1e2c3daf5a9dd5adde9affb5ed43c8"
+      },
+      {
+        "event_id": "b2564334571dfc0d98754e1b6b473db2ac2bc47feabc354c21ad6e0871c4e214",
+        "kind": "CLOSE_AUDIT_GUARD_STOP",
+        "source_id": "2026-10-27:close-audit:AUDITED_REDIRECT_FORBIDDEN",
+        "status": "SENT",
+        "result_code": "INTERNAL_SENT",
+        "observed_at": "2026-10-27T19:26:52.665028+08:00",
+        "body_sha256": "6ad4cac1e031f2eb946b07bb8f24b7a308024fcd2ceda008aba6f90b820ade6f"
+      },
+      {
+        "event_id": "6349a1aa459dd768b9b6e37c90ac2e7d4c70f8ceccbf5154a036cf9d2d512d3b",
+        "kind": "AUDITED_RESEARCH_FAILED",
+        "source_id": "natural-close-audit-0858-20261027-ops-r4",
+        "status": "SENT",
+        "result_code": "INTERNAL_SENT",
+        "observed_at": "2026-10-27T19:53:45.070918+08:00",
+        "body_sha256": "a7e6e33f82fe67cfa839dc81093d7a6a56ea098cb7412439194dd198cee2720c"
+      }
+    ]
+  }
+}

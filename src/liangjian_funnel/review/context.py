@@ -47,6 +47,8 @@ def pack_evidence(value: Any) -> Any:
 
 def render_a5_prompt(prompts: Any, filename: str, projection: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     original_projection = projection
+    from .time_presentation import bjt_presentation
+    projection=bjt_presentation(projection)
     # Keep decisive facts readable even when the full evidence needs nested
     # lossless dictionaries. This is a duplicate, not a replacement or sample.
     critical = _critical_fact_header(projection)

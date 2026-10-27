@@ -22,7 +22,7 @@ from liangjian_funnel.runtime.team_v2_morning import run_morning_stage
 DAY='2026-10-19'
 
 
-def setup(tmp_path, monkeypatch, *, old=True):
+def setup(tmp_path, monkeypatch, *, old=True, count=1):
     settings,clock=fixture(tmp_path,trade_date=DAY)
     with closing(sqlite3.connect(settings.state_db_path)) as db:
         original=json.loads(db.execute('SELECT payload_json FROM execution_plans').fetchone()[0])
@@ -36,6 +36,12 @@ def setup(tmp_path, monkeypatch, *, old=True):
     raw=deepcopy(original);raw['source_run_id']='new-close'
     batch=[dict(plan_id='p1',lane_id=settings.research_primary_lane_id,symbol=raw['symbol'],
         status='PENDING_MORNING_REVIEW',valid_from=None,expires_at=DAY+'T15:00:00+08:00',payload=raw)]
+    if count>1:
+        batch=[]
+        for i in range(1,count+1):
+            payload=deepcopy(raw);payload.update(symbol=f'{i:06d}.SZ',plan_priority_rank=i)
+            batch.append(dict(plan_id=f'p{i}',lane_id=settings.research_primary_lane_id,symbol=payload['symbol'],
+                status='PENDING_MORNING_REVIEW',valid_from=None,expires_at=DAY+'T15:00:00+08:00',payload=payload))
     store.record_workflow_run(run_id='new-close',lane_id=settings.research_primary_lane_id,
         trade_date=CAL.previous_trading_day(datetime.fromisoformat(DAY).date()).isoformat(),slot='close',model='controlled',status='READY_TO_PUBLISH',snapshot_hash='a'*64)
     stage=stage_natural_candidate(store,batch,run_id='new-close',observed_at=datetime.fromisoformat('2026-10-16T16:00:00+08:00'))
@@ -173,7 +179,7 @@ def test_candidate_cas_rejects_replaced_head_at_last_transaction_boundary(tmp_pa
 def test_night_and_missed_edges_never_run_candidate_model_or_switch(tmp_path,monkeypatch):
     settings,clock,store,_,_=setup(tmp_path,monkeypatch);before=current_plans(store)
     model,calls=api(settings)
-    for hour,minute in [(0,30),(8,32),(8,41),(15,40)]:
+    for hour,minute in [(0,30),(8,32),(8,46),(15,40)]:
         advance(clock,hour,minute)
         for stage in ('engine','risk','pm'):
             result=run_morning_stage(settings,stage,clock=lambda:clock.now,calendar=CAL,client=model)

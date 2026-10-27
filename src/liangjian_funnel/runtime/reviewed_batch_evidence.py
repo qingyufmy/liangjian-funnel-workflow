@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+from zoneinfo import ZoneInfo
 
 from .team_v2_store import canonical
 
@@ -153,7 +154,14 @@ def _a6(team, models, *, meeting_id, scope_id, account_id, day, engine):
     return result, evidence, captured['run_id']
 
 
-def _pm(team, models, *, meeting_id, scope_id, account_id, day, engine, risk, review_run):
+def _pm_deadline_in_session(deadline,day):
+    if not isinstance(deadline,datetime) or deadline.utcoffset() is None:return False
+    local=deadline.astimezone(ZoneInfo('Asia/Shanghai'))
+    cutoff=datetime.fromisoformat(day+'T08:45:00+08:00')
+    return local.date().isoformat()==day and local<=cutoff
+
+
+def _pm(team, models, *, meeting_id, scope_id, account_id, day, engine, risk, review_run,subset_ids=None):
     row = team.execute('SELECT * FROM pm_decisions WHERE meeting_id=?', (meeting_id,)).fetchone()
     _require(row is not None, 'PM_MEETING_MISSING')
     row = dict(row)
@@ -165,15 +173,27 @@ def _pm(team, models, *, meeting_id, scope_id, account_id, day, engine, risk, re
         and not any(key.startswith('fallback_') for key in result)
         and result.get('source_call_id') == row['source_call_id'], 'PM_NOT_MODEL_VALIDATED')
     source = engine['source']
+    if result.get('server_projection',{}).get('schema')=='PM_BATCH_SET_PROJECTION/1':
+        _require(subset_ids is None,'PM_NESTED_BATCHES_FORBIDDEN')
+        return _pm_batches(team,models,row=row,result=result,scope_id=scope_id,account_id=account_id,
+            day=day,engine=engine,risk=risk,review_run=review_run)
     captured, raw, catalog = _original_call(models, call_id=row['source_call_id'], role='A3', session='PM_PREMARKET',
         day=day, source_day=source['source_trade_date'], rowset_sha=source['plan_rowset_sha256'], risk_sha=engine['risk_limits_sha256'])
     _require(captured['run_id'] == review_run and result.get('input_hash') == captured['input_hash']
         and result.get('server_projection', {}).get('raw_output_sha256') == captured['output_hash'], 'PM_MODEL_INPUT_OR_RAW_CONFLICT')
+    if result.get('deadline_audit'):
+        deadline=datetime.fromisoformat(result['deadline_audit']['deadline_at'])
+        _require(_pm_deadline_in_session(deadline,day) and datetime.fromisoformat(captured['captured_at'])<deadline,
+            'PM_CAPTURE_AFTER_DEADLINE')
     plan_refs = _catalog_plans(catalog, source['plan_rows'], complete=False)
     from .team_v2_morning import _envelopes
     from ..pipeline.team_v2_pm_schema import project_pm_compact
     envelopes = _envelopes(risk['envelopes'])
     clusters = {plan['plan_id']: plan['cluster'] for plan in source['plans']}
+    if subset_ids is not None:
+        _require(set(plan_refs.values())==set(subset_ids),'PM_BATCH_SOURCE_COVERAGE_CONFLICT')
+        envelopes=tuple(e for e in envelopes if e.plan_id in subset_ids)
+        clusters={pid:cluster for pid,cluster in clusters.items() if pid in subset_ids}
     bounds = tuple(min(Decimal(str(value)), Decimal(risk['utilization_cap'])) for value in engine['baseline_range'])
     derived, checked = project_pm_compact(raw, catalog, plan_refs=plan_refs, required_envelope=raw['envelope'],
         envelopes=envelopes, plan_clusters=clusters, free_slots=engine['capacity_slots'], baseline_range=bounds,
@@ -188,6 +208,86 @@ def _pm(team, models, *, meeting_id, scope_id, account_id, day, engine, risk, re
     return result, dict(meeting_id=meeting_id, call_id=row['source_call_id'], input_sha256=row['input_sha256'],
         raw_sha256=captured['output_hash'], journal_ref='state/team_v2/model.db#' + row['source_call_id'], validated=True,
         model_input_sha256=captured['input_hash'], result_sha256=_sha(result))
+
+
+def _pm_batches(team,models,*,row,result,scope_id,account_id,day,engine,risk,review_run):
+    """Revalidate real children; an aggregate has no pretend model_calls row."""
+    from .team_v2_morning import _envelopes
+    from .team_v2_sources import meeting_plan_facts
+    from .team_v2_pm_policy import priority_order
+    from .team_v2_pm_geometry import pm_geometry_domain
+    from .team_v2_pm_batches import aggregate_pm_outputs
+    source=engine['source'];audit=result.get('batch_audit') or {}
+    envelopes=_envelopes(risk['envelopes']);by_id={e.plan_id:e for e in envelopes}
+    geometry,_=pm_geometry_domain(source['plan_rows'])
+    expected=[pid for pid in priority_order(meeting_plan_facts(source['plan_rows']))
+        if pid in geometry and by_id[pid].eligible and by_id[pid].risk_unit in {'STANDARD','PROBE'}]
+    max_positions=engine['capacity_slots']+len({p['symbol'] for p in engine['snapshot']['positions']})
+    capacity=2*max_positions
+    _require(audit.get('version')=='pm-batches/1' and audit.get('parallel') is True
+        and audit.get('expected_plan_ids')==expected and audit.get('capacity')==capacity,'PM_BATCH_DOMAIN_CONFLICT')
+    deadline=datetime.fromisoformat(audit['deadline_at'])
+    _require(_pm_deadline_in_session(deadline,day),'PM_BATCH_DEADLINE_CONFLICT')
+    groups=[expected[i:i+capacity] for i in range(0,len(expected),capacity)]
+    batches=audit.get('batches',[])
+    _require(len(batches)==len(groups),'PM_BATCH_PARTITION_CONFLICT')
+    outputs=[];original_set=[];reviewed=[];unreviewed=[];catalog_items={};categories=None;child_proofs=[]
+    for ordinal,(batch,ids) in enumerate(zip(batches,groups),1):
+        call=row['source_call_id']+f':batch:{ordinal:03}'
+        _require(batch.get('ordinal')==ordinal and batch.get('plan_ids')==ids
+            and batch.get('call_id')==call and batch.get('meeting_id')==row['meeting_id']+f':batch:{ordinal:03}',
+            'PM_BATCH_IDENTITY_CONFLICT')
+        if batch.get('status')!='VALIDATED_MODEL':
+            _require(batch.get('status')=='PM_NOT_REVIEWED_TIME_BUDGET','PM_BATCH_FAILURE_CANNOT_GRANT')
+            trace=models.execute('SELECT body_json,body_sha256 FROM model_call_telemetry WHERE call_id=?',(call,)).fetchone()
+            timeout=False
+            if trace:
+                _require(_text_hash(trace['body_json'])==trace['body_sha256'],'PM_BATCH_FAILURE_TRACE_CONFLICT')
+                timeout=json.loads(trace['body_json']).get('failure_code') in {
+                    'PM_FIRST_PACKET_TIMEOUT','PM_TOTAL_TIMEOUT','MODEL_WALL_CLOCK_TIMEOUT','MODEL_TOTAL_DEADLINE_EXCEEDED'}
+            observed=datetime.fromisoformat(audit['cutoff_observed_at'])
+            budget=team.execute('SELECT source_sha256,body_json FROM control_minute_context WHERE decision_id=?',
+                ('pm-batch-budget:'+batch['meeting_id'],)).fetchone()
+            _require(budget is not None and budget['source_sha256']==row['input_sha256'], 'PM_BATCH_BUDGET_ORIGINAL_MISSING')
+            frozen=json.loads(budget['body_json'])['timeout_seconds']
+            not_enough=batch.get('remaining_seconds',0)<frozen or frozen<=0
+            _require(timeout or not_enough or observed.timestamp()>=deadline.timestamp()-2,'PM_BATCH_UNREVIEWED_UNPROVEN')
+            unreviewed.extend(ids);continue
+        child,proof=_pm(team,models,meeting_id=batch['meeting_id'],scope_id=scope_id,
+            account_id=account_id,day=day,engine=engine,risk=risk,review_run=review_run,subset_ids=set(ids))
+        _require(_sha(child)==batch.get('result_sha256'),'PM_BATCH_RESULT_HASH_CONFLICT')
+        captured,raw,catalog=_original_call(models,call_id=call,role='A3',session='PM_PREMARKET',
+            day=day,source_day=source['source_trade_date'],rowset_sha=source['plan_rowset_sha256'],risk_sha=engine['risk_limits_sha256'])
+        _require(captured['input_hash']==batch.get('input_hash') and captured['output_hash']==batch.get('raw_sha256')
+            and datetime.fromisoformat(captured['captured_at'])<deadline,'PM_BATCH_CAPTURE_CUTOFF_CONFLICT')
+        if categories is None:categories=catalog['categories']
+        _require(categories==catalog['categories'],'PM_BATCH_CATALOG_CATEGORY_CONFLICT')
+        for item in catalog['items']:
+            _require(item['id'] not in catalog_items or catalog_items[item['id']]==item,'PM_BATCH_SHARED_FACT_CONFLICT')
+            catalog_items[item['id']]=item
+        reviewed.extend(ids);outputs.append(raw);child_proofs.append(proof)
+        original_set.append(dict(call_id=call,input_hash=captured['input_hash'],raw_sha256=captured['output_hash']))
+    _require(outputs and audit.get('reviewed_plan_ids')==[pid for pid in expected if pid in reviewed]
+        and audit.get('unreviewed_plan_ids')==[pid for pid in expected if pid in unreviewed]
+        and set(reviewed).isdisjoint(unreviewed) and set(reviewed)|set(unreviewed)==set(expected),'PM_BATCH_COVERAGE_CONFLICT')
+    catalog=dict(categories=categories,items=list(catalog_items.values()))
+    refs=_catalog_plans(catalog,source['plan_rows'],complete=False)
+    clusters={p['plan_id']:p['cluster'] for p in source['plans']}
+    bounds=tuple(min(Decimal(str(value)),Decimal(risk['utilization_cap'])) for value in engine['baseline_range'])
+    raw,derived=aggregate_pm_outputs(outputs,catalog=catalog,plan_refs=refs,context=dict(required_envelope=outputs[0]['envelope'],
+        envelopes=envelopes,plan_clusters=clusters,free_slots=engine['capacity_slots'],baseline_range=bounds,
+        utilization_cap=Decimal(risk['utilization_cap']),high_conviction_ids=set()))
+    projection=result['server_projection']
+    _require(projection.get('original_calls')==original_set and projection.get('raw_output_sha256')==_sha(original_set)
+        and projection.get('derived_output_sha256')==_sha(derived)
+        and all(result.get(key)==derived.get(key) for key in ('slot_plan','plan_ranking','plan_allocations','derived_shortfall'))
+        and all(result.get(key)==raw.get(key) for key in ('deployment_target','shortfall_reason','handoff_notes','what_would_change_my_mind')),
+        'PM_BATCH_RECOMPUTATION_CONFLICT')
+    allocated={x['plan_id'] for x in result['plan_allocations']}
+    _require(allocated<=set(reviewed) and not allocated&set(unreviewed),'PM_BATCH_UNREVIEWED_ALLOCATION_FORBIDDEN')
+    return result,dict(meeting_id=row['meeting_id'],call_id=row['source_call_id'],input_sha256=row['input_sha256'],
+        raw_sha256=_sha(original_set),journal_ref='state/team_v2/model.db#ACTUAL_BATCH_SET:'+_sha(original_set),
+        validated=True,source_kind='ACTUAL_MODEL_CALL_SET',calls=child_proofs,result_sha256=_sha(result))
 
 
 def build_reviewed_batch_evidence(*, isolated_root=None, review_root=None, source_namespace='ISOLATED',

@@ -36,7 +36,8 @@ def digest(value):
                                      default=str).encode()).hexdigest()
 
 
-def replay_plan_pool(plan_rows, event_rows, *, minute_store, cutoff, market_state_dir=None, max_seconds=20):
+def replay_plan_pool(plan_rows, event_rows, *, minute_store, cutoff, market_state_dir=None, max_seconds=20,
+                     runtime_root=None,workflow_output_dir=None):
     """Replay assigned strategy, never force a trend plan through leader logic.
 
     Uses only local archived bars and never calls providers, models, orders or
@@ -46,6 +47,15 @@ def replay_plan_pool(plan_rows, event_rows, *, minute_store, cutoff, market_stat
     from ..workflow import _intraday_market_context, _a4_execution_cutoff
     from ..runtime.live_market import _read_cache
     deadline = time.monotonic() + max_seconds
+    from ..runtime.entry_confirmation import runtime_confirmation_overlay,runtime_confirmation_facts,apply_runtime_confirmation_context
+    from ..runtime.calendar import ExchangeTradingCalendar
+    from types import SimpleNamespace
+    overlay=runtime_confirmation_overlay(runtime_root) if runtime_root is not None else {}
+    daily_facts={}
+    if overlay and workflow_output_dir is not None:
+        daily_facts=runtime_confirmation_facts(SimpleNamespace(workflow_output_dir=Path(workflow_output_dir)),
+            plan_rows,current_trade_date=cutoff.date(),deadline_monotonic=deadline)
+    seed_cache={}
     events = {}
     for row in event_rows:
         payload = mapping(row.get('payload_json'))
@@ -106,6 +116,15 @@ def replay_plan_pool(plan_rows, event_rows, *, minute_store, cutoff, market_stat
                        'five_minute': [b.model_dump(mode='json') for b in five]}
                 inputs[symbol] = {'evidence_id': 'A5R:INPUT:' + symbol, 'sha256': digest(raw), **raw}
             one, five = cache[symbol]
+            if overlay and symbol not in seed_cache:
+                from ..runtime.history_freshness import read_previous_session_seed
+                try:
+                    bars,proof=read_previous_session_seed(minute_store.path,symbol,
+                        target_trade_date=cutoff.date(),calendar=ExchangeTradingCalendar(),as_of=cutoff)
+                    seed_cache[symbol]=([bar.model_dump(mode='json') for bar in bars],proof)
+                except Exception as exc:
+                    seed_cache[symbol]=([],dict(status='DATA_BLOCKED',
+                        reason_code='HISTORICAL_5M_PREVIOUS_SESSION_UNPROVEN',exception_class=type(exc).__name__))
             result['input_sha256'] = inputs[symbol]['sha256']
             result['plan_sha256'] = digest(plan)
             entered = False
@@ -145,6 +164,9 @@ def replay_plan_pool(plan_rows, event_rows, *, minute_store, cutoff, market_stat
                     result['context_unverified_minutes'] += 1
                 context = _intraday_market_context(symbol, history, tuple(b for b in five if b.bar_end <= observation_end), current=t,
                                                   execution_cutoff=observation_end, live_market_state=market)
+                seed,seed_proof=seed_cache.get(symbol,(None,None))
+                context=apply_runtime_confirmation_context(context,overlay=overlay,plan_id=plan_id,
+                    daily_facts=daily_facts.get(plan_id,{}),historical_bars=seed,historical_readiness=seed_proof)
                 evaluation = evaluate_strategy(plan, history, now=observation_end, decision_time=t,
                                                market_context=context).model_dump(mode='json')
                 result['replayed_minutes'] += 1
@@ -178,6 +200,9 @@ def replay_plan_pool(plan_rows, event_rows, *, minute_store, cutoff, market_stat
     return {'schema_version': 'a5-plan-entry-replay/1', 'evidence_id': 'A5R:SUMMARY',
             'cutoff_at': cutoff.isoformat(), 'mode': 'EX_POST_ARCHIVED_TECHNICAL_ENTRY_REPLAY',
             'production_mutation': False, 'model_calls': 0, 'strategy_coverage': coverage,
+            'runtime_confirmation_mode':overlay.get('entry_confirmation_config',{}).get('mode','legacy'),
+            'confirmation_context_builder':'entry_confirmation.apply_runtime_confirmation_context',
+            'daily_publication_facts':daily_facts,'historical_seed_readiness':{symbol:proof for symbol,(_,proof) in seed_cache.items()},
             'strategy_source_sha256': hashlib.sha256(Path(inspect.getfile(evaluate_strategy)).read_bytes()).hexdigest(),
             'plans': results, 'trigger_windows': windows, 'archived_inputs': inputs, 'frozen_plans': frozen_plans,
             'archived_market_states': market_inputs,

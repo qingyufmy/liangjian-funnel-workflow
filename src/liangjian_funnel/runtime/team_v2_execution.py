@@ -57,7 +57,7 @@ def _views(snapshot,*,plan,all_plans,mark_as_of,entry):
 def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans,now,closed_5m_end,
                         mark_as_of,regime,live_market_ready,snapshot_ready,mode,calendar,input_sha256,pm_allocation=None,
                         deadline_monotonic=None,monotonic=time.monotonic,utilization_cap_pct=None,
-                        entry_pattern_binding=None,preview_only=False):
+                        entry_pattern_binding=None,preview_only=False,engine_only_policy=None):
     if (not isinstance(now,datetime) or now.utcoffset() is None or not isinstance(mark_as_of,datetime)
             or mark_as_of.utcoffset() is None or not re.fullmatch(r'[a-f0-9]{64}',input_sha256)
             or plan.plan_id not in all_plans or all_plans[plan.plan_id]!=plan):
@@ -83,6 +83,7 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
         utilization_cap_pct=utilization_cap_pct,
         plan_clusters={pid:[item.symbol,item.cluster] for pid,item in sorted(all_plans.items())})))
     if entry_pattern_binding is not None:binding['entry_pattern_binding']=entry_pattern_binding
+    if engine_only_policy is not None:binding['engine_only_policy']=engine_only_policy
     def decide(snapshot):
         def block(code):return dict(judgment=dict(status='REJECTED',shares=0,risk_unit='NONE',reason_codes=[code]),order=None)
         if deadline_monotonic is not None and monotonic()>=deadline_monotonic:
@@ -138,6 +139,16 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
         # Hard loss/drawdown latches retain priority even if PM is unavailable.
         if pm_reason and not set(guarded.reason_codes)&{'DRAWDOWN_HALT','DAILY_LOSS_HALT','A6_DEGRADED_HALT'}:
             return block(pm_reason)
+        if action in ENTRY and engine_only_policy is not None and risk is not None and guarded.dispatch_allowed:
+            from .team_v2_engine_only_policy import restriction_reason,half_position_quantity
+            reason=restriction_reason(engine_only_policy,plan)
+            if reason:return block(reason)
+            owned=sum(p.qty for p in positions if p.symbol==plan.symbol)
+            quantity,audit=half_position_quantity(risk.shares,owned)
+            if quantity<=0:return block('ENGINE_ONLY_HALF_POSITION_NO_LOT')
+            risk=replace(risk,status='REDUCED',shares=quantity,
+                reason_codes=tuple(dict.fromkeys((*risk.reason_codes,'ENGINE_ONLY_HALF_POSITION'))),
+                quantity_audit={**risk.quantity_audit,'engine_only_t1c':audit})
         result=dict(judgment=asdict(risk) if risk is not None else dict(status='REJECTED',shares=0,
             risk_unit='NONE',reason_codes=list(guarded.reason_codes)),order=None)
         if risk is not None and risk.status!='REJECTED' and guarded.dispatch_allowed:

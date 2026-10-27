@@ -12,6 +12,8 @@ import json
 import os
 import re
 import sqlite3
+import traceback
+from pathlib import Path
 
 from ..pipeline.model_client import OpenAICompatibleModelClient
 from ..pipeline.team_v2_judgments import ModelJudgmentJournal
@@ -22,6 +24,41 @@ from .team_v2_review import run_team_review
 from .team_v2_review_facts import read_paper_review_evidence, build_team_review_facts
 from .team_v2_sources import stamp
 from .team_v2_store import TeamMeetingStore, canonical
+
+
+def record_review_stage_failure(settings, review_kind, exc, *, clock=None, sender=None):
+    """Durable typed local failure; never retry a model or expose its text."""
+    from .team_v2_review import TeamA5ContextError
+    from .team_v2_internal import InternalOutbox,InternalSender
+    now=(clock or (lambda:datetime.now(TZ)))().astimezone(TZ)
+    reason=exc.reason_code if isinstance(exc,TeamA5ContextError) else 'TEAM_A5_STAGE_FAILED'
+    detail=dict(schema='team-a5-stage-failure/1',at=now.isoformat(),review_kind=review_kind,
+        reason_code=reason,exception_class=type(exc).__name__,
+        frames=[dict(file=Path(f.filename).name,line=f.lineno,function=f.name)
+                for f in traceback.extract_tb(exc.__traceback__)[-8:]],
+        diagnostics=dict(exc.diagnostics) if isinstance(exc,TeamA5ContextError) else {})
+    directory=_directory(settings)
+    if (directory/'team.db').is_file():
+        try:
+            outbox=InternalOutbox(TeamMeetingStore(directory/'team.db'))
+            detail['notification_event_id']=outbox.enqueue(account_id=ACCOUNT,trade_date=now.date().isoformat(),
+                kind='TEAM_A5_STAGE_FAILURE',source_id=f'{now.date()}:{review_kind}:{reason}',
+                body=dict(msg_type='text',content=dict(text=f'Team A5复盘失败｜{now.date()}交易日｜{review_kind}｜{reason}；具体阶段和输入预算原值已归档，未自动重跑模型。')),
+                observed_at=now,priority=20)
+            detail['notification_delivery']=outbox.flush(sender or InternalSender(
+                settings.root.parent/'liangjian-shadow/internal_alert.env',env=os.environ),now=now,maximum=3)
+        except Exception as notice_error:
+            detail['notification_error_class']=type(notice_error).__name__
+    parent=settings.workflow_output_dir/'team_a5_failures'/now.date().isoformat()
+    if parent.resolve()!=parent.absolute() or not parent.absolute().is_relative_to(settings.root.absolute()):
+        raise ValueError('A5_FAILURE_ARCHIVE_SCOPE_INVALID')
+    parent.mkdir(parents=True,mode=0o700,exist_ok=True)
+    raw=canonical(detail).encode();digest=hashlib.sha256(raw).hexdigest();target=parent/(digest+'.json')
+    if not target.exists():
+        with target.open('xb') as f:f.write(raw);f.flush();os.fsync(f.fileno())
+    elif target.read_bytes()!=raw:raise ValueError('A5_FAILURE_ARCHIVE_CONFLICT')
+    return dict(status='BLOCKED',reason_code=reason,trade_date=now.date().isoformat(),review_kind=review_kind,
+        failure_artifact=dict(path=str(target),sha256=digest))
 
 
 def _hash(value):return hashlib.sha256(canonical(value).encode()).hexdigest()
@@ -292,12 +329,12 @@ def run_review_stage(settings, review_kind, *, clock=None, calendar=None, client
             settlement=paper.get('settlement'),account_id=ACCOUNT,trade_date=day,review_kind=review_kind,observed_at=now)
         store.freeze_control_context('a5-full-source:'+rid,source_sha256=full['input_hash'],body=full)
         facts,domain=coach_projection(full);repository=TeamPromptRepository(settings.root/'prompts/team_v2')
-        prompt=repository.prepare('A5',dict(A5_FACT_SNAPSHOT=facts,EVIDENCE_CATALOG=facts['citation_catalog']))
+        role_version=repository.declared_role_version('A5')
         envelope=dict(schema_version='team-envelope/1',run_id=rid,stage_id='A5',source_trade_date=day,
             execution_trade_date=day,as_of=now.isoformat(),knowledge_cutoff=now.isoformat(),
             input_snapshot_ids=[facts['input_hash'],archive_hash],config_version='team-v2/1',
             config_hash=hashlib.sha256((settings.root/'config/risk_limits.yaml').read_bytes()).hexdigest(),
-            prompt_version=prompt.role_version,model_name=settings.review_model,market_regime='DATA_BLOCK',
+            prompt_version=role_version,model_name=settings.review_model,market_regime='DATA_BLOCK',
             status='FROZEN',reason_codes=[])
         frozen=dict(facts=facts,signal_domain=domain,required_envelope=envelope,model=settings.review_model,
             counterexample_domain=sorted({r['symbol'] for r in facts.get('counterexamples',[]) if r.get('symbol')}))
@@ -309,7 +346,8 @@ def run_review_stage(settings, review_kind, *, clock=None, calendar=None, client
         store=store,review_id=rid,call_id='A5:'+rid,account_id=ACCOUNT,run_id=rid,model=frozen['model'],
         trade_date=day,source_trade_date=day,review_kind=review_kind,clock=clock,
         required_envelope=frozen['required_envelope'],facts=frozen['facts'],signal_domain=frozen['signal_domain'],
-        counterexample_domain=set(frozen['counterexample_domain']),timeout_seconds=wall_budget,max_output_tokens=policy['max_output_tokens'],allow_model_call=True)
+        counterexample_domain=set(frozen['counterexample_domain']),timeout_seconds=wall_budget,max_output_tokens=policy['max_output_tokens'],
+        max_input_tokens=settings.model_max_input_tokens,allow_model_call=True)
     try:export=export_hypotheses(settings,result=result)
     except Exception:
         return dict(result,status='A5_REPLAY_QUEUE_EXPORT_FAILED',report_status=result['status'],

@@ -67,7 +67,7 @@ unmet 项逐条说明为何仍可入场或为何等待）、handoff_to_a6。
  "signals":[{"plan_id":"","symbol":"","action":"NO_ACTION|START_CONFIRMATION|BUY_SIGNAL|ADD_SIGNAL|SELL_SIGNAL|REDUCE_SIGNAL|CANCEL_SIGNAL|BLOCK",
    "reason_code":"大写稳定码","waiting_for":"NO_ACTION/START_CONFIRMATION 时必填",
    "supporting_refs":["≤3"],"opposing_refs":["≤3或哨兵"],
-   "tech_reference_review":[{"item":"TREND_15M_PRESSURE_EASING","status":"MET|UNMET","my_read":"一句话"}],
+   "tech_reference_review":[{"item":"TREND_15M_PRESSURE_EASING","my_read":"一句话"}],
    "what_would_change_my_mind":["≤2"],
    "handoff_to_a6":{"risk_unit_hint":"STANDARD|PROBE","batches_hint":1,"holding_horizon":"INTRADAY|T1|T3|SWING","note":""}}],
  "position_actions":[{"symbol":"","action":"HOLD|REDUCE_SIGNAL|SELL_SIGNAL|ADD_SIGNAL","reason_code":"","supporting_refs":["1–3"],"opposing_refs":["1–3或哨兵"],"distance_to_stop_note":""}],

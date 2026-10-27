@@ -1,0 +1,910 @@
+{
+  "schema": "premarket-0840-result/0804",
+  "status": "PASS_NATURAL_MORNING_CAS_SOURCE_READY_NOT_YET_ACTIVATION",
+  "primary_observed_at": "2026-10-27T08:40:08.048160+08:00",
+  "supplement_observed_at": "2026-10-27T08:42:10.393839+08:00",
+  "delivered_at": "2026-10-27T08:43:45.762893+08:00",
+  "scope_id": "bd_c3b92f336a0a5b86ac624f5d28bc",
+  "candidate": {
+    "scope_id": "bd_c3b92f336a0a5b86ac624f5d28bc",
+    "state": "SWITCHED",
+    "body_sha256": "eb8c66ee4b3937e18568ed577fe55dc5b814a1edc05b13c80372d2e207e5d85f",
+    "actual_body_sha256": "eb8c66ee4b3937e18568ed577fe55dc5b814a1edc05b13c80372d2e207e5d85f",
+    "plans": 14,
+    "created_at": "2026-10-26T19:48:25.268880+08:00"
+  },
+  "cas": [
+    {
+      "scope_id": "bd_c3b92f336a0a5b86ac624f5d28bc",
+      "account_id": "local-paper",
+      "trade_date": "2026-10-27",
+      "old_scope_id": null,
+      "old_revision": null,
+      "new_revision": 1,
+      "old_rows_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "bundle_sha256": "eb40f45658b0e9d89181b4a6d4fdb2d815dbf528bb2f3b9601b503008f3e5f10",
+      "switched_at": "2026-10-27T08:38:18.982182+08:00",
+      "old_plan_ids_count": 0,
+      "new_plan_ids_count": 14
+    }
+  ],
+  "active_scope": [
+    {
+      "account_id": "local-paper",
+      "trade_date": "2026-10-27",
+      "scope_id": "bd_c3b92f336a0a5b86ac624f5d28bc",
+      "bundle_sha256": "eb40f45658b0e9d89181b4a6d4fdb2d815dbf528bb2f3b9601b503008f3e5f10",
+      "revision": 1,
+      "updated_at": "2026-10-27T08:38:18.982182+08:00"
+    }
+  ],
+  "originals": [
+    {
+      "path": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\a4-monitor-20261021\\PREMARKET_RO_0804_0840_20261027T084006.json",
+      "sha256": "d592c564fae8ae43dca076cf873d8611a507a29d81731d20cb33961df237d5b9"
+    },
+    {
+      "path": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\a4-monitor-20261021\\MORNING_0840_SUPPLEMENT_RO_0804_R2_20261027.json",
+      "sha256": "07016fc9de8b81ca786e0ddfb1ca5613b2866eb9de286f2f38cb466c466a4567"
+    }
+  ],
+  "natural_model_calls": [
+    {
+      "call_id": "bd_c3b92f336a0a5b86ac624f5d28bc:A6",
+      "run_id": "bd_c3b92f336a0a5b86ac624f5d28bc:review:2026-10-27",
+      "role": "A6",
+      "session": "PREMARKET",
+      "source_trade_date": "2026-10-26",
+      "execution_trade_date": "2026-10-27",
+      "captured_at": "2026-10-27T08:35:36.578220+08:00",
+      "model": "deepseek/deepseek-v4-pro",
+      "input_hash": "e970e129ec27763502706510c9783a88b9839604c7916cc811fbf32e6e947fa4",
+      "output_hash": "c0550412da99fca765bc9447f146b9036248af4e05125781ae1a3260d311ec0f",
+      "validated": 1,
+      "provider_attempts": 1,
+      "latency_ms": 34889,
+      "binding_sha256": "fadb416cf40d5f954b7c20cf026d0bcca95bc025bc74720ddaa7594581b2a874",
+      "output_sha_verified": true,
+      "issues": [],
+      "claim": {
+        "state": "CAPTURED",
+        "failure_code": null
+      },
+      "plan_adjustment_counts": {
+        "KEEP": 14
+      },
+      "adjustment_count": 14
+    },
+    {
+      "call_id": "bd_c3b92f336a0a5b86ac624f5d28bc:PM",
+      "run_id": "bd_c3b92f336a0a5b86ac624f5d28bc:review:2026-10-27",
+      "role": "A3",
+      "session": "PM_PREMARKET",
+      "source_trade_date": "2026-10-26",
+      "execution_trade_date": "2026-10-27",
+      "captured_at": "2026-10-27T08:38:18.759401+08:00",
+      "model": "deepseek/deepseek-v4-pro",
+      "input_hash": "1d7787ccdbf841ee0e97d664194b0a5a0ec947924c59d3434b47184d27dcef44",
+      "output_hash": "6b4a99e68e631356d1a043c1c1e971e8bd571aee25564504cdc30912c854e787",
+      "validated": 1,
+      "provider_attempts": 1,
+      "latency_ms": 17935,
+      "binding_sha256": "f9b20171a6d77bf0d622a58e1f13fc23548f4eba691173e1ad6b29f2e1029f1a",
+      "output_sha_verified": true,
+      "issues": [],
+      "claim": {
+        "state": "CAPTURED",
+        "failure_code": null
+      },
+      "plan_decision_counts": {
+        "ACCEPT": 12
+      },
+      "size_tier_counts": {
+        "PROBE": 12
+      },
+      "plan_decision_count": 12,
+      "allocation_count_if_expanded": null
+    }
+  ],
+  "a6": {
+    "raw_KEEP": 14,
+    "raw_reject": 0,
+    "final_PROBE": 14,
+    "halted": 0,
+    "consecutive_failures": 0
+  },
+  "pm": {
+    "actual_model_plans": 12,
+    "raw_ACCEPT_PROBE": 12,
+    "server_cutoff_not_model_rejected": [
+      {
+        "decision": "WATCH",
+        "exclusion_basis": "SHORTLIST_CAP",
+        "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+        "reason_code": "PM_SHORTLIST_CUTOFF",
+        "symbol": "300519.SZ",
+        "model_called_for_this_PM_plan": false
+      },
+      {
+        "decision": "WATCH",
+        "exclusion_basis": "SHORTLIST_CAP",
+        "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+        "reason_code": "PM_SHORTLIST_CUTOFF",
+        "symbol": "301239.SZ",
+        "model_called_for_this_PM_plan": false
+      }
+    ],
+    "capacity_slots": 6,
+    "slot_count": 6,
+    "slots": [
+      {
+        "slot": 1,
+        "primary_plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+        "primary_symbol": "002603.SZ",
+        "backup_plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+        "backup_symbol": "688016.SH"
+      },
+      {
+        "slot": 2,
+        "primary_plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+        "primary_symbol": "300496.SZ",
+        "backup_plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+        "backup_symbol": "688351.SH"
+      },
+      {
+        "slot": 3,
+        "primary_plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+        "primary_symbol": "300357.SZ",
+        "backup_plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+        "backup_symbol": "688111.SH"
+      },
+      {
+        "slot": 4,
+        "primary_plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+        "primary_symbol": "603298.SH",
+        "backup_plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+        "backup_symbol": "688410.SH"
+      },
+      {
+        "slot": 5,
+        "primary_plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+        "primary_symbol": "688615.SH",
+        "backup_plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+        "backup_symbol": "600628.SH"
+      },
+      {
+        "slot": 6,
+        "primary_plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+        "primary_symbol": "000858.SZ",
+        "backup_plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+        "backup_symbol": "603696.SH"
+      }
+    ],
+    "derived_shortfall": "NONE",
+    "allocation_metadata_rows": 12,
+    "allocation_metadata_scope": "12 primary+backup eligible records are not12 simultaneous positions,6 actual slots",
+    "shortlist": {
+      "a6_eligible_plan_ids": [
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8"
+      ],
+      "authority": "SERVER_SHORTLIST_NOT_NEW_ELIGIBILITY",
+      "excluded": [
+        {
+          "decision": "WATCH",
+          "exclusion_basis": "SHORTLIST_CAP",
+          "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+          "reason_code": "PM_SHORTLIST_CUTOFF"
+        },
+        {
+          "decision": "WATCH",
+          "exclusion_basis": "SHORTLIST_CAP",
+          "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+          "reason_code": "PM_SHORTLIST_CUTOFF"
+        }
+      ],
+      "geometry_plan_ids": [
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69"
+      ],
+      "geometry_source_audit": {
+        "authority": "EXISTING_P06_PROJECTOR_FROZEN_PLAN_FACTS",
+        "counts": {
+          "FULL": 14
+        },
+        "eligible_plan_ids": [
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+          "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69"
+        ],
+        "plan_count": 14,
+        "plan_writes": 0,
+        "rows": [
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "73.85614285714284",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "18f1f9c06a6e014cb0f3d5f0657a79e0ded249d5ddca83cd1a4c29c679e6c00c",
+              "original_trigger_high": "73.85614285714284",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "73.856142857142857142857142857142857142857142857143",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "71.8626",
+              "target": "78.84",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "73.214"
+            },
+            "payload_sha256": "6b9c60c44a7a137513a4ca86b368a05b86091c33bafca59c5111decf1600b1a2",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+            "source_row_sha256": "6aa79a37331a5741d7e76ad45f48454a5ea87c0d85ee9459ecdd65a4729ebea1",
+            "status": "PUBLISHABLE",
+            "symbol": "000858.SZ"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "15.6065",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "ef743341792956a5f1bd738122c3cf25b6449a19d69a8345d90f60039991aef1",
+              "original_trigger_high": "15.6065",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "15.761714285714285714285714285714285714285714285714",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "15.0784",
+              "target": "17.47",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "15.452"
+            },
+            "payload_sha256": "e8ee9cda707cab0fcfff0216fdcd9698ab92cdb5926572569528fee65fcd2ba6",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+            "source_row_sha256": "1991e09ca3e29138d1b5f03742a4f5bbe4a40abcd2646af2d4ad5f034ead1290",
+            "status": "PUBLISHABLE",
+            "symbol": "002603.SZ"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "19.8829",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "ed22e4ea9a621d34ad1bbd9c8e9d49d7837b6a24865bdeb58e9af63f8ef56ac1",
+              "original_trigger_high": "19.8829",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "21.307857142857142857142857142857142857142857142857",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "18.971",
+              "target": "27.15",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "19.686"
+            },
+            "payload_sha256": "0d263123507c8507b256c8d5480ff62ae403d67f4cf871607dbaf57df4745685",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+            "source_row_sha256": "43d1cae88b7cb216a16c5fd2963f599ba23f0a14db5c54870309e229bbd960a8",
+            "status": "PUBLISHABLE",
+            "symbol": "300357.SZ"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "57.2569",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "2daa7b2357e52289f36cffd76ead980c0cac5b431bc2c1fcd0b581c6226e2dc6",
+              "original_trigger_high": "57.2569",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "57.571428571428571428571428571428571428571428571429",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "54.7",
+              "target": "64.75",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "56.69"
+            },
+            "payload_sha256": "a3f0533f6239ffe06bb6a2bda860189485a8a6595648e0bddf119b10f09043a9",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+            "source_row_sha256": "440af952dd4f175d87c3ccab8552fe79f1529dea5804b275bd32f93f027ea6ee",
+            "status": "PUBLISHABLE",
+            "symbol": "300496.SZ"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "14.714285714285714",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "c2b827fefb390dd10a167928759c4217fd2680072e37b0a2f1a87cd2d7479763",
+              "original_trigger_high": "14.714285714285714",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "14.714285714285714285714285714285714285714285714286",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "14.4",
+              "target": "15.5",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "14.6565"
+            },
+            "payload_sha256": "20126e0a87dcaad17c9328529982ca369e3930b825eef54481178c99f9dbbfd3",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+            "source_row_sha256": "707d4660f8950c4c385be038f0db10059d28b0165a2aad92ac4d84e8c48dd26f",
+            "status": "PUBLISHABLE",
+            "symbol": "300519.SZ"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "35.15114285714285",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "7a6c44b19e4e99aadd4842205b802ed2b51af188a6b8ef672c727a1889d4c7ec",
+              "original_trigger_high": "35.15114285714285",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "35.151142857142857142857142857142857142857142857143",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "33.2036",
+              "target": "40.02",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "34.84"
+            },
+            "payload_sha256": "def91b018fc8b975c164c2e1f5cc8380d2571b1de112adcc446a8f1bd58ea051",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+            "source_row_sha256": "545018ae7cbfac3d1f41f36356dc8c6942a6ac76be0f85a53da53503e7ac10eb",
+            "status": "PUBLISHABLE",
+            "symbol": "301239.SZ"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "6.354285714285714",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "fe1012562f8e2761819c5bc0fe7831aefca2f2f9313be8d336a78a05a45cec9d",
+              "original_trigger_high": "6.354285714285714",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "6.3542857142857142857142857142857142857142857142857",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "6.22",
+              "target": "6.69",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "6.35"
+            },
+            "payload_sha256": "cec8dc19354f5892a5d01eab3ee878e0cad066761625c7c9543733a7ad78f47d",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+            "source_row_sha256": "1a66062a8dbe54d5edb9de2170925f3b80ad4ebbae40518b8ee5bfb752d90079",
+            "status": "PUBLISHABLE",
+            "symbol": "600628.SH"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "22.523",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "be22d086f10862b634905fb4a8e62bdbedef2bda477050a05d83e57443cfcc04",
+              "original_trigger_high": "22.523",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "23.479785714285714285714285714285714285714285714286",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "21.5357",
+              "target": "28.34",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "22.3"
+            },
+            "payload_sha256": "47f77ec8ac31ae25a0e30115d408c8f900164f9a18af91181249bb4f5f791568",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+            "source_row_sha256": "0caec9053194d670e34d6bfde6008a97343a6df4654737f33f436f765ee1d6d3",
+            "status": "PUBLISHABLE",
+            "symbol": "603298.SH"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "14.643",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "0c028226829578d1620aa24066be60a4b89bdfe85eb32d9559b21cfa3983a976",
+              "original_trigger_high": "14.643",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "14.942857142857142857142857142857142857142857142857",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "13.6",
+              "target": "18.3",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "14.498"
+            },
+            "payload_sha256": "70ceb5f680de5f0e13b6ad4e8c5e4de6766f116a178a701499060a814a78e775",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+            "source_row_sha256": "7aa5c4d3981957a99bbb71a17ab6d4656c01a43599acd84fb7d76eb1a073a764",
+            "status": "PUBLISHABLE",
+            "symbol": "603696.SH"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "85.7066",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "bfc5aa100a747acf475d1652ee766188a8b7451cf44871dd18f7c01ee832b5b4",
+              "original_trigger_high": "85.7066",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "87.015714285714285714285714285714285714285714285714",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "82.85",
+              "target": "97.43",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "84.858"
+            },
+            "payload_sha256": "a170902becc741c1968523dd0898ab707ec2e6d680db1a50150a3e1fbc2d406d",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+            "source_row_sha256": "5c973f2648c3f02551d963913eecb0ef764b0f3e8da6cd102c49ea25bdfe87e7",
+            "status": "PUBLISHABLE",
+            "symbol": "688016.SH"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "244.3109",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "f15c91269f0573500a6d00349979c00baec18b8df14cfc850cf1226a214e2247",
+              "original_trigger_high": "244.3109",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "249.59021428571428571428571428571428571428571428571",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "233.7063",
+              "target": "289.3",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "241.892"
+            },
+            "payload_sha256": "31fccadc094a20e725ad0fdf3848879215bfa189f047e46c8ef7f625d9d06ef7",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+            "source_row_sha256": "971e5133449921aa0e762f3b5ba2b0d8b825567081af9bd3e0ad3a8b8e858ffc",
+            "status": "PUBLISHABLE",
+            "symbol": "688111.SH"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "18.6771",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "4c69e37a11436669d2873580ba6603c871c5ce19acb3e4970b8364a76df76040",
+              "original_trigger_high": "18.6771",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "18.803642857142857142857142857142857142857142857143",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "17.7851",
+              "target": "21.35",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "18.4922"
+            },
+            "payload_sha256": "3860e6b325b277364f676df7f52a28ecd0595d38a41175b5a334bdf6df8fb553",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+            "source_row_sha256": "a22b14e43eaf7612bc53fcf49f50635648a118fd5fa2e213d23cdd1b7f56eb0b",
+            "status": "PUBLISHABLE",
+            "symbol": "688351.SH"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "10.254",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "4e062d490b67fb7ecd0eb3dc5afd09d94ff61aef10f02084f976ee9b9d5123d1",
+              "original_trigger_high": "10.254",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "10.333857142857142857142857142857142857142857142857",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "9.6754",
+              "target": "11.98",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "10.1525"
+            },
+            "payload_sha256": "e6b0eaaf6fb0925c2ccc6cfb060fdbeb058e3ca5c7ac90fcc8c3098ea6f459ff",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+            "source_row_sha256": "7aa2052d228d6b40a1e26bfc633cf21aee1e49cc2660752518c26b359d4e195c",
+            "status": "PUBLISHABLE",
+            "symbol": "688410.SH"
+          },
+          {
+            "audit": {
+              "authority": "SERVER_PUBLICATION_TIGHTENING_NOT_MODEL_OPINION",
+              "classification": "FULL",
+              "effective_trigger_high": "93.9845",
+              "minimum_reward_risk": "2.5",
+              "original_payload_sha256": "fca44f8917f0cbadd6742b6ec1bf08d85137479b4cf66f29ad819a1cf08ef771",
+              "original_trigger_high": "93.9845",
+              "reason_code": "PLAN_GEOMETRY_RR_FEASIBLE",
+              "rr_entry_ceiling": "99.2145",
+              "schema_version": "team-plan-geometry/1",
+              "stop": "88.1883",
+              "target": "126.78",
+              "threshold_source": "ORIGINAL_PLAN_RR_FIELD",
+              "trigger_low": "93.054"
+            },
+            "payload_sha256": "08446b3d74ff838e7411a8eb19fe5b12ef2ff1f924b413e6d0623a752d2f552d",
+            "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+            "source_row_sha256": "085ef150dfd5467011892cf3abb7adefc8c85989309f35bd84741a95ec9d4d68",
+            "status": "PUBLISHABLE",
+            "symbol": "688615.SH"
+          }
+        ],
+        "schema": "pm-frozen-geometry-domain/1",
+        "sha256": "4a792957d748e790b7d8b129655adbb7f3239dccd5f63eb3ddb8660a2ca11496",
+        "source_fetches": 0
+      },
+      "max_positions": 6,
+      "priority_order": [
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8"
+      ],
+      "selected_plan_ids": [
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+        "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8"
+      ],
+      "shortlist_limit": 12
+    }
+  },
+  "source_contract_after_CAS": {
+    "schema": "morning-research-contract/1",
+    "previous_session": "2026-10-26",
+    "plan_origin": "PREVIOUS_SESSION_CLOSE_ONLY",
+    "activation": "AUCTION_VALIDATION_ONLY",
+    "research_model_calls": 0,
+    "status": "READY",
+    "reason_code": null,
+    "latest_prior_close": {
+      "run_id": "recovery-close-20261026-e6a15d33-0778-r3",
+      "status": "PUBLISHED",
+      "trade_date": "2026-10-26",
+      "slot": "CLOSE"
+    },
+    "source_checks": [
+      {
+        "source_run_id": "recovery-close-20261026-e6a15d33-0778-r3",
+        "market_trade_date": "2026-10-26",
+        "slot": "close",
+        "status": "READY",
+        "reason_code": null
+      }
+    ],
+    "rejected_plans": [],
+    "reference_scan_limit": 200,
+    "reference_scan_truncated": false
+  },
+  "workflow": [
+    {
+      "run_id": "recovery-close-20261026-e6a15d33-0778-r3",
+      "lane_id": "lane_1",
+      "trade_date": "2026-10-26",
+      "slot": "CLOSE",
+      "status": "PUBLISHED",
+      "updated_at": "2026-10-27T08:38:18.982182+08:00"
+    }
+  ],
+  "plans": [
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "symbol": "688016.SH",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "a170902becc741c1968523dd0898ab707ec2e6d680db1a50150a3e1fbc2d406d"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+      "symbol": "002603.SZ",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "e8ee9cda707cab0fcfff0216fdcd9698ab92cdb5926572569528fee65fcd2ba6"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "symbol": "688351.SH",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "3860e6b325b277364f676df7f52a28ecd0595d38a41175b5a334bdf6df8fb553"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "symbol": "300357.SZ",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "0d263123507c8507b256c8d5480ff62ae403d67f4cf871607dbaf57df4745685"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+      "symbol": "603696.SH",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "70ceb5f680de5f0e13b6ad4e8c5e4de6766f116a178a701499060a814a78e775"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+      "symbol": "600628.SH",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "cec8dc19354f5892a5d01eab3ee878e0cad066761625c7c9543733a7ad78f47d"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+      "symbol": "300519.SZ",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "20126e0a87dcaad17c9328529982ca369e3930b825eef54481178c99f9dbbfd3"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+      "symbol": "603298.SH",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "47f77ec8ac31ae25a0e30115d408c8f900164f9a18af91181249bb4f5f791568"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "symbol": "000858.SZ",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "6b9c60c44a7a137513a4ca86b368a05b86091c33bafca59c5111decf1600b1a2"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+      "symbol": "301239.SZ",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "def91b018fc8b975c164c2e1f5cc8380d2571b1de112adcc446a8f1bd58ea051"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+      "symbol": "688410.SH",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "e6b0eaaf6fb0925c2ccc6cfb060fdbeb058e3ca5c7ac90fcc8c3098ea6f459ff"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+      "symbol": "300496.SZ",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "a3f0533f6239ffe06bb6a2bda860189485a8a6595648e0bddf119b10f09043a9"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+      "symbol": "688111.SH",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "31fccadc094a20e725ad0fdf3848879215bfa189f047e46c8ef7f625d9d06ef7"
+    },
+    {
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+      "symbol": "688615.SH",
+      "status": "PENDING_MORNING_REVIEW",
+      "risk_unit": "PROBE",
+      "payload_sha256": "08446b3d74ff838e7411a8eb19fe5b12ef2ff1f924b413e6d0623a752d2f552d"
+    }
+  ],
+  "execution_plan_statuses": [
+    {
+      "lane_id": "lane_1",
+      "status": "PENDING_MORNING_REVIEW",
+      "n": 14
+    }
+  ],
+  "actual_ACTIVE_TODAY": 0,
+  "current_record": null,
+  "risk_day": [
+    {
+      "account_id": "local-paper",
+      "trade_date": "2026-10-27",
+      "consecutive_failures": 0,
+      "halted": 0,
+      "last_observed_at": "2026-10-27T08:35:01.665317+08:00"
+    }
+  ],
+  "reservations": [],
+  "paper_t1": {
+    "open_lots": 0,
+    "sellable_lots": 0,
+    "t1_locked_lots": 0,
+    "nonterminal_orders": 0
+  },
+  "node": [
+    {
+      "identity": "207250:4543543",
+      "rss": [
+        "VmRSS:\t   91272 kB"
+      ]
+    }
+  ],
+  "natural_job_receipts": [
+    {
+      "timestamp": "2026-10-27T00:33:00.747Z",
+      "job": "team-morning-engine",
+      "stream": "node",
+      "level": "info",
+      "line_sha256": "9fa7c0c710aef774658929b66683e152c92bd92a553fa7254f277814eb78ec4b",
+      "scheduler_message": "触发调度 team-morning-engine at=2026-10-27T08:33"
+    },
+    {
+      "timestamp": "2026-10-27T00:33:00.748Z",
+      "job": "team-morning-engine",
+      "stream": "node",
+      "level": "info",
+      "line_sha256": "e926955995a944c8bc3640e633f65954bbc8a8e273a53281fee324a666aa4b1b",
+      "scheduler_message": "开始执行 run-team-morning-engine"
+    },
+    {
+      "timestamp": "2026-10-27T00:33:04.957Z",
+      "job": "team-morning-engine",
+      "stream": "stdout",
+      "level": "info",
+      "line_sha256": "7347e2949ff8dd3fcbd1d41ca5eaa6dc1d198f5c177eca0f2ee4a953c80ab4a1",
+      "fields": {
+        "status": "COMPLETE"
+      }
+    },
+    {
+      "timestamp": "2026-10-27T00:33:05.060Z",
+      "job": "team-morning-engine",
+      "stream": "node",
+      "level": "info",
+      "line_sha256": "8f93a13996aa2c2fc82d91bc417e1d4866462355ff2c1e6d3fe8deb11711c3a9",
+      "scheduler_message": "任务结束 run-team-morning-engine status=succeeded exit=0 signal=none duration_ms=4312"
+    },
+    {
+      "timestamp": "2026-10-27T00:35:00.880Z",
+      "job": "team-morning-risk",
+      "stream": "node",
+      "level": "info",
+      "line_sha256": "55ec254390063338df103c936981832f99790f0c1c478912675e116613eebab5",
+      "scheduler_message": "触发调度 team-morning-risk at=2026-10-27T08:35"
+    },
+    {
+      "timestamp": "2026-10-27T00:35:00.880Z",
+      "job": "team-morning-risk",
+      "stream": "node",
+      "level": "info",
+      "line_sha256": "44b3ffdf6fc95aa8b0ce7d4cd3ceeed65fe18d3862192d9a4315973f34799962",
+      "scheduler_message": "开始执行 run-team-morning-risk"
+    },
+    {
+      "timestamp": "2026-10-27T00:35:36.588Z",
+      "job": "team-morning-risk",
+      "stream": "stdout",
+      "level": "info",
+      "line_sha256": "b8ef8644fd04187196ce68289681c5aaaca16138cc799dfaf4f38cf2e5b7ec31",
+      "fields": {
+        "status": "READY"
+      }
+    },
+    {
+      "timestamp": "2026-10-27T00:35:36.699Z",
+      "job": "team-morning-risk",
+      "stream": "node",
+      "level": "info",
+      "line_sha256": "189b9a466d7033fdc146ca4800040c7b82e4cf3d1fab709953d855147a834488",
+      "scheduler_message": "任务结束 run-team-morning-risk status=succeeded exit=0 signal=none duration_ms=35819"
+    },
+    {
+      "timestamp": "2026-10-27T00:38:00.058Z",
+      "job": "team-morning-pm",
+      "stream": "node",
+      "level": "info",
+      "line_sha256": "0a7506ff403bde8d500634142168d92d046513e53c41ad07438f31400f59cb98",
+      "scheduler_message": "触发调度 team-morning-pm at=2026-10-27T08:38"
+    },
+    {
+      "timestamp": "2026-10-27T00:38:00.058Z",
+      "job": "team-morning-pm",
+      "stream": "node",
+      "level": "info",
+      "line_sha256": "7bf81b92cc6752aeefc4e5e0e42fdbf76777cbb2d77e014c7dd0f8dc523a64e8",
+      "scheduler_message": "开始执行 run-team-morning-pm"
+    },
+    {
+      "timestamp": "2026-10-27T00:38:19.014Z",
+      "job": "team-morning-pm",
+      "stream": "stdout",
+      "level": "info",
+      "line_sha256": "555453e35877bc95f0fe96fe815d3afbce3b17438357f6177f0b5a0056795b8e",
+      "fields": {
+        "status": "READY"
+      }
+    },
+    {
+      "timestamp": "2026-10-27T00:38:19.117Z",
+      "job": "team-morning-pm",
+      "stream": "node",
+      "level": "info",
+      "line_sha256": "a2d493ed35cff9d619d1b168c83d888dde2a84654133c2ece5c71e23b9c77d0a",
+      "scheduler_message": "任务结束 run-team-morning-pm status=succeeded exit=0 signal=none duration_ms=19059"
+    }
+  ],
+  "existing_Mootdx_alert": [
+    {
+      "event_id": "93bdbe056087414f4d1e5bdb80b3f01700b557df411df87a6982d21a036bb34c",
+      "kind": "MARKET_SOURCE_UNAVAILABLE",
+      "source_id": "market-probe:2026-10-27:MOOTDX",
+      "status": "SENT",
+      "result_code": "INTERNAL_SENT"
+    }
+  ],
+  "ops_incident": {
+    "type": "OPS_SUPPLEMENT_INTERPRETER_MISMATCH",
+    "first_original": {
+      "path": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\a4-monitor-20261021\\MORNING_0840_SUPPLEMENT_RO_0804_20261027.json",
+      "sha256": "4049e90cad762cbb23f5508dacc4c90c5284230959afc6742fa018f410ba7adc"
+    },
+    "exception": "ModuleNotFoundError:pydantic",
+    "root_cause": "pin.ssh outer python3 is system stdlib interpreter; supplementary reader imports production classes",
+    "minimal_fix": "Run unchanged production readers through existing PROD/.venv/bin/python -B, no dependency install or business rerun",
+    "regression": "R2 read succeeded, source READY and same scope verified; own model/source HTTP0/business write0",
+    "worker": {
+      "path": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\a4-monitor-20261021\\morning_supplement_0804_20261027_vm.py",
+      "sha256": "039745030b2954ab5639e3b5fa83c7d882be65abd6fa792cbbf50a5e4447b811"
+    }
+  },
+  "own_new_model_http": 0,
+  "own_new_source_http": 0,
+  "production_write": 0,
+  "natural_morning_provider_attempts": 2,
+  "research_original_http_cumulative": 8,
+  "activation_0926": "NOT_RUN_NOT_DUE",
+  "A4_0930": "NOT_RUN_NOT_DUE"
+}

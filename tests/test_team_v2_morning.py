@@ -221,7 +221,7 @@ def test_missing_engine_does_not_invent_account_or_call_model(tmp_path):
     assert not seen and not (tmp_path/'state/team_v2').exists()
 
 
-@pytest.mark.parametrize('stage,timevalue',[('engine','08:32:59'),('engine','08:35:00'),('risk','08:37:00'),('pm','08:40:00')])
+@pytest.mark.parametrize('stage,timevalue',[('engine','08:32:59'),('engine','08:35:00'),('risk','08:37:00'),('pm','08:45:00')])
 def test_outside_window_no_owned_or_legacy_write(tmp_path,stage,timevalue):
     settings,clock=fixture(tmp_path);clock.now=datetime.fromisoformat('2026-10-19T'+timevalue+'+08:00')
     assert run_morning_stage(settings,stage,clock=lambda:clock.now,calendar=CAL)['status']=='NOOP'

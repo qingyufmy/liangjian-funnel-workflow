@@ -176,12 +176,12 @@ export class WorkflowScheduler {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
       if (clock.hour === 7 && clock.minute < 15) due.push("auction-base");
       if (clock.hour === 8 && clock.minute === 0) due.push("provider-health");
-      if (clock.hour === 8 && clock.minute === 30) due.push("premarket");
+      // Premarket delivery follows the committed natural CAS, never a clock.
       // Independent budgets and durable Python prerequisites. No delayed
       // catch-up/model retry can make a missed prior edge appear successful.
       if (clock.hour === 8 && clock.minute === 33) due.push("team-morning-engine");
       if (clock.hour === 8 && clock.minute === 35) due.push("team-morning-risk");
-      if (clock.hour === 8 && clock.minute === 38) due.push("team-morning-pm");
+      // PM is triggered by the completed A6 child below, not an 08:38 clock.
       if (clock.hour*60+clock.minute>=8*60+45 && clock.hour*60+clock.minute<=17*60+55) due.push("team-internal");
       // Independent evidence only. Never late-catch-up a 09:26 quote as an
       // auction-final print, and never rerun the A2/A3 research to obtain it.
@@ -266,6 +266,15 @@ export class WorkflowScheduler {
     this.logger.info(`触发调度 ${job} at=${key}`, { job });
     return this.runner.run(job)
       .then((result) => {
+        if (job === "team-morning-risk" && result.status === "succeeded") {
+          const completed = this.now();
+          const at = shanghaiClock(completed);
+          const pmKey = `${at.date}TA6-completed`;
+          if (at.date === key.slice(0,10) && at.hour === 8 && at.minute < 45
+              && this.dispatched.get("team-morning-pm") !== pmKey && !this.inFlight.has("team-morning-pm")) {
+            void this.dispatch("team-morning-pm", pmKey, completed);
+          }
+        }
         if (job === "runtime-integrity" && result.status === "succeeded") this.integrityReadyDate = key.slice(0,10);
         if (job.startsWith('team-a5-') && ((result.status==='skipped' && result.reason?.startsWith('BUSY:'))
             || result.exitCode===75)) this.dispatched.delete(job);

@@ -1,5 +1,6 @@
 """Bounded streaming projection of one stage from a large immutable audit."""
 from pathlib import Path
+import time
 
 import ijson
 from ijson.common import ObjectBuilder
@@ -18,24 +19,27 @@ def _retain_a1(prefix, event, value):
                for leaf in leaves)
 
 
-def read_audit_stage(path: Path, stage: str, *, max_file_bytes=512 * 1024 * 1024,
-                     max_stage_bytes=64 * 1024 * 1024) -> dict:
+def read_audit_stage(path: Path, stage: str, *, max_file_bytes=None,
+                     max_stage_bytes=64 * 1024 * 1024,max_read_seconds=20) -> dict:
+    if max_read_seconds<=0:raise ValueError('AUDIT_READ_DEADLINE')
     try:
-        return _read_audit_stage(path, stage, max_file_bytes, max_stage_bytes)
+        return _read_audit_stage(path, stage, max_file_bytes, max_stage_bytes,
+            deadline=time.monotonic()+max_read_seconds)
     except (ijson.JSONError, OverflowError) as exc:
         raise ValueError("AUDIT_JSON_INVALID") from exc
 
 
-def _read_audit_stage(path, stage, max_file_bytes, max_stage_bytes):
+def _read_audit_stage(path, stage, max_file_bytes, max_stage_bytes,*,deadline):
     before = path.stat()
-    if before.st_size > max_file_bytes:
+    if max_file_bytes is not None and before.st_size > max_file_bytes:
         raise ValueError("AUDIT_FILE_LIMIT")
     target = None
     index = -1
     # First pass never materializes A1's large evidence graph. A sorted JSON
     # audit can put the stage name after its output, so discover its index first.
     with path.open("rb") as handle:
-        for prefix, event, value in ijson.parse(handle, use_float=True):
+        for ordinal,(prefix, event, value) in enumerate(ijson.parse(handle, use_float=True)):
+            if ordinal%8192==0 and time.monotonic()>deadline:raise ValueError('AUDIT_READ_DEADLINE')
             if prefix == "stages.item" and event == "start_map":
                 index += 1
             if prefix == "stages.item.stage" and event == "string" and value == stage:
@@ -48,7 +52,8 @@ def _read_audit_stage(path, stage, max_file_bytes, max_stage_bytes):
     builder = ObjectBuilder()
     size = 0
     with path.open("rb") as handle:
-        for prefix, event, value in ijson.parse(handle, use_float=True):
+        for ordinal,(prefix, event, value) in enumerate(ijson.parse(handle, use_float=True)):
+            if ordinal%8192==0 and time.monotonic()>deadline:raise ValueError('AUDIT_READ_DEADLINE')
             if prefix == "stages.item" and event == "start_map":
                 index += 1
             if index != target:

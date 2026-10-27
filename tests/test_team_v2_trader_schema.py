@@ -33,7 +33,7 @@ def test_unmet_reference_explained_is_not_an_extra_and_hard_gate():
 
 @pytest.mark.parametrize("kind", ["envelope", "decision", "snapshot", "extra_root", "missing_plan",
     "duplicate_plan", "outside_symbol", "bad_action", "shares", "missing_refs", "missing_explanation",
-    "copied_met_status", "bad_handoff", "bool_batches", "no_falsifier", "no_wait", "unheld_exit"])
+    "unknown_item", "duplicate_item", "bad_handoff", "bool_batches", "no_falsifier", "no_wait", "unheld_exit"])
 def test_malformed_or_unbound_votes_never_repaired_into_pass(kind):
     raw=output(); row=raw["signals"][0]
     if kind=="envelope": raw["envelope"]={}
@@ -47,7 +47,8 @@ def test_malformed_or_unbound_votes_never_repaired_into_pass(kind):
     elif kind=="shares": row["shares"]=1000
     elif kind=="missing_refs": row["supporting_refs"]=[]
     elif kind=="missing_explanation": row["tech_reference_review"]=[]
-    elif kind=="copied_met_status": row["tech_reference_review"][0]["status"]="MET"
+    elif kind=="unknown_item": row["tech_reference_review"][0]["item"]="UNKNOWN_ITEM"
+    elif kind=="duplicate_item": row["tech_reference_review"].append(deepcopy(row["tech_reference_review"][0]))
     elif kind=="bad_handoff": row["handoff_to_a6"]["risk_unit_hint"]="MAX"
     elif kind=="bool_batches": row["handoff_to_a6"]["batches_hint"]=True
     elif kind=="no_falsifier": row["what_would_change_my_mind"]=[]
@@ -55,6 +56,19 @@ def test_malformed_or_unbound_votes_never_repaired_into_pass(kind):
     elif kind=="unheld_exit": raw["position_actions"]=[dict(symbol="600000.SH",action="SELL_SIGNAL",
         reason_code="EXIT",supporting_refs=["M1"],opposing_refs=["T1"],distance_to_stop_note="break")]
     assert not checked(raw).valid
+
+
+def test_reference_status_is_server_owned_and_raw_action_is_unchanged():
+    from liangjian_funnel.pipeline.team_v2_trader_schema import project_trader_references
+    raw=output('NO_ACTION');raw['signals'][0]['tech_reference_review'][0]['status']='MET'
+    original=deepcopy(raw)
+    assert checked(raw).valid
+    projected,changes=project_trader_references(raw,CONTEXT['tech_reference'])
+    assert raw==original and projected['signals'][0]['action']=='NO_ACTION'
+    assert projected['signals'][0]['tech_reference_review'][0]['status']=='UNMET'
+    assert changes[0]['original']=='MET' and changes[0]['authoritative']=='UNMET'
+    del raw['signals'][0]['tech_reference_review'][0]['status']
+    assert checked(raw).valid
 
 
 def test_malformed_nested_types_are_invalid_not_exceptions():

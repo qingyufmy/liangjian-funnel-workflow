@@ -40,7 +40,8 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
                       allow_model_call: bool = False, fallback_enabled: bool = True,
                       fallback_priority_order: tuple = (), max_new_entries: int = 3,
                       a6_validated: bool = False, a6_degraded_conservative: bool = False,
-                      max_positions: int = 6, geometry_plan_ids=None,geometry_audit=None) -> dict:
+                      max_positions: int = 6, geometry_plan_ids=None,geometry_audit=None,
+                      deadline_at=None) -> dict:
     now = clock()
     if (not isinstance(now, datetime) or now.utcoffset() is None
             or now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat() != trade_date
@@ -54,6 +55,13 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
         raise ValueError('PM_FALLBACK_CONTEXT_INVALID')
     values,shortlist,plan_refs=pm_shortlist(replacements,envelopes=envelopes,
         plan_clusters=plan_clusters,geometry_plan_ids=geometry_plan_ids,max_positions=max_positions)
+    if len(shortlist['selected_plan_ids'])>2*max_positions:
+        from .team_v2_pm_batches import run_pm_batches
+        import inspect
+        scope=locals()
+        arguments={key:scope[key] for key in inspect.signature(run_pm_premarket).parameters}
+        return run_pm_batches(run_one=run_pm_premarket,arguments=arguments,
+            all_values=values,shortlist=shortlist,plan_refs=plan_refs)
     shortlist['geometry_source_audit']=geometry_audit
     # Authoritative derived inputs overwrite caller decoration, never the other
     # way round. Current geometry is not changed and planning is not activation.
@@ -81,6 +89,17 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
         utilization_cap=utilization_cap, high_conviction_ids=high_conviction_ids)
     # Validate server domain before HTTP, not just inside the model callback.
     validate_pm_premarket(None, values['EVIDENCE_CATALOG'], **validator_args)
+    deadline_exceeded=False
+    if deadline_at is not None:
+        if (deadline_at.utcoffset() is None or deadline_at.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()!=trade_date
+                or deadline_at.astimezone(ZoneInfo('Asia/Shanghai')).time().replace(tzinfo=None)>datetime.strptime('08:45','%H:%M').time()):
+            raise ValueError('PM_DEADLINE_INVALID')
+        budget_source=hashlib.sha256(canonical(dict(call_id=call_id,input_hash=request.input_hash,
+            deadline=deadline_at.isoformat(),configured_timeout=timeout_seconds)).encode()).hexdigest()
+        frozen=store.freeze_control_context('pm-single-budget:'+meeting_id,source_sha256=budget_source,
+            body=dict(timeout_seconds=min(timeout_seconds,max(0,(deadline_at-clock()).total_seconds()-2))))
+        timeout_seconds=frozen['timeout_seconds']
+        deadline_exceeded=timeout_seconds<=0 or clock()>=deadline_at
     binding = hashlib.sha256(canonical(dict(account_id=account_id, run_id=run_id, model=model,
         trade_date=trade_date, source_trade_date=source_trade_date, call_id=call_id,
         input_hash=request.input_hash, plan_clusters=dict(plan_clusters), free_slots=free_slots,
@@ -88,7 +107,7 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
         max_output_tokens=max_output_tokens,fallback_enabled=fallback_enabled,
         fallback_priority_order=list(fallback_priority_order),max_new_entries=max_new_entries,
         a6_validated=a6_validated,a6_degraded_conservative=a6_degraded_conservative,
-        shortlist=shortlist)).encode()).hexdigest()
+        shortlist=shortlist,deadline_at=deadline_at.isoformat() if deadline_at else None)).encode()).hexdigest()
     previous = store.load_pm(meeting_id, input_sha256=binding)
     if previous is not None:
         _notify_fallback(store,previous,account_id=account_id,trade_date=trade_date)
@@ -103,6 +122,8 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
         _,checked = project_pm_compact(output, values['EVIDENCE_CATALOG'],plan_refs=plan_refs, **validator_args)
         valid = captured['validated'] and checked.valid
         issues = tuple(dict.fromkeys((*captured['issues'], *checked.issues)))
+    elif deadline_exceeded:
+        issues=('PM_NOT_REVIEWED_TIME_BUDGET',)
     elif (failure := journal.load_failed(call_id,request_binding=team_call_binding(request,
             run_id=run_id,model=model,session='PM_PREMARKET',timeout_seconds=timeout_seconds,
             max_output_tokens=max_output_tokens))) is not None:
@@ -115,6 +136,8 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
                 max_output_tokens=max_output_tokens, validator=lambda result: project_pm_compact(
                     result, values['EVIDENCE_CATALOG'],plan_refs=plan_refs, **validator_args)[1], clock=clock, allow_model_call=True)
             output = outcome.response.output; valid = outcome.validation.valid; issues = outcome.validation.issues
+            if deadline_at is not None and clock()>=deadline_at:
+                valid=False;issues=('PM_NOT_REVIEWED_TIME_BUDGET',)
         except ValueError as exc:
             # No hidden retry or model-chosen defaults. A failed/uncertain call
             # produces no slot or new entry permission. Storage/binding errors
@@ -138,6 +161,7 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
         'handoff_notes': output['handoff_notes'] if valid else {},
         'what_would_change_my_mind': output['what_would_change_my_mind'] if valid else []}
     decision['model_validated']=bool(valid)
+    decision['model_compact_output']=output if valid else None
     decision['input_projection']=input_projection
     decision['shortlist_audit']=shortlist
     decision['server_projection']={'schema':'PM_COMPACT_SOURCE_LINK_PROJECTION/1',
@@ -145,7 +169,15 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
         'raw_output_sha256':hashlib.sha256(canonical(output).encode()).hexdigest(),
         'derived_output_sha256':hashlib.sha256(canonical(derived).encode()).hexdigest() if valid else None}
     decision['decision_authority']='VALIDATED_MODEL' if valid else 'NO_ALLOCATION'
-    if not valid and fallback_enabled and fallback_priority_order:
+    if deadline_at is not None:
+        decision['deadline_audit']=dict(deadline_at=deadline_at.isoformat(),timeout_seconds=timeout_seconds,
+            observed_at=clock().isoformat(),unreviewed_plan_ids=list(plan_refs.values()) if 'PM_NOT_REVIEWED_TIME_BUDGET' in issues else [])
+    if 'PM_NOT_REVIEWED_TIME_BUDGET' in issues:
+        from .team_v2_internal import InternalOutbox
+        InternalOutbox(store).enqueue(account_id=account_id,trade_date=trade_date,kind='PM_NOT_REVIEWED_TIME_BUDGET',
+            source_id=meeting_id,observed_at=clock(),priority=5,body=dict(msg_type='text',content=dict(
+                text='晨会未审核候选：'+str(len(plan_refs))+'只；PM_NOT_REVIEWED_TIME_BUDGET；不分配未审计划。')))
+    if not valid and 'PM_NOT_REVIEWED_TIME_BUDGET' not in issues and fallback_enabled and fallback_priority_order:
         fallback=derive_pm_fallback(envelopes=envelopes,plan_clusters=plan_clusters,
             priority=fallback_priority_order,free_slots=free_slots,max_new_entries=max_new_entries,
             a6_validated=a6_validated,utilization_cap=utilization_cap,

@@ -23,10 +23,10 @@ def _first(*values: Any) -> Any:
     return None
 
 
-def _items(value: Any, *, limit: int = 6) -> list[str]:
+def _items(value: Any) -> list[str]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
         return []
-    return [str(item) for item in value[:limit] if str(item or "").strip()]
+    return [str(item) for item in value if str(item or "").strip()]
 
 
 def build_a4_decision_context(

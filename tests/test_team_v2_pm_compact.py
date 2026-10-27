@@ -64,7 +64,7 @@ def test_global_refs_risk_upgrade_coverage_and_extra_fields_still_hard_fail():
     assert checked.valid and projected['slot_plan']==[]
 
 
-def test_33_to_12_uses_original_a3_priority_a6_and_geometry_without_mutating():
+def test_33_all_reviewable_in_original_a3_priority_a6_and_geometry_without_mutating():
     rows=[dict(plan_id=f'p{i:02}',symbol=f's{i:02}',cluster='c'+str(i%11),
         publication_facts={'plan_priority_rank':34-i}) for i in range(1,34)]
     catalog={'categories':['PLAN'],'items':[dict(id='PLAN:'+p['plan_id'],category='PLAN',value=p) for p in rows]}
@@ -74,9 +74,9 @@ def test_33_to_12_uses_original_a3_priority_a6_and_geometry_without_mutating():
     geometry=set(clusters)
     projected,audit,refs=pm_shortlist(values,envelopes=envelopes,plan_clusters=clusters,
         geometry_plan_ids=geometry,max_positions=6)
-    assert audit['selected_plan_ids']==[f'p{i:02}' for i in range(33,21,-1)]
-    assert len(refs)==12 and len(projected['EVIDENCE_CATALOG']['items'])==12
-    assert len(audit['excluded'])==21 and all(r['reason_code']=='PM_SHORTLIST_CUTOFF' for r in audit['excluded'])
+    assert audit['selected_plan_ids']==[f'p{i:02}' for i in range(33,0,-1)]
+    assert len(refs)==33 and len(projected['EVIDENCE_CATALOG']['items'])==33
+    assert audit['excluded']==[] and audit['global_truncation'] is False and audit['batch_capacity']==12
     assert values==frozen
     # Actual geometry 15 EMPTY / 7 PARTIAL / 4 FULL / 7 unknown does NOT make 12.
     geometry={f'p{i:02}' for i in range(16,27)}

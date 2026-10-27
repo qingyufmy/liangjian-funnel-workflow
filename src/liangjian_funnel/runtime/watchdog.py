@@ -73,6 +73,18 @@ def assess(now: datetime, snapshot: dict, *, trading_day: bool) -> dict:
         return result
     if not snapshot.get('app_healthy'):
         result['problems']['APP_UNHEALTHY']='虚拟机可连接，但应用健康检查失败。'
+    readiness = snapshot.get('plan_readiness') or {}
+    if (now.hour, now.minute) >= (8, 45) and readiness.get('current_plan_count') == 0:
+        premarket_status = str(readiness.get('premarket_status') or '未生成回执')
+        premarket_reason = str(readiness.get('premarket_reason') or '未记录')
+        auction_status = str(readiness.get('auction_status') or '未生成回执')
+        auction_reason = str(readiness.get('auction_reason') or '未记录')
+        result['problems']['DAILY_PLAN_NOT_READY'] = (
+            '今日没有有效的A3/A4执行计划；分钟任务即使运行，也只能空转。'
+            f'盘前={premarket_status}/{premarket_reason}；'
+            f'竞价刷新={auction_status}/{auction_reason}。'
+            '暂停新增仓判断，核查前一交易日收盘研究及计划发布；不得用过期计划补位。'
+        )
     expected = expected_minutes(now)
     observed=set(snapshot.get('minutes') or [])
     result['gaps']=gap_ranges([s for s in expected if s not in observed])
@@ -97,7 +109,7 @@ def assess(now: datetime, snapshot: dict, *, trading_day: bool) -> dict:
     leases={r['lease_name']:r for r in snapshot.get('leases',[])}
     deadlines=(('premarket_0830',9,20,'盘前分析'),('morning_0925',9,40,'早盘复核'),
                ('a5_midday_1135',12,45,'午间复盘'),('a5_post_close_1600',17,0,'收盘复盘'),
-               ('close_1510',20,30,'盘后研究'))
+               ('close_1510',16,45,'盘后研究'))
     for name,h,m,label in deadlines:
         if now <= now.replace(hour=h,minute=m,second=0,microsecond=0):continue
         lease=leases.get('scheduler:'+name,{})

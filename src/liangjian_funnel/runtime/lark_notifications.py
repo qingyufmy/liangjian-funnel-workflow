@@ -27,6 +27,7 @@ _ACTION_LABELS = {
     "LLM_VETO": "模型否决",
     "PLAN_INVALIDATED": "计划失效",
     "DATA_BLOCK": "数据阻断",
+    "JUDGE_TIMEOUT": "模型复核超时",
     "FORCED_RISK_EXIT": "强制风控离场",
 }
 _A4_TRADE_ACTIONS = frozenset({
@@ -66,7 +67,7 @@ _A5_DROP_STAGE_LABELS = {
 _A5_PROPOSAL_LABELS = {
     "ENGINEERING_FIX": "工程修复",
     "DATA_FIX": "数据修复",
-    "SHADOW_TEST": "影子验证",
+    "SHADOW_TEST": "影子验证·待审建议",
 }
 
 _LIVE_MARKET_STATUS_LABELS = {
@@ -92,6 +93,158 @@ _LIVE_MARKET_REASON_LABELS = {
 }
 
 _DISPLAY_LABELS = {
+    'A3_PULLBACK_ZONE':'原计划回踩区间',
+    'A3_RIGHT_SIDE_CONFIRMATION':'原计划右侧确认条件',
+    'A3_RIGHT_SIDE_CONFIRMATION_MISSING':'原计划缺少右侧确认条件',
+    'A3_TRIGGER_ZONE':'原计划触发区间',
+    'A4_BEHAVIOR_ROUTE_CONFLICT':'股票行为与执行路线冲突',
+    'A4_LIVE_ENTRY_GEOMETRY_READY':'实时入场价格结构已备齐',
+    'A4_LIVE_MARKET_BLOCK_WAIT':'实时市场门阻断，等待条件',
+    'A4_RUNTIME_POLICY_INVALID':'盘中执行策略配置无效',
+    'AS_OF_TIMESTAMP':'事实截止时间',
+    'AS_OF_TIMESTAMP_MISSING':'事实截止时间缺失',
+    'AWARE_DECISION_TIME':'含时区的决策时间',
+    'BEHAVIOR_ROUTE_COMPATIBLE':'股票行为与路线相容',
+    'B_CURRENT_QUOTE_OUTSIDE_STOP_OR_NO_CHASE':'当前报价越过B形态止损或禁止追价边界',
+    'CURRENT_1M_RISK_LEVEL_TOUCHED':'当前一分钟触及风险边界',
+    'CURRENT_CLOSED_1M':'当前闭合一分钟行情',
+    'CURRENT_QUOTE_WITHIN_BOUND_B_RISK':'当前报价处于B形态绑定风险范围',
+    'DAILY_CLOSE_ABOVE_MA20':'日线收盘价高于二十日均线',
+    'DAILY_MA5_ABOVE_MA20':'五日均线高于二十日均线',
+    'DAILY_MA5_MA20_ONLY':'仅使用日线五日与二十日均线',
+    'DAILY_MA5_MA20_SNAPSHOT':'日线五日与二十日均线快照',
+    'DECISION_TIME_INVALID':'决策时间无效',
+    'DECISION_TIME_NOT_BEFORE_CLOSED_BAR':'决策时间不早于闭合行情',
+    'DECISION_TIME_TIMEZONE_MISSING':'决策时间缺少时区',
+    'ENTRY_CONFIRMATION_CONFIG_INVALID':'入场确认配置无效',
+    'ENTRY_PATTERN_BINDING_INVALID':'入场形态绑定无效',
+    'ENTRY_PATTERN_B_BINDING_VALID':'B形态绑定有效',
+    'ENTRY_PATTERN_B_EXECUTION_BOUND':'B形态执行价格已绑定',
+    'ENTRY_PATTERN_B_EXECUTION_UNBOUND':'B形态执行价格尚未绑定',
+    'EXECUTABLE_NOT_LOCKED_LIMIT_UP':'可执行且非封死涨停',
+    'FUTURE_BAR_DETECTED':'发现未来行情',
+    'HISTORICAL_5M_PREVIOUS_SESSION_UNPROVEN':'前一交易日五分钟历史未获证明',
+    'INVALID_ACTION':'动作无效',
+    'LEADER_15M_NOT_WEAK':'龙头十五分钟结构未转弱',
+    'LEADER_15M_WEAK':'龙头十五分钟结构转弱',
+    'LEADER_5M_DIVERGENCE_TO_STRENGTH':'龙头五分钟分歧转强',
+    'LEADER_5M_RESEAL':'龙头五分钟回封',
+    'LEADER_5M_TRIGGER':'龙头五分钟触发条件',
+    'LEADER_BOARD_CONFIRMATION':'龙头封板确认',
+    'LEADER_BOARD_RISK':'龙头封板风险',
+    'LEADER_CLIMAX_NO_NEW_ENTRY':'龙头高潮阶段不新增入场',
+    'LEADER_CONTEXT':'龙头上下文',
+    'LEADER_CONTEXT_CURRENT':'龙头上下文属于当前时段',
+    'LEADER_CONTEXT_EXPIRED':'龙头上下文已过期',
+    'LEADER_CONTEXT_INCOMPLETE':'龙头上下文不完整',
+    'LEADER_CONTEXT_MISSING':'龙头上下文缺失',
+    'LEADER_CONTEXT_STRENGTH':'龙头上下文强度',
+    'LEADER_FIRST_15M_BREAKOUT':'龙头首段十五分钟突破',
+    'LEADER_FIRST_BOARD_OBSERVE':'龙头首板观察',
+    'LEADER_HIGH_VOLUME_UPPER_SHADOW':'龙头放量上影风险',
+    'LEADER_TRIGGER_NOT_MET':'龙头触发条件未满足',
+    'LIVE_MARKET_ENTRY_PERMISSION':'实时市场入场许可',
+    'LIVE_MARKET_STATE_READY':'实时市场状态就绪',
+    'LOCKED_LIMIT_UP':'封死涨停不可执行',
+    'MA520_15M_STABLE':'五二零十五分钟结构稳定',
+    'MA520_15M_WEAK':'五二零十五分钟结构转弱',
+    'MA520_5M_HIGHER_LOW':'五二零五分钟低点抬高',
+    'MA520_5M_NO_HIGHER_LOW':'五二零五分钟低点未抬高',
+    'MA520_5M_VWAP_NOT_RECLAIMED':'五二零五分钟未收复成交均价',
+    'MA520_5M_VWAP_RECLAIM':'五二零五分钟收复成交均价',
+    'MA520_BELOW_MA20':'五二零跌至二十日均线下方',
+    'MA520_CONFIRMATION_PENDING':'五二零确认仍在等待',
+    'MA520_DAILY_SNAPSHOT_MISSING':'五二零日线快照缺失',
+    'MA520_DEATH_CROSS':'五二零均线死叉',
+    'MA520_INTRADAY_HOLD_MA20':'五二零盘中守住二十日均线',
+    'MA520_TWO_CLOSED_5M_CONFIRMATIONS':'五二零两个闭合五分钟确认',
+    'MA520_VOLUME_NOT_OVERHEATED':'五二零成交量未过热',
+    'MIXED_TRADING_DATES':'行情混入多个交易日',
+    'NO_1M_BARS':'没有一分钟行情',
+    'NO_FUTURE_BARS':'没有未来行情',
+    'NO_SELLABLE_POSITION':'没有可卖持仓',
+    'OUTSIDE_SESSION':'不在交易时段',
+    'PLAN_DATA_READY':'计划数据就绪',
+    'POSITION_OPEN':'已有持仓',
+    'PRICE_DISCOVERY_TREND_ROUTE':'价格发现趋势路线',
+    'PROFITABLE_POSITION_FOR_ADD':'加仓要求原持仓盈利',
+    'SAME_TRADING_DATE':'属于同一交易日',
+    'SELLABLE_POSITION':'存在可卖持仓',
+    'STALE_1M':'一分钟行情已陈旧',
+    'STANDARD_TREND_ROUTE':'标准趋势路线',
+    'STOCK_BEHAVIOR_TYPE':'股票行为类型',
+    'STRATEGY_PROFILE':'策略类型',
+    'STRATEGY_TRIGGER_NOT_MET':'策略触发条件未满足',
+    'TRADE_DATE_MISMATCH':'交易日不一致',
+    'TREND_15M_PRESSURE_EASING':'趋势十五分钟抛压减轻',
+    'TREND_5M_REVERSAL_CONFIRMATION':'趋势五分钟反转确认',
+    'TREND_ADD_REQUIRES_PROFIT':'趋势加仓要求已有浮盈',
+    'TREND_AVERAGE_DOWN_FORBIDDEN':'趋势禁止摊低亏损持仓',
+    'TREND_ENTRY_RULE_V2':'趋势入场规则第二版',
+    'TREND_INTRADAY_HOLD_MA5':'趋势盘中守住五日均线',
+    'TREND_VOLUME_NOT_OVERHEATED':'趋势成交量未过热',
+    'TRIGGER_ZONE_NOT_MET':'触发区间未满足',
+    'UNKNOWN_STRATEGY_PROFILE':'策略类型不在已登记范围',
+    'VALID_CLOSED_1M_BARS':'有效闭合一分钟行情',
+    'VALID_STRUCTURE_FAIL_CONFIRM_BARS_15M':'有效十五分钟结构失效确认根数',
+    "A3_TREND_ROUTE_APPROVED": "趋势路线已通过计划审核",
+    "A4_LIVE_ENTRY_GEOMETRY_ACCEPTED": "本轮入场几何已接受",
+    "A4_MARKET_CAUTION_REDUCED_POSITION": "市场谨慎，收紧仓位",
+    "A4_SESSION_WARMUP": "等待当日闭合行情准备完成",
+    "A_15M_SUPPORT": "十五分钟支撑",
+    "A_CONTRACTION": "回踩量能收缩",
+    "A_PULLBACK": "价格回踩",
+    "A_STABILIZED": "回踩止跌确认",
+    "A_SUPPORT": "支撑结构有效",
+    "B_ACCEPTED": "突破回踩形态确认",
+    "B_ATTEMPT_PREFIX": "突破尝试前缀",
+    "B_EFFECTIVE_BREAKOUT": "有效突破",
+    "B_KEY_BELOW_NO_CHASE": "关键位低于禁追价",
+    "B_KEY_LEVEL": "日线关键位可用",
+    "B_NO_CHASE": "突破回踩未触禁追价",
+    "B_RETEST": "突破后回踩",
+    "B_RETEST_VOLUME": "回踩量能确认",
+    "B_STOP_ONLY_RAISED": "止损仅向上收紧",
+    "CLOSED_15M": "十五分钟已闭合",
+    "CLOSED_5M": "五分钟已闭合",
+    "CONFIRM_CURRENT_MINUTE_NO_TRADES": "当分钟无成交，按原证据确认",
+    "CURRENT_MINUTE_HAS_TRADES": "当分钟有成交",
+    "DETERMINISTIC_STRATEGY_CONFIRMATION": "确定性策略确认",
+    "EMPTY_SCOPE": "当前无待监测对象",
+    "ENGINE_REVIEW_CANDIDATE": "引擎候选待模型复核",
+    "ENTRY_CONFIRMATION_NOT_COMPLETE": "入场确认尚未完成",
+    "ENTRY_GEOMETRY_NOT_CONFIRMED": "入场几何尚未确认",
+    "ENTRY_GEOMETRY_NOT_MET_PRICE_ABOVE_NO_CHASE": "实时价超过禁追价",
+    "ENTRY_GEOMETRY_NOT_MET_PRICE_BELOW_ZONE": "实时价低于入场区间",
+    "ENTRY_GEOMETRY_VIOLATED_NO_CHASE": "入场几何触及禁追边界",
+    "ENTRY_RR": "入场盈亏比",
+    "ENTRY_ZONE": "入场区间",
+    "ENTRY_ZONE_NOT_REACHED": "尚未到达入场区间",
+    "ENTRY_ZONE_NOT_REACHED_AND_MARKET_RISK_OFF": "未达入场区间且市场收缩风险",
+    "ENTRY_ZONE_NOT_REACHED_PRICE_ABOVE_TRIGGER_HIGH": "实时价高于计划区间上沿",
+    "LLM_UNAVAILABLE": "模型复核不可用",
+    "MONITOR_OVERRUN": "模型复核超时，未形成有效裁决",
+    "NETWORK_RETRY_EXHAUSTED": "模型网络尝试失败，详见逐次回执",
+    "NO_CLOSED_15M": "尚无闭合十五分钟行情",
+    "NO_CLOSED_5M": "尚无闭合五分钟行情",
+    "PREVIOUS_CLOSE_RESEARCH_FAILED": "上一交易日研究尚未就绪",
+    "PRICE_ABOVE_ENTRY_ZONE_AND_MARKET_RISK_OFF": "实时价高于入场区间且市场收缩风险",
+    "TEAM_MODEL_CALL_FAILED": "团队模型调用失败",
+    "TRADER_TECH_REFERENCE_INVALID": "模型技术引用未通过校验",
+    "VOLUME_NOT_OVERHEATED": "成交量未过热",
+    "VOLUME_OVERHEATED": "成交量过热",
+    "WAITING_CONDITION": "等待策略条件确认",
+    "ORCHESTRATOR": "任务编排",
+    "JUDGE_TIMEOUT": "模型复核超时",
+    "A4_REVIEW_CAPACITY_TRUNCATED": "本节拍模型容量不足，未复核对象已单独通知",
+    "TRUNCATED": "本节拍未复核，已显式记录",
+    "PM_NOT_REVIEWED_TIME_BUDGET": "晨会预算不足，未进入组合审核",
+    "NOTHING_PENDING_ALL_ACTIVE": "当日计划均已激活，无待补激活计划",
+    "ENGINE_ONLY_HALF_POSITION": "仅引擎降级，总仓位上限减半",
+    "ENGINE_ONLY_NO_CHASE": "仅引擎降级，触及严格禁追价",
+    "ENGINE_ONLY_OUTSIDE_STRICT_ENTRY_RANGE": "仅引擎降级，超出更严入场区间",
+    "ENGINE_ONLY_HALF_POSITION_NO_LOT": "减半后不足整手或已有仓位占满",
+    "ENGINE_ONLY_GEOMETRY_UNPROVEN": "仅引擎降级，原区间证据不完整",
     "READY": "资料完整",
     "DEGRADED": "部分资料待完善",
     "READY_DEGRADED": "可用但需留意",
@@ -410,7 +563,7 @@ def _display_text(value: Any, *, limit: int = 300, fallback: str = "—") -> str
             or _DISPLAY_LABELS.get(match.group(0).replace("-", "_"))
             or _THEME_LABELS.get(match.group(0).replace("-", "_"))
             or _TEXT_REPLACEMENTS.get(match.group(0).replace("-", "_"))
-            or "未识别的说明（见原始证据）"
+            or ("原码："+match.group(0))
         ),
         rendered,
     )
@@ -419,6 +572,34 @@ def _display_text(value: Any, *, limit: int = 300, fallback: str = "—") -> str
 
 def _display_items(value: Any, *, limit: int = 4) -> list[str]:
     return [_display_text(item, limit=180) for item in _items(value, limit=limit)]
+
+
+def _condition_summary(value, *, key_limit=4):
+    rows=list(value) if isinstance(value,(list,tuple)) else []
+    shown=_display_items(rows,limit=key_limit)
+    remainder=len(rows)-len(shown)
+    return f"共{len(rows)}项；"+('；'.join(shown) if shown else '无')+(f"；另{remainder}项见原件" if remainder else '')
+
+
+def _a4_price_discipline(payload, strategy, event_payload):
+    """Never relabel an authored A3 range as an original Team admission."""
+    team=event_payload.get('team_execution_binding')
+    lines=[]
+    if isinstance(team,Mapping) and isinstance(team.get('plan'),Mapping):
+        p=team['plan']
+        lines.extend([f"• Team绑定价：{_number(p.get('price'))}；区间：{_number(p.get('entry_low'))}–{_number(p.get('entry_high'))}",
+            f"• Team止损：{_number(p.get('stop_price'))}；禁止追价：{_number(p.get('no_chase'))}"])
+    else:
+        lines.append('• Team准入价格绑定未留存；不能用计划价格代替当时执行价格。')
+        proof=strategy.get('entry_pattern_binding')
+        if isinstance(proof,Mapping):
+            from .entry_pattern_binding import checked_binding
+            try:proof=checked_binding(proof)
+            except ValueError:lines.append('• 本轮形态价格绑定未通过哈希校验。')
+            else:lines.append(f"• 本轮确定性形态证据：确认价{_number(proof['entry_price'])}；止损{_number(proof['stop'])}；禁止追价{_number(proof['no_chase'])}，不等同Team已准入。")
+    lines.extend([f"• 计划区间：{_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}（原A3计划）",
+        f"• 计划止损：{_number(payload.get('stop_level'))}；计划禁止追价：{_number(payload.get('no_chase') or payload.get('no_chase_price') or payload.get('max_chase_price'))}"])
+    return lines
 
 
 def _percentage(value: Any) -> str:
@@ -543,7 +724,7 @@ def _a4_decision_lines(context: Mapping[str, Any]) -> list[str]:
         _display_text(strategy.get("profile"), limit=30, fallback="策略未标注"),
     )
     setup = _display_text(strategy.get("setup_pattern"), limit=50, fallback="按冻结计划确认")
-    met = _display_items(strategy.get("met_conditions"), limit=4)
+    met = _condition_summary(strategy.get("met_conditions"))
     closed = "、".join(
         item for item in (
             f"五分钟{_time_label(strategy.get('closed_5m_end'))}" if strategy.get("closed_5m_end") else "",
@@ -564,7 +745,7 @@ def _a4_decision_lines(context: Mapping[str, Any]) -> list[str]:
         f"• 资金条件：{funding_state}；市场成交额比{amount_ratio}，覆盖率{coverage}；{flow_text}。",
         f"• 价格结构：实时确认价{confirmed_price}；止损{stop_price}；禁止追价{no_chase_price}；第一目标{target_price}；实时盈亏比{reward_risk}。",
         f"• 技术策略：{profile}；形态为{setup}；依据闭合周期：{closed}。",
-        f"• 已确认：{'；'.join(met) if met else '确定性策略条件已通过，细项未单独列出'}。",
+        f"• 已确认：{met if met else '确定性策略条件已通过，细项未单独列出'}。",
     ]
 
 
@@ -671,6 +852,12 @@ class WorkflowLarkPublisher:
         existing = self.store.get_delivery_by_key(delivery_key)
         if existing is not None:
             return {"status": str(existing["status"]), "duplicate": True, "delivery_id": existing["delivery_id"]}
+        unknown_counts={}
+        for code in re.findall(r'原码：([A-Z][A-Z0-9_:-]*)','\n'.join(lines)):
+            unknown_counts[code]=unknown_counts.get(code,0)+1
+        if unknown_counts:
+            lines=[*lines,'',f"• 标签映射告警：{len(unknown_counts)}种原码，共{sum(unknown_counts.values())}处；原码已保留，需补齐映射。"]
+            summary={**summary,'unmapped_code_counts':unknown_counts,'label_mapping_alert':True}
         color = self.store.next_notification_color()
         send_started = self.clock()
         from .card_archive import archive_card
@@ -788,6 +975,13 @@ class WorkflowLarkPublisher:
     ) -> dict[str, Any]:
         """Report a missing plan scope without inventing a trade plan."""
 
+        if reason_code=='NOTHING_PENDING_ALL_ACTIVE':
+            return dict(status='NOOP',reason_code=reason_code)
+        local=analyzed_at.astimezone(ZoneInfo('Asia/Shanghai'))
+        if (local.hour,local.minute)<(8,45):
+            return dict(status='NOOP',reason_code='PREMARKET_AWAITING_NATURAL_CAS',
+                availability='IN_PROGRESS',description='晨会进行中，等待自然切换；最晚北京时间08:45。')
+
         explanation = {
             "NO_PENDING_A3_PLANS": "没有待早盘复核的有效技术计划；需核查上一交易日的收盘研究和计划发布。",
             "NO_CURRENT_A3_PLANS": "没有属于本交易日的有效技术计划。",
@@ -808,6 +1002,15 @@ class WorkflowLarkPublisher:
             summary={"trade_date": day, "plan_count": 0, "reason_code": reason_code},
             now=analyzed_at,
         )
+
+    def publish_batch_switch_status(self,*,trade_date,scope_id,plan_count,body_sha256,observed_at):
+        return self._send(delivery_key=f'reviewed-batch-ready:{trade_date}:{scope_id}',
+            kind='PREMARKET_BATCH_READY',source_id=scope_id,
+            title=f'晨会计划已就绪｜{trade_date}',lines=[
+                f'自然批次切换已完成：{plan_count}只计划。',f'• 批次：{scope_id}',
+                '• 计划等待09:26自然激活；待激活不代表计划缺失，也不代表已成交。'],
+            summary=dict(trade_date=trade_date,scope_id=scope_id,plan_count=plan_count,
+                candidate_body_sha256=body_sha256,availability='READY_PENDING_ACTIVATION'),now=observed_at)
 
     def publish_a3_premarket_analysis(
         self,
@@ -1152,7 +1355,10 @@ class WorkflowLarkPublisher:
             for item in defects[:4]:
                 severity = _display_text(item.get("severity"), limit=20, fallback="待分级")
                 layer = _display_text(item.get("layer"), limit=20, fallback="相关环节")
-                data_note = "，受数据缺口影响" if bool(item.get("blocked_by_data")) else ""
+                blocker_type=item.get('blocker_type')
+                data_note = ('，模型复核超时' if blocker_type=='JUDGE_TIMEOUT' else
+                    '，模型或网络不可用' if blocker_type=='MODEL_UNAVAILABLE' else
+                    '，受数据缺口影响' if bool(item.get("blocked_by_data")) and blocker_type not in {'MIXED','OTHER_OR_UNPROVEN'} else '')
                 lines.append(
                     f"• **{layer}｜{severity}**："
                     f"{_display_text(item.get('problem'), limit=240, fallback='问题描述待补充')}{data_note}"
@@ -1173,7 +1379,7 @@ class WorkflowLarkPublisher:
                 lines.append(
                     f"• **{target}｜{proposal_type}**："
                     f"{_display_text(item.get('proposed_change'), limit=220, fallback='建议待补充')}；"
-                    + (f"至少观察 {_number(item.get('min_shadow_days'))} 个交易日。" if item.get("type") == "SHADOW_TEST"
+                    + (f"待审建议观察 {_number(item.get('min_shadow_days'))} 个交易日，尚未获批。" if item.get("type") == "SHADOW_TEST"
                      else "以确定性回归和数据核对验收，不设统一观察天数。")
                 )
         else:
@@ -1468,8 +1674,10 @@ class WorkflowLarkPublisher:
             symbol = _stock_code(event.get("symbol") or event_payload.get("symbol") or plan.get("symbol"))
             name = _text(payload.get("name"), limit=30, fallback="名称未提供")
             strategy = _STRATEGY_LABELS.get(str(payload.get("strategy_profile") or ""), _display_text(payload.get("strategy_profile"), limit=40, fallback="按个股计划执行"))
-            met = _display_items(event.get("met_conditions") or strategy_result.get("met_conditions") or payload.get("met_conditions"), limit=4)
-            unmet = _display_items(event.get("unmet_conditions") or strategy_result.get("unmet_conditions") or payload.get("unmet_conditions"), limit=4)
+            met_values=event.get("met_conditions") or strategy_result.get("met_conditions") or payload.get("met_conditions")
+            unmet_values=event.get("unmet_conditions") or strategy_result.get("unmet_conditions") or payload.get("unmet_conditions")
+            met = _condition_summary(met_values)
+            unmet = _condition_summary(unmet_values)
             veto = _display_items(event.get("veto_conditions") or strategy_result.get("veto_conditions") or payload.get("veto_conditions"), limit=3)
             source_id = f"{event.get('lane_id') or ''}:{plan_id}:{action}"
             title = f"A4 盘中信号｜{name}（{symbol}）｜{_ACTION_LABELS.get(action, _display_text(action))}"
@@ -1483,6 +1691,8 @@ class WorkflowLarkPublisher:
                 action in {"BUY_SIGNAL", "ADD_SIGNAL"} and contract.get("status") != "READY")
             if is_data_alert:
                 title = f"A4 数据告警｜{name}（{symbol}）｜{'行情或执行数据未就绪' if action == 'DATA_BLOCK' else '入场契约未就绪'}"
+            judge_timeout=event.get('reason_code') in {'MONITOR_OVERRUN','MODEL_WALL_CLOCK_TIMEOUT','TRADER_GLOBAL_DEADLINE_EXCEEDED'}
+            if judge_timeout:title=f"A4 模型超时｜{name}（{symbol}）｜本轮未形成有效裁决"
             eligibility = strategy_result.get("execution_eligibility") or {}
             execution_lines: list[str] = []
             if action in {"BUY_SIGNAL", "ADD_SIGNAL"}:
@@ -1506,33 +1716,33 @@ class WorkflowLarkPublisher:
                     f"• 总持仓：{eligibility.get('total_qty', '未核实')}股；可卖：{eligibility.get('sellable_qty') if eligibility.get('sellable_qty') is not None else '未核实'}股",
                     f"• {explanation}"]
             lines = [
-                "**数据条件告警，不是交易信号**" if is_data_alert else "**盘中交易条件触发**",
+                "**模型复核超时，不是数据缺失或交易信号**" if judge_timeout else "**数据条件告警，不是交易信号**" if is_data_alert else "**盘中交易条件触发**",
                  f"• 时间：{_time_label(event.get('minute_end') or now.isoformat())}",
                 f"• 股票：{name}（{symbol}）",
                 f"• 策略：{strategy}",
-                f"• 动作：{_ACTION_LABELS.get(action, _display_text(action))}",
+                f"• 动作：{_ACTION_LABELS['JUDGE_TIMEOUT'] if judge_timeout else _ACTION_LABELS.get(action, _display_text(action))}",
                 f"• 触发原因：{_display_text(event.get('reason_code'), limit=100, fallback='确定性条件成立')}",
                 "",
                 "**条件核对**",
-                f"• 已满足：{'；'.join(met) if met else '尚未确认' if is_data_alert else '确定性策略已确认'}",
-                f"• 未满足：{'；'.join(unmet) if unmet else '无'}",
+                f"• 已满足：{met}",
+                f"• 未满足：{unmet}",
                 f"• 否决边界：{'；'.join(veto) if veto else '无新增否决条件'}",
                 "",
                 "**价格纪律**",
-                f"• 触发区：{_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}",
-                f"• 止损：{_number(payload.get('stop_level'))}；禁止追价：{_number(payload.get('no_chase_price') or payload.get('max_chase_price'))}",
+                *_a4_price_discipline(payload,strategy_result,event_payload),
             ]
             if not is_data_alert and action in {"BUY_SIGNAL", "ADD_SIGNAL"}:
                 lines.extend(_a4_decision_lines(decision_context))
             outputs.append(
                 self._send(
                     delivery_key=f"a4:{source_id}",
-                    kind="A4_DATA_ALERT" if is_data_alert else "A4_EFFECTIVE",
+                    kind="A4_JUDGE_TIMEOUT" if judge_timeout else "A4_DATA_ALERT" if is_data_alert else "A4_EFFECTIVE",
                     source_id=source_id,
                     title=title,
                     lines=lines + execution_lines,
                     summary={"minute_end": event.get("minute_end"), "symbol": symbol, "action": action, "reason_code": event.get("reason_code"), "execution_eligibility": eligibility,
-                             "plan_id": plan_id, "source_run_id": payload.get("source_run_id")},
+                             "plan_id": plan_id, "source_run_id": payload.get("source_run_id"),
+                             "output_state":"JUDGE_TIMEOUT" if judge_timeout else action},
                     now=now,
                 )
             )

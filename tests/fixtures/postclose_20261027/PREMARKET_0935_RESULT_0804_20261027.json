@@ -1,0 +1,677 @@
+{
+  "at": "2026-10-27T09:38:03.482409+08:00",
+  "checkpoint": "0935",
+  "status": "PASS_ACTIVATION_AND_SOURCE_CHAIN_WARMUP_NOT_TRADE_APPROVAL",
+  "plans_active": 14,
+  "invalidated": 0,
+  "source_rejection": 0,
+  "second_entrypoint": {
+    "actual_latest_minute": "2026-10-27T09:36:00+08:00",
+    "result": {
+      "activated": [],
+      "as_of": "2026-10-27T09:36:00+08:00",
+      "invalidated": [],
+      "reason_code": "NO_CURRENT_A3_PLAN",
+      "status": "READY"
+    },
+    "limitation": "09:31 scheduled run succeeded; no pending plans after09:26, therefore no second fresh activation/source decision; common function source proof retained"
+  },
+  "B_daily_found": 14,
+  "daily_close_count_each": 20,
+  "daily_reader": [
+    {
+      "symbol": "688016.SH",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 87.99,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 84.85799999999999,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "002603.SZ",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:184debc460df97df",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 16.0,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 15.452000000000002,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "688351.SH",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 19.09,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 17.692,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "300357.SZ",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 21.08,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 19.564,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "603696.SH",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:3e133e8fbff420e8",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 15.92,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 14.498,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "600628.SH",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 6.55,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 6.35,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "300519.SZ",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7829de329ad1e1b8",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 15.5,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 14.62,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "603298.SH",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:796524df60e01776",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 24.55,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 22.3,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "000858.SZ",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 75.75,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 73.214,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "301239.SZ",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:88b9c2759b0061e8",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 37.0,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 34.839999999999996,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "688410.SH",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:9039eddaede01a79",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 11.85,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 10.038,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "300496.SZ",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:e98a779ee930dcc5",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 59.68,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 55.08200000000001,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "688111.SH",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:ea6b2b962ef1ae53",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 257.97,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 241.892,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    },
+    {
+      "symbol": "688615.SH",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:fd6c9a16f23cde69",
+      "daily_close_count": 20,
+      "facts": {
+        "status": "READY",
+        "reason_codes": [],
+        "previous_day_high": {
+          "value": 99.48,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        },
+        "daily_ma5": {
+          "value": 93.054,
+          "as_of": "2026-10-26T00:00:00+08:00"
+        }
+      }
+    }
+  ],
+  "quote_healthy": 14,
+  "quote_degraded": 0,
+  "quotes": [
+    {
+      "symbol": "000858.SZ",
+      "quote_time": "2026-10-27T09:35:03+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "002603.SZ",
+      "quote_time": "2026-10-27T09:35:03+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "300357.SZ",
+      "quote_time": "2026-10-27T09:35:03+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "300496.SZ",
+      "quote_time": "2026-10-27T09:35:00+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "300519.SZ",
+      "quote_time": "2026-10-27T09:35:03+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "301239.SZ",
+      "quote_time": "2026-10-27T09:35:03+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "600628.SH",
+      "quote_time": "2026-10-27T09:35:04+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "603298.SH",
+      "quote_time": "2026-10-27T09:35:03+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "603696.SH",
+      "quote_time": "2026-10-27T09:35:03+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "688016.SH",
+      "quote_time": "2026-10-27T09:35:02+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "688111.SH",
+      "quote_time": "2026-10-27T09:35:03+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "688351.SH",
+      "quote_time": "2026-10-27T09:35:03+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "688410.SH",
+      "quote_time": "2026-10-27T09:35:03+08:00",
+      "hash_valid": true
+    },
+    {
+      "symbol": "688615.SH",
+      "quote_time": "2026-10-27T09:35:03+08:00",
+      "hash_valid": true
+    }
+  ],
+  "packets": [
+    {
+      "path": "/media/qy/120aebe1-8c98-412b-a490-3797cae5656b/Agu/liangjian-funnel-workflow/state/team_v2/minutes/20261027T0932.json",
+      "file_sha256": "e4a027b32569582546d7f0711b258c0193cac23a63c12eeca836c8accfea7cf8",
+      "packet_hash_valid": true,
+      "captured_at": "2026-10-27T09:32:21.973467+08:00",
+      "cutoff": "2026-10-27T09:31:00+08:00",
+      "healthy": 14,
+      "unhealthy": [],
+      "status": "CAPTURED"
+    },
+    {
+      "path": "/media/qy/120aebe1-8c98-412b-a490-3797cae5656b/Agu/liangjian-funnel-workflow/state/team_v2/minutes/20261027T0933.json",
+      "file_sha256": "74330f3b6b79954c7f989e4de751c44e4a4e245e5223f54a598037c86d7d5ee1",
+      "packet_hash_valid": true,
+      "captured_at": "2026-10-27T09:33:05.812700+08:00",
+      "cutoff": "2026-10-27T09:32:00+08:00",
+      "healthy": 14,
+      "unhealthy": [],
+      "status": "CAPTURED"
+    },
+    {
+      "path": "/media/qy/120aebe1-8c98-412b-a490-3797cae5656b/Agu/liangjian-funnel-workflow/state/team_v2/minutes/20261027T0934.json",
+      "file_sha256": "3883509a8a929891422122bb5b69d2badb2f64f06a2c7ca566171421db68b13a",
+      "packet_hash_valid": true,
+      "captured_at": "2026-10-27T09:34:05.893775+08:00",
+      "cutoff": "2026-10-27T09:33:00+08:00",
+      "healthy": 14,
+      "unhealthy": [],
+      "status": "CAPTURED"
+    },
+    {
+      "path": "/media/qy/120aebe1-8c98-412b-a490-3797cae5656b/Agu/liangjian-funnel-workflow/state/team_v2/minutes/20261027T0935.json",
+      "file_sha256": "85f56f7f98822072adf68e5134116921313cd2f563c077eff951c4a509cababe",
+      "packet_hash_valid": true,
+      "captured_at": "2026-10-27T09:35:07.653874+08:00",
+      "cutoff": "2026-10-27T09:34:00+08:00",
+      "healthy": 14,
+      "unhealthy": [],
+      "status": "CAPTURED"
+    }
+  ],
+  "last_1m": [
+    {
+      "symbol": "000858.SZ",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "002603.SZ",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "300357.SZ",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "300496.SZ",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "300519.SZ",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "301239.SZ",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "600628.SH",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "603298.SH",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "603696.SH",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "688016.SH",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "688111.SH",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "688351.SH",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "688410.SH",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    },
+    {
+      "symbol": "688615.SH",
+      "bar_end": "2026-10-27T09:34:00+08:00",
+      "source_id": "TENCENT:ifzq.gtimg.cn"
+    }
+  ],
+  "technical_events": 56,
+  "technical_minutes": {
+    "2026-10-27T09:32:00+08:00": 14,
+    "2026-10-27T09:33:00+08:00": 14,
+    "2026-10-27T09:34:00+08:00": 14,
+    "2026-10-27T09:35:00+08:00": 14
+  },
+  "technical_reason": {
+    "A4_SESSION_WARMUP": 56
+  },
+  "technical_inner_reason": {
+    "NO_CLOSED_5M": 56
+  },
+  "team_new_entry_model_calls": [],
+  "team_trader_sessions": 0,
+  "orders": 0,
+  "holdings": 0,
+  "record_latch": [],
+  "a6": [
+    {
+      "account_id": "local-paper",
+      "trade_date": "2026-10-27",
+      "consecutive_failures": 0,
+      "halted": 0,
+      "last_observed_at": "2026-10-27T08:35:01.665317+08:00"
+    }
+  ],
+  "node": [
+    {
+      "identity": "207250:4543543",
+      "rss": [
+        "VmRSS:\t   38184 kB"
+      ]
+    }
+  ],
+  "memory": [
+    "MemAvailable:    3265420 kB"
+  ],
+  "latest_0936_axes": {
+    "critical_data": false,
+    "data_state": "READY",
+    "job_status": "SUCCEEDED",
+    "opportunity_state": "ABSENT",
+    "reason_codes": [],
+    "trade_eligibility": "INELIGIBLE"
+  },
+  "natural_monitor_jobs": [
+    {
+      "timestamp": "2026-10-27T01:31:03.749Z",
+      "message": "触发调度 monitor at=2026-10-27T09:31",
+      "sha256": "317c8e01ffb1e43a39b198e5bd93b0ca9e74b537bfd6f923e87c8a9e1f8e6314"
+    },
+    {
+      "timestamp": "2026-10-27T01:31:03.749Z",
+      "message": "开始执行 run-monitor",
+      "sha256": "1a687e5736b3d21f86426b553dd6a9dde9924f21ccd8b71cab7d959d87c9a16e"
+    },
+    {
+      "timestamp": "2026-10-27T01:31:04.913Z",
+      "message": "任务结束 run-monitor status=succeeded exit=0 signal=none duration_ms=1142",
+      "sha256": "f74c1eb63cec1f73a44c293c8e70a9024fe428311c0b06aa8895fe26eeb66799"
+    },
+    {
+      "timestamp": "2026-10-27T01:31:04.914Z",
+      "message": "MONITOR_BUSINESS_HEALTH {\"status\":\"READY\",\"reasonCounts\":{},\"dailyReasonCounts\":{},\"failureStreak\":0}",
+      "sha256": "edb6e0013ffac177cd2cbab783f528241ff60f90f897db28686fee5498d27458"
+    },
+    {
+      "timestamp": "2026-10-27T01:32:03.819Z",
+      "message": "触发调度 monitor at=2026-10-27T09:32",
+      "sha256": "e27fe7235ab2662731ce7bb9e5c0866470cbb9c4ea8750191229fabc30d05d6b"
+    },
+    {
+      "timestamp": "2026-10-27T01:32:03.819Z",
+      "message": "开始执行 run-monitor",
+      "sha256": "94606a8636d4dcfaa4f06addc71994fc30cda5b33a76188f7b9771bdd6b8b9f0"
+    },
+    {
+      "timestamp": "2026-10-27T01:32:23.041Z",
+      "message": "任务结束 run-monitor status=succeeded exit=0 signal=none duration_ms=19221",
+      "sha256": "ad00f441ab4130d0586e906a7754b7cea9b5189fbd17149c0fbca26c866fd546"
+    },
+    {
+      "timestamp": "2026-10-27T01:32:23.041Z",
+      "message": "MONITOR_BUSINESS_HEALTH {\"status\":\"READY\",\"reasonCounts\":{},\"dailyReasonCounts\":{},\"failureStreak\":0}",
+      "sha256": "7fd5282b2d82ab64330c2cd965ff95ef6aca047d42cdff2942140fd48fbc0bc3"
+    },
+    {
+      "timestamp": "2026-10-27T01:33:03.881Z",
+      "message": "触发调度 monitor at=2026-10-27T09:33",
+      "sha256": "7cd2f6aeaa87d92cda35fe83ac06517498041e4466e52fbbc6c34b45df0a71fd"
+    },
+    {
+      "timestamp": "2026-10-27T01:33:03.882Z",
+      "message": "开始执行 run-monitor",
+      "sha256": "1b4009ba803f7e51acf3bfe01494f377c69df32ff99ad89e06c47a62f24c57a4"
+    },
+    {
+      "timestamp": "2026-10-27T01:33:06.195Z",
+      "message": "任务结束 run-monitor status=succeeded exit=0 signal=none duration_ms=2313",
+      "sha256": "2faf7b1dc4fbb075775edbe3c91dc20617d5a61489c453d064f7f2731b379fcc"
+    },
+    {
+      "timestamp": "2026-10-27T01:33:06.196Z",
+      "message": "MONITOR_BUSINESS_HEALTH {\"status\":\"READY\",\"reasonCounts\":{},\"dailyReasonCounts\":{},\"failureStreak\":0}",
+      "sha256": "8686634ad0b5a85c3eb503cd5d52b232052d24ddff4534ad43ba5b56c2962153"
+    },
+    {
+      "timestamp": "2026-10-27T01:34:03.955Z",
+      "message": "触发调度 monitor at=2026-10-27T09:34",
+      "sha256": "e75e22665c0eb6d604adc524f9bcc15bced07125c99707af42ae152fb716388a"
+    },
+    {
+      "timestamp": "2026-10-27T01:34:03.955Z",
+      "message": "开始执行 run-monitor",
+      "sha256": "85f7204c3d28db50997e355257186838587a0b594fc808fc8cfc52423bf95f8a"
+    },
+    {
+      "timestamp": "2026-10-27T01:34:06.146Z",
+      "message": "任务结束 run-monitor status=succeeded exit=0 signal=none duration_ms=2190",
+      "sha256": "6e143034ec94f182bc23879c6b84d0e30afc271774ee5a6775ca93038fa4aab6"
+    },
+    {
+      "timestamp": "2026-10-27T01:34:06.146Z",
+      "message": "MONITOR_BUSINESS_HEALTH {\"status\":\"READY\",\"reasonCounts\":{},\"dailyReasonCounts\":{},\"failureStreak\":0}",
+      "sha256": "f337ff06888c0b8e636639e6e273ef4279ac07c72792b47272e4041f31235bc4"
+    },
+    {
+      "timestamp": "2026-10-27T01:35:03.018Z",
+      "message": "触发调度 monitor at=2026-10-27T09:35",
+      "sha256": "25de1d8137d4921b88e2abc33b794960dc8488e1692f6d648d07f26224e20735"
+    },
+    {
+      "timestamp": "2026-10-27T01:35:03.018Z",
+      "message": "开始执行 run-monitor",
+      "sha256": "6f6c54a09d0f7b414de63ea523343d8956dbe071b4640c2e51fc259f69021e44"
+    },
+    {
+      "timestamp": "2026-10-27T01:35:08.673Z",
+      "message": "任务结束 run-monitor status=succeeded exit=0 signal=none duration_ms=5654",
+      "sha256": "6bdb93e76abdcb64b5bc8c6751a3a617b3bada3aa0dd399357ae5630902ea74d"
+    },
+    {
+      "timestamp": "2026-10-27T01:35:08.673Z",
+      "message": "MONITOR_BUSINESS_HEALTH {\"status\":\"READY\",\"reasonCounts\":{},\"dailyReasonCounts\":{},\"failureStreak\":0}",
+      "sha256": "887cc5065a6e608e1dc874d5e251a23e99b1842044b4f39faa3980c130f78d96"
+    },
+    {
+      "timestamp": "2026-10-27T01:36:03.092Z",
+      "message": "触发调度 monitor at=2026-10-27T09:36",
+      "sha256": "6f7b8a23fd650d4bc343192d10d96c83cbc4161ae70ceb9bdc3c4e4de9d98a1a"
+    },
+    {
+      "timestamp": "2026-10-27T01:36:03.092Z",
+      "message": "开始执行 run-monitor",
+      "sha256": "bf9a5700871e7de1b0696f2f8a720758de2e069d62db34c978797727898ce07f"
+    },
+    {
+      "timestamp": "2026-10-27T01:36:05.256Z",
+      "message": "任务结束 run-monitor status=succeeded exit=0 signal=none duration_ms=2164",
+      "sha256": "4cbab48d5b53a193c0b8c25134313313cc315197d569f655a08ae404233f727b"
+    },
+    {
+      "timestamp": "2026-10-27T01:36:05.256Z",
+      "message": "MONITOR_BUSINESS_HEALTH {\"status\":\"READY\",\"reasonCounts\":{},\"dailyReasonCounts\":{},\"failureStreak\":0}",
+      "sha256": "44005195690f47600433a92be2fdb059a5a13162ed1fa1021f0ea908fd1854d1"
+    }
+  ],
+  "notifications": [
+    {
+      "event_id": "67fc3e03be417f017a27ce997ba3b22b0f3ab3895e7b625e3c188a9b200a4e24",
+      "kind": "ALERT",
+      "source_id": "morning-research:86d96a070a1a179f1641fe4ff6dd13b060de0618dcfccf9d6d96597da7df1f01",
+      "status": "SENT",
+      "result_code": "INTERNAL_SENT",
+      "observed_at": "2026-10-27T08:30:00+08:00",
+      "body_sha256": "872ca91475441a25a2297706ce97ae29e9dbccb9e2ee492da7f5f91bab2400d7",
+      "hash_valid": true
+    },
+    {
+      "event_id": "93bdbe056087414f4d1e5bdb80b3f01700b557df411df87a6982d21a036bb34c",
+      "kind": "MARKET_SOURCE_UNAVAILABLE",
+      "source_id": "market-probe:2026-10-27:MOOTDX",
+      "status": "SENT",
+      "result_code": "INTERNAL_SENT",
+      "observed_at": "2026-10-27T08:00:00.878103+08:00",
+      "body_sha256": "f89492c7a6c7cf580bb4862433a8800f09f0b21c2517055fd6e98a15a1e0e192",
+      "hash_valid": true
+    },
+    {
+      "event_id": "3bdab70186323ff8035a8a4082351838bbb31589c47eadf0c97f347502216595",
+      "kind": "MORNING",
+      "source_id": "2026-10-27",
+      "status": "SENT",
+      "result_code": "INTERNAL_SENT",
+      "observed_at": "2026-10-27T08:45:00.883416+08:00",
+      "body_sha256": "94c2b3954e8a7262d02d4ad552e2a78ea767e052efc4ca88bae02cf952b47e1a",
+      "hash_valid": true
+    }
+  ],
+  "historical_watchdog_defect": "LJ088 unchanged,SENT1; do not resend",
+  "ops_failure": {
+    "file": "MONITOR_ACTIVATION_ACTUAL_RO_0804_20261027.json",
+    "cause": "lanes actual list not mapping; optional projection failed",
+    "repair": "remove keys assumption; R2 passed; original retained",
+    "production_writes": 0
+  },
+  "new_model_http": 0,
+  "new_source_http": 0,
+  "production_writes": 0,
+  "raw": [
+    {
+      "path": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\a4-monitor-20261021\\PREMARKET_RO_0804_0935_20261027T093514.json",
+      "sha256": "dae5f92c634eaf633c7efed5456563550fd7776c46841676cb35c9cfbe4cd68f"
+    },
+    {
+      "path": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\a4-monitor-20261021\\A4_FIRST_ROUND_SUPPLEMENT_RO_0804_20261027.json",
+      "sha256": "50a6c1c5788914369206afa4d8aa4caf519a49fcf88b41d56eda0fd87a83e53f"
+    },
+    {
+      "path": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\a4-monitor-20261021\\A4_NATURAL_JOB_LOGS_RO_0804_20261027.json",
+      "sha256": "80ef7aa5cf0f078be12ab8b361c200180f374a31b002f0e41502c18fcb0c8ccd"
+    },
+    {
+      "path": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\a4-monitor-20261021\\MONITOR_ACTIVATION_ACTUAL_RO_0804_R2_20261027.json",
+      "sha256": "aef0ec78b736f876449e6c29f091c1ee818396a39ee42bf17a7ffa0a5679c399"
+    }
+  ]
+}

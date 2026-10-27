@@ -3,6 +3,26 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 import re
+from collections import Counter
+
+
+def execution_blocker_counts(facts: Mapping[str, Any]) -> dict[str, int]:
+    """Classify archived stock-event rows, never infer from zero orders."""
+    counts = Counter()
+    for row in (facts.get('a4') or {}).get('events') or []:
+        if not isinstance(row, Mapping) or row.get('action') != 'DATA_BLOCK':
+            continue
+        reason = str(row.get('reason_code') or '')
+        if reason in {'MONITOR_OVERRUN', 'JUDGE_TIMEOUT', 'MODEL_TIMEOUT', 'LLM_TIMEOUT', 'LLM_BUDGET_EXHAUSTED'}:
+            category = 'JUDGE_TIMEOUT'
+        elif reason in {'NETWORK_ERROR', 'LLM_UNAVAILABLE', 'MODEL_NETWORK_ERROR', 'MODEL_REQUEST_FAILED'}:
+            category = 'MODEL_UNAVAILABLE'
+        else:
+            # DATA_BLOCK was historically overloaded. Unknown causes are not
+            # evidence that the input data was absent.
+            category = 'OTHER_OR_UNPROVEN'
+        counts[category] += 1
+    return dict(counts)
 
 
 def normalize_quality(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -69,6 +89,8 @@ def verification_totals(facts: Mapping[str, Any]) -> dict[str, Any]:
 def business_metrics(facts: Mapping[str, Any]) -> dict[str, Any]:
     """A display projection only; preserve historical effective flags/hash."""
     metrics = dict(facts.get("metrics") or {})
+    if (facts.get('a2') or {}).get('status')=='NOT_AVAILABLE' or metrics.get('a2_availability')=='NOT_AVAILABLE':
+        metrics.update(a2_availability='NOT_AVAILABLE',a2_focus_count=None,a2_watch_count=None,a2_theme_count=None)
     actions = dict(metrics.get("a4_effective_action_counts") or {})
     data_blocks = int(actions.pop("DATA_BLOCK", 0) or 0)
     if data_blocks:
@@ -86,14 +108,21 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
     notes = []
     metrics = business_metrics(facts)
     if metrics != (facts.get("metrics") or {}):
-        notes.append("旧账本中的DATA_BLOCK仅作行情质量观察，不计为业务或交易信号；原始标记与冻结事实未修改。")
+        notes.append("旧账本中的阻断计数不计为有效交易信号；模型超时、网络异常和数据限制分别核对，原始标记与冻结事实未修改。")
     verification = facts.get("independent_verification") or {}
     totals = verification_totals(facts)
     quality = normalize_quality(facts.get("data_quality") or {})
+    a2_available = metrics.get('a2_focus_count') is not None and metrics.get('a2_watch_count') is not None
+    if not a2_available:
+        report.a2_review.summary = 'A2审计结果不可用，聚焦/观察数量未知；不能以空投影认定没有候选。'
+        report.a2_review.verdict = 'DATA_LIMITED'
+        report.a2_review.strengths = []
+        report.a2_review.defects = []
+        report.a2_review.data_limitations = ['需取得同一源批次的完整A2编译结果，模型意向与A3计划数不能代替最终池数量。']
     strategy_counts = metrics.get("a3_strategy_counts")
     if isinstance(strategy_counts, Mapping) and strategy_counts:
         labels = {"TREND_MA5": "趋势五日线", "MA520_SWING": "520", "LEADER_INTRADAY": "龙头"}
-        summary = "、".join(f"{labels.get(k, '未识别策略')}{v}个" for k, v in strategy_counts.items())
+        summary = "、".join(f"{labels.get(k, '原策略码：' + str(k))}{v}个" for k, v in strategy_counts.items())
         # This aggregate description is server-owned, not a model inference.
         report.a3_review.summary = (
             f"本次复盘正式计划{metrics.get('a3_plan_count', 0)}个：{summary}。"
@@ -281,7 +310,17 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
             report.core_defects.append(A5Defect(layer="A4", severity="HIGH" if missing or totals["missing_observation_count"] else "MEDIUM",
                 confidence="HIGH", blocked_by_data=True, problem=" ".join(defects)[:500],
                 evidence_ids=[str(verification.get("a4", {}).get("evidence_id") or "METRICS:DAILY")]))
-        report.executive_summary = (f"A2聚焦{metrics.get('a2_focus_count', 0)}只、观察{metrics.get('a2_watch_count', 0)}只；"
+        a2_available=(facts.get('a2',{}).get('status')!='NOT_AVAILABLE'
+            and metrics.get('a2_focus_count') is not None and metrics.get('a2_watch_count') is not None)
+        if not a2_available:
+            report.a2_review.summary='A2审计结果不可用，聚焦/观察数量未知；不能以空投影认定没有候选。'
+            report.a2_review.verdict='DATA_LIMITED'
+            report.a2_review.strengths=[]
+            report.a2_review.defects=[]
+            report.a2_review.data_limitations=['需取得同一源批次的完整A2编译结果，模型意向与A3计划数不能代替最终池数量。']
+        a2_summary=(f"A2聚焦{metrics['a2_focus_count']}只、观察{metrics['a2_watch_count']}只；" if a2_available
+            else 'A2审计不可用，聚焦和观察数量未知；')
+        report.executive_summary = (a2_summary+
             f"A3正式计划{metrics.get('a3_plan_count', 0)}个。{summary}"
             "核验差异和不可比较字段见下文；单日强势反例不能确认门槛错误或授权修改策略。")
         if defects or limits:
@@ -291,4 +330,8 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
         from .daily import A5UnresolvedQuestion
         report.unresolved_questions = [A5UnresolvedQuestion(question="当前差异是否影响完整策略动作？",
             reason="INSUFFICIENT_SAMPLE", resolution="按冻结输入与明确的数据修订版本分别复算，保留原始判断。")]
+    from .time_presentation import bjt_presentation
+    projected=type(report).model_validate(bjt_presentation(report.model_dump()))
+    for name in type(report).model_fields:
+        setattr(report,name,getattr(projected,name))
     return notes
