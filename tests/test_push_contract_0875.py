@@ -85,5 +85,8 @@ def test_summary_consumers_do_not_claim_each_others_groups(tmp_path):
 def test_native_card_keeps_code_only_in_note_and_shows_bjt():
     card=native_card(kind='AUDITED_RESEARCH_FAILED',body={'content':{'text':'MODEL_REQUEST_FAILED at 2026-10-27T05:00:00+00:00'}},observed_at=T,event_id='id')['card']
     text=''.join(e.get('text',{}).get('content','') for e in card['elements'])
-    assert 'MODEL_REQUEST_FAILED' not in text and '13:00:00 北京时间' in text and '不适用' in text
+    assert 'MODEL_REQUEST_FAILED' not in text and '13:00:00 北京时间' in text
+    # 0892: system-wide notices have no invented single-stock/N/A price row.
+    assert '不适用' not in text and '单股' not in text
     assert card['elements'][-1]['tag']=='note'
+    assert 'MODEL_REQUEST_FAILED' in str(card['elements'][-1])
