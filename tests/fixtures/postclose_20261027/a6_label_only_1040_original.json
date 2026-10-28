@@ -1,0 +1,209 @@
+{
+  "raw": {
+    "capacity_for_tomorrow": {
+      "cluster_quota": {
+        "CONSUMER_SERVICES": 2,
+        "FINANCIAL_HIGH_DIVIDEND": 2
+      },
+      "notes": [
+        "市场状态RISK_OFF_RETREAT仅允许PROBE，所有计划信封已收紧至PROBE",
+        "两簇各配额2，合计4，不超过引擎槽位6与各簇上限2",
+        "外围快照缺失且A1源缺口未补，保持保守"
+      ],
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "ACCOUNT",
+        "MARKET"
+      ],
+      "plans_acceptable": 4,
+      "response_to_pm": "NO_PM_REQUEST",
+      "risk_unit": "PROBE",
+      "supporting_refs": [
+        "MORNING:MARKET",
+        "MORNING:ACCOUNT"
+      ]
+    },
+    "envelope": {
+      "as_of": "2026-10-28T08:33:04.289132+08:00",
+      "config_hash": "411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73",
+      "config_version": "team-v2/1",
+      "execution_trade_date": "2026-10-28",
+      "input_snapshot_ids": [
+        "3c2bdf00ad84a0bfedf48b54cb70b60ed6087239562f8481b7d1c2addb3ad6a9"
+      ],
+      "knowledge_cutoff": "2026-10-28T08:33:04.289132+08:00",
+      "market_regime": "RISK_OFF_RETREAT",
+      "model_name": "deepseek/deepseek-v4-pro",
+      "prompt_version": "agent-6-risk/1.0.9",
+      "reason_codes": [],
+      "run_id": "REAL_QUALITY_0995_LIVE_20261028T182713:A6_today",
+      "schema_version": "team-envelope/1",
+      "source_trade_date": "2026-10-27",
+      "stage_id": "A6",
+      "status": "FROZEN"
+    },
+    "envelope_adjustments": [
+      {
+        "adjustment": "TIGHTEN_TO_PROBE",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:f76efc4235a49b7b",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:f76efc4235a49b7b",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE解除且A1源缺口补齐，可恢复STANDARD",
+          "若市场状态从RISK_OFF_RETREAT转为CONFIRMATION且日线BULL_PARTIAL转BULL_STACK，可重新评估"
+        ]
+      },
+      {
+        "adjustment": "TIGHTEN_TO_PROBE",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:2f42f0194ec29838",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:2f42f0194ec29838",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE解除且日线ENTANGLED转BULL_STACK，可恢复STANDARD",
+          "若市场状态从RISK_OFF_RETREAT转为CONFIRMATION，可重新评估"
+        ]
+      },
+      {
+        "adjustment": "TIGHTEN_TO_PROBE",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:82b50889ae04a79f",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:82b50889ae04a79f",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE解除且月线BEAR_STACK转BULL_PARTIAL，可恢复STANDARD",
+          "若市场状态从RISK_OFF_RETREAT转为CONFIRMATION，可重新评估"
+        ]
+      },
+      {
+        "adjustment": "TIGHTEN_TO_PROBE",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:4de277b24ad5718e",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:4de277b24ad5718e",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE解除且月线BEAR_STACK转BULL_PARTIAL，可恢复STANDARD",
+          "若市场状态从RISK_OFF_RETREAT转为CONFIRMATION，可重新评估"
+        ]
+      },
+      {
+        "adjustment": "TIGHTEN_TO_PROBE",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若月线BEAR_STACK转BULL_PARTIAL且市场状态转CONFIRMATION，可恢复STANDARD",
+          "若A3_REWARD_RISK_BELOW_MINIMUM待确认条件解除，可重新评估"
+        ]
+      },
+      {
+        "adjustment": "TIGHTEN_TO_PROBE",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:c4ed7a2ecded0cf6",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:c4ed7a2ecded0cf6",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE解除且周线BULL_PARTIAL转BULL_STACK，可恢复STANDARD",
+          "若市场状态从RISK_OFF_RETREAT转为CONFIRMATION，可重新评估"
+        ]
+      },
+      {
+        "adjustment": "TIGHTEN_TO_PROBE",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:68d00fca447a53d1",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:68d00fca447a53d1",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE解除且月线BEAR_STACK转BULL_PARTIAL，可恢复STANDARD",
+          "若市场状态从RISK_OFF_RETREAT转为CONFIRMATION，可重新评估"
+        ]
+      }
+    ],
+    "exception_actions": [],
+    "handoff_notes": {
+      "to_a3": [
+        "明日风险容量：两簇各2、合计4个PROBE计划，风险单位仅PROBE",
+        "所有计划因DATA_LIMITED与RISK_OFF_RETREAT已收紧至PROBE，勿恢复STANDARD"
+      ],
+      "to_a4": [
+        "所有计划信封为PROBE，禁止追价线以上入场",
+        "日线失效位为硬退出，亏损不得加仓"
+      ],
+      "to_a5": [
+        "本次收紧基于DATA_LIMITED_REVIEWED与RISK_OFF_RETREAT，非过度收紧",
+        "外围快照缺失为CONSERVATIVE_FALLBACK，需记录数据缺口"
+      ]
+    },
+    "overnight_reviews": [],
+    "risk_event_attribution": [],
+    "schema_version": "a6-risk/1.0.0",
+    "session": "PREMARKET",
+    "unresolved_questions": [],
+    "utilization_cap": {
+      "basis": "引擎上限20%且市场状态RISK_OFF_RETREAT仅允许PROBE，不收紧",
+      "cap_pct": 20,
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "ACCOUNT",
+        "MARKET"
+      ],
+      "supporting_refs": [
+        "MORNING:MARKET",
+        "MORNING:ACCOUNT"
+      ]
+    },
+    "what_would_change_my_mind": [
+      "若市场状态从RISK_OFF_RETREAT转为CONFIRMATION且A1源缺口补齐，可放宽至STANDARD",
+      "若外围快照恢复且无风险偏好收缩信号，可重新评估PROBE收紧"
+    ]
+  },
+  "raw_sha256": "a1378c5d41c4ebed4811ed814a322d58050881308d29528f694fb6a9032c6d77",
+  "original_result_sha256": "0557a60f5022fccb20baea6c8a72ee4dd2bf8d6e25bf7162225f1b22e108ea43",
+  "head": "ce6ef28354d93ffbd9488e82e68f4822e277edf3",
+  "raw_validated": 0,
+  "issues": [
+    "A6_NONEXISTENT_SOURCE_GAP_REFERENCE:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d"
+  ],
+  "scope": "REAL_0995_A6_TODAY_ORIGINAL_REPLY_UNMODIFIED"
+}

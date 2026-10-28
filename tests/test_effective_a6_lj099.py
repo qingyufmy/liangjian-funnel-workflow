@@ -218,3 +218,34 @@ def test_false_gap_label_only_never_trims_otherwise_valid_primary_backup_pool():
     assert proof['capacity_trimmed_count']==0 and len(proof['executable_plan_ids'])==7
     assert effective['capacity_for_tomorrow']==raw['capacity_for_tomorrow']
     assert [r['adjustment'] for r in effective['envelope_adjustments']]==[r['adjustment'] for r in raw['envelope_adjustments']]
+
+
+def test_real_1040_label_only_without_source_condition_preserves_all_other_fields():
+    value,args=original()
+    x=json.loads((Path(__file__).parent/'fixtures/postclose_20261027/a6_label_only_1040_original.json').read_bytes())
+    raw=x['raw'];before=deepcopy(raw);assert digest(raw)==x['raw_sha256'] and x['raw_validated']==0
+    args['arguments']['required_envelope']=raw['envelope'];args['captured_issues']=x['issues']
+    effective,proof=effective_review(raw,**args)
+    assert raw==before and digest(raw)==x['raw_sha256']
+    assert proof['projection_kind']=='LABEL_ONLY' and not proof['capacity_arithmetic_invalid']
+    assert len(proof['corrections'])==1 and proof['capacity_trimmed_count']==0
+    assert effective['capacity_for_tomorrow']==raw['capacity_for_tomorrow']
+    corrected=proof['corrections'][0]['plan_id']
+    for old,new in zip(raw['envelope_adjustments'],effective['envelope_adjustments']):
+        expected=dict(old,reason_code='SOURCE_FACTS_REVIEWED') if old['plan_id']==corrected else old
+        assert new==expected
+    assert validate_review(effective,args['catalog'],args['arguments'],args['requirements']).valid
+    assert proof['candidate_eligible_count']==7
+    assert effective_review(raw,**dict(args,captured_issues=[*x['issues'],'A6_UNKNOWN_ISSUE'])) is None
+
+
+def test_label_only_no_condition_removal_never_revives_original_suspend():
+    value,args=original();raw=deepcopy(value['raw']);raw['capacity_for_tomorrow']['plans_acceptable']=4
+    from liangjian_funnel.pipeline.team_v2_effective_risk import nonexistent_gap_ids
+    for row in raw['envelope_adjustments']:
+        if row['plan_id'] in nonexistent_gap_ids(raw,args['requirements']):
+            row['what_would_change_my_mind']=['原技术条件待满足'];row['adjustment']='SUSPEND'
+    args['captured_issues']=[]
+    effective,proof=effective_review(raw,**args)
+    assert all(new['adjustment']==old['adjustment'] for old,new in zip(raw['envelope_adjustments'],effective['envelope_adjustments']))
+    assert proof['capacity_trimmed_count']==0

@@ -72,8 +72,8 @@ def project_effective_risk(raw, *, quota_context, requirements, eligible_plan_id
             if not isinstance(conditions, list) or any(not isinstance(x, str) for x in conditions):
                 return None
             removed = [x for x in conditions if any(code in x for code in known_gap_codes)]
-            if not removed:
-                return None
+            # Claude1040: a false DATA_LIMITED label may have no source-gap
+            # statement. Repair the label while preserving all conditions.
             row['what_would_change_my_mind'] = [x for x in conditions if x not in removed]
             row['reason_code'] = 'SOURCE_FACTS_REVIEWED'
             corrections.append(dict(plan_id=pid, code='NONEXISTENT_SOURCE_GAP_REFERENCE',
