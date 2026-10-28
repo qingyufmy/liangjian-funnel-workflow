@@ -179,10 +179,12 @@ def test_close_observer_always_stops_and_receipt_error_preserves_original_failur
     monkeypatch.setattr(module,'atomic_write_json',lambda *a,**k: (_ for _ in ()).throw(OSError('CONTROLLED_RECEIPT_FAILURE')))
     settings=SimpleNamespace(workflow_output_dir=tmp_path,close_resource_sampling_enabled=True,research_close_deadline_seconds=90)
     app=SimpleNamespace(settings=settings)
+    @module._enforce_close_stage_budget
     @module._observe_close_research_resources
     def failed(self,slot):raise ValueError('ORIGINAL_BUSINESS_FAILURE')
     with pytest.raises(ValueError,match='ORIGINAL_BUSINESS_FAILURE'):failed(app,'CLOSE')
     assert stopped==[True]
+    @module._enforce_close_stage_budget
     @module._observe_close_research_resources
     def succeeded(self,slot):return {'status':'READY'}
     with pytest.raises(OSError,match='CONTROLLED_RECEIPT_FAILURE'):succeeded(app,'close')
@@ -195,7 +197,7 @@ def test_bad_parent_budget_does_not_start_resource_observer(tmp_path,monkeypatch
     monkeypatch.setenv('LIANGJIAN_PARENT_CLOSE_DEADLINE_MS','not-a-deadline')
     monkeypatch.setattr(module,'_CloseResourceObservation',lambda *a:pytest.fail('OBSERVER_MUST_NOT_START'))
     app=SimpleNamespace(settings=SimpleNamespace(workflow_output_dir=tmp_path,research_close_deadline_seconds=90))
-    wrapped=module._observe_close_research_resources(lambda self,slot:None)
+    wrapped=module._enforce_close_stage_budget(lambda self,slot:None)
     with pytest.raises(ValueError):wrapped(app,'close')
 
 
@@ -222,7 +224,7 @@ def test_finished_workflow_cannot_report_success_after_finalize_deadline(tmp_pat
     clock=[0.0];b=CloseStageBudget(0,90,lambda:clock[0])
     monkeypatch.setattr(CloseStageBudget,'from_parent',classmethod(lambda cls,*a,**k:b))
     app=SimpleNamespace(settings=SimpleNamespace(workflow_output_dir=tmp_path,close_resource_sampling_enabled=False,research_close_deadline_seconds=90))
-    @module._observe_close_research_resources
+    @module._enforce_close_stage_budget
     def run(self,slot):
         b.enter_research();b.enter_finalize();clock[0]=2
         return {'status':'PUBLISHED'}
@@ -256,3 +258,33 @@ def test_real_board_history_fallback_obeys_same_data_deadline_and_original_sourc
         clock[0]=30
         with pytest.raises(CloseStageBudgetExceeded):fetch_board_history('BK0001',date(2026,10,27))
     assert len(seen)==1
+
+
+def test_sampler_disabled_does_not_disable_mandatory_close_budget(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    import liangjian_funnel.workflow as module
+    from liangjian_funnel.runtime.close_stage_budget import current_budget
+    b=CloseStageBudget(0,90,lambda:30)
+    monkeypatch.setattr(CloseStageBudget,'from_parent',classmethod(lambda cls,*a,**k:b))
+    monkeypatch.setattr(module,'_CloseResourceObservation',lambda *a:pytest.fail('SAMPLER_DISABLED'))
+    app=SimpleNamespace(settings=SimpleNamespace(workflow_output_dir=tmp_path,close_resource_sampling_enabled=False))
+    @module._enforce_close_stage_budget
+    @module._observe_close_research_resources
+    def run(self,slot):current_budget().check('DATA')
+    with pytest.raises(CloseStageBudgetExceeded,match='DATA_STAGE_BUDGET_EXHAUSTED'):run(app,'CLOSE')
+    assert len(list((tmp_path/'close_stage_budgets').glob('*.json')))==1
+    assert not (tmp_path/'resource_observations').exists()
+
+
+def test_real_team_journal_preserves_safe_stage_budget_reason_without_http(tmp_path):
+    import sqlite3
+    from test_team_v2_risk_session import fixture
+    from liangjian_funnel.runtime.team_v2_risk_session import run_risk_premarket
+    kwargs,seen,_=fixture(tmp_path);clock=[0.0];b=CloseStageBudget(0,90,lambda:clock[0])
+    with budget_scope(b):
+        b.enter_research();clock[0]=59
+        assert run_risk_premarket(**kwargs).status=='DEGRADED'
+    assert seen==[]
+    with sqlite3.connect(tmp_path/'model.db') as db:
+        metrics=json.loads(db.execute('SELECT body_json FROM model_call_telemetry').fetchone()[0])
+    assert metrics['failure_code']=='RESEARCH_STAGE_BUDGET_EXHAUSTED'

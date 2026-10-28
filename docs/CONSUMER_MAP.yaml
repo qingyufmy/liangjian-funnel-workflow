@@ -803,7 +803,7 @@ patches_0937_20261028:
     tests: [tests/test_research_slot_semantics_lj098.py, tests/test_slot_case_inventory_lj098.py, test/web/localization.test.ts]
   LJ097:
     producer: runtime/close_stage_budget.py
-    consumers: [workflow close decorator, all opted-in source clients, retry and pacing waits, latest daily priming, disclosure priming and pipeline, research model client, candidate finalization, native internal notice sender]
+    consumers: [independent mandatory close-budget decorator, optional observer unchanged, safe model-failure telemetry, all opted-in source clients, retry and pacing waits, latest daily priming, disclosure priming and pipeline, research model client, candidate finalization, native internal notice sender]
     source_client_files: [a2_market, board_reference, board_history, bse, cninfo, cninfo_pdf, eastmoney_hot, exchange_disclosure, gov_policy, live_quote, open_news, publication, rotation_theme, sina_minute_shadow, tencent_minute, ths_industry, ths_taxonomy, pipeline/data_source]
     boundaries: [same parent monotonic deadline, data1800 research3540 finalize60 total5400, no source HTTP after data deadline, original transport API preserved, no source whitelist expansion, no model budget increase, unavailable never zero, latest-only receipt never full-history READY, required publication gates retained]
     tests: [tests/test_close_stage_budget_lj097.py, tests/test_pipeline_data_sync.py, tests/test_wp5_disclosure_pipeline.py, tests/test_workflow_integration.py]

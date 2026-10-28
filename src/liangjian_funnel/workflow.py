@@ -601,9 +601,6 @@ def _observe_close_research_resources(function):
                 or kwargs.get("comparison_run") or kwargs.get("auction_refresh")
                 or kwargs.get("frozen_a2_stock_news") is not None):
             return function(self, slot, *args, **kwargs)
-        from .runtime.close_stage_budget import CloseStageBudget,budget_scope
-        budget=CloseStageBudget.from_parent(getattr(self.settings,'research_close_deadline_seconds',5400),
-            parent_deadline_ms=os.environ.get('LIANGJIAN_PARENT_CLOSE_DEADLINE_MS'))
         observer = None
         try:
             if getattr(self.settings, "close_resource_sampling_enabled", True):
@@ -612,6 +609,32 @@ def _observe_close_research_resources(function):
         except Exception:
             logging.getLogger(__name__).warning("CLOSE_RESOURCE_OBSERVER_START_FAILED")
         result, failed, reference = None, True, None
+        try:
+            result = function(self, slot, *args, **kwargs)
+            failed = False
+        finally:
+            if observer is not None:
+                try:
+                    reference = observer.stop(result, failed)
+                except Exception:
+                    logging.getLogger(__name__).warning("CLOSE_RESOURCE_OBSERVER_STOP_FAILED")
+        if isinstance(result, dict) and reference is not None:
+            return {**result, "resource_sampling": reference}
+        return result
+    return observed
+
+
+def _enforce_close_stage_budget(function):
+    """Mandatory close budget, independent of optional resource observation."""
+    @wraps(function)
+    def bounded(self,slot,*args,**kwargs):
+        if (research_slot(slot) != "close" or kwargs.get("historical_replay")
+                or kwargs.get("comparison_run") or kwargs.get("auction_refresh")
+                or kwargs.get("frozen_a2_stock_news") is not None):
+            return function(self,slot,*args,**kwargs)
+        from .runtime.close_stage_budget import CloseStageBudget,budget_scope
+        budget=CloseStageBudget.from_parent(getattr(self.settings,'research_close_deadline_seconds',5400),
+            parent_deadline_ms=os.environ.get('LIANGJIAN_PARENT_CLOSE_DEADLINE_MS'))
         def phase_notice(phase,receipt):
             from .runtime.provider_health import queue_internal
             queue_internal(self.settings,kind='CLOSE_STAGE_BUDGET_EXHAUSTED',
@@ -621,31 +644,23 @@ def _observe_close_research_resources(function):
                     '；剩余='+str(round(receipt['remaining_seconds'],3))+
                     '；当前symbol='+str(budget.current_symbol or 'UNAVAILABLE'),now=datetime.now(SHANGHAI))
         budget.on_exhausted=phase_notice
+        failed=True
         try:
             with budget_scope(budget):
-                result = function(self, slot, *args, **kwargs)
-                if budget.finalize_started is not None:budget.check("FINALIZE")
-            failed = False
+                result=function(self,slot,*args,**kwargs)
+                if budget.finalize_started is not None:budget.check('FINALIZE')
+            failed=False
+            return result
         finally:
-            try:
-                budget_receipt=budget.receipt()
-                budget_path=self.settings.workflow_output_dir/'close_stage_budgets'/(
-                    datetime.now(SHANGHAI).strftime('%Y%m%dT%H%M%S%f')+'.json')
-                try:atomic_write_json(budget_path,budget_receipt)
-                except OSError:
-                    if not failed:raise
-                    logging.getLogger(__name__).error('CLOSE_STAGE_BUDGET_RECEIPT_WRITE_FAILED')
-            finally:
-                if observer is not None:
-                    try:reference = observer.stop(result, failed)
-                    except Exception:logging.getLogger(__name__).warning('CLOSE_RESOURCE_OBSERVER_STOP_FAILED')
-        if isinstance(result,dict):
-            result={**result,'close_stage_budget':dict(path=str(budget_path),
-                receipt=budget_receipt,notice_status='FAILED' if budget.notice_failures else 'NO_PERSISTENCE_FAILURE')}
-        if isinstance(result, dict) and reference is not None:
-            return {**result, "resource_sampling": reference}
-        return result
-    return observed
+            receipt=budget.receipt()
+            path=self.settings.workflow_output_dir/'close_stage_budgets'/(
+                datetime.now(SHANGHAI).strftime('%Y%m%dT%H%M%S%f')+'.json')
+            try:atomic_write_json(path,receipt)
+            except OSError:
+                if not failed:raise
+                logging.getLogger(__name__).error('CLOSE_STAGE_BUDGET_RECEIPT_WRITE_FAILED')
+    return bounded
+
 
 
 class WorkflowApplication:
@@ -3366,6 +3381,7 @@ class WorkflowApplication:
                 "plan": plan.as_dict() if plan is not None else None,
             }
 
+    @_enforce_close_stage_budget
     @_observe_close_research_resources
     def run_research(
         self,

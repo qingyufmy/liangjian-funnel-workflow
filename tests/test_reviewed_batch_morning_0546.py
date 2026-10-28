@@ -189,10 +189,21 @@ def test_frozen_engine_envelope_tampering_prevents_any_model_call(tmp_path, monk
     assert calls == []
 
 
-def test_effective_a6_ready_with_invalid_original_still_skips_pm(tmp_path, monkeypatch):
+def test_legacy_effective_a6_without_verified_projection_still_skips_pm(tmp_path, monkeypatch):
     settings, clock, source, _, baseline_path, _ = setup(tmp_path, monkeypatch)
     prepare(settings, clock, source, baseline_path)
     api, calls = model(settings, quota_bad=True)
+    # Legacy arithmetic-only READY is not the new independently bound proof.
+    # Keep the original negative assertion by explicitly simulating that history.
+    import liangjian_funnel.runtime.team_v2_risk_session as session
+    original=session.run_risk_premarket
+    def legacy_only(**kwargs):
+        result=original(**kwargs)
+        with sqlite3.connect(kwargs['store'].path) as db:
+            db.execute('DELETE FROM control_minute_context WHERE decision_id=?',
+                ('a6-effective-review:'+kwargs['meeting_id'],))
+        return result
+    monkeypatch.setattr(session,'run_risk_premarket',legacy_only)
     result = run_candidate_morning_reviews(settings=settings, scope_id=SCOPE, clock=lambda: clock.now, calendar=CAL, client=api)
     assert result['risk']['status'] == 'READY'
     assert result['status'] == 'BLOCKED' and result['reason_code'] == 'CANDIDATE_A6_ORIGINAL_NOT_VALIDATED'

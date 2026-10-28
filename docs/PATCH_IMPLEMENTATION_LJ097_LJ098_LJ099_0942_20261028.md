@@ -17,3 +17,5 @@ D8：13真实客户卡重渲染+11受控合同、全日路由、系统告警、A
 全部测试本机wrapper；生产6ea、Node、环境/计划/风险未修改。新H full三项和新R full、当前H运行门需独立执行，旧绿不代替；真实30秒模型门未过，不包含TrainB部署。
 
 冻结后调用点普查补齐board_history原东财历史备用分支的直接HTTP；当前THS参考域会禁用该分支，仍统一阶段时钟。d4ab7fa本机全量主动中断，保留pytest未完成、Node333/333/type0的FAIL终态，不当全量绿；新H重跑。原来源/路径/参数/超时与无跳转合同保持。
+
+11:13新H全量11FAIL原件保留：9项是预算错误并入纯观察器、额外业务返回字段/IO破坏原合同；1项是新预算错误码漏入安全遥测表；1项是旧A6负例未显式区分legacy算术READY与verified derived新合同。改源为独立mandatory预算装饰器，保观察器原结果/IO/持久summary不变，预算回执独立留盘；补错误码；旧负例控制夹具显式移除新proof后保原拒PM断言，新增positive仍核verified proof。观察器多层wrap检验用inspect.unwrap读真实业务函数，原无A4/prompt接线约束保持。

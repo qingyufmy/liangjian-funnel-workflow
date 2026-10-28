@@ -292,7 +292,7 @@ def test_actual_run_research_keeps_pipeline_inputs_publication_and_persisted_sum
 def test_actual_run_research_boundary_has_wrapper_without_a4_or_prompt_wiring():
     assert hasattr(workflow.WorkflowApplication.run_research, '__wrapped__')
     import inspect
-    original = inspect.getsource(workflow.WorkflowApplication.run_research.__wrapped__)
+    original = inspect.getsource(inspect.unwrap(workflow.WorkflowApplication.run_research))
     assert 'resource_sampling' not in original
     assert 'LinuxResourceSampler' not in original
 
