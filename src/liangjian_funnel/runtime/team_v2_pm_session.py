@@ -13,7 +13,7 @@ import json
 from zoneinfo import ZoneInfo
 
 from ..pipeline.team_v2_model import call_team_model,team_call_binding
-from ..pipeline.team_v2_pm_schema import validate_pm_premarket,project_pm_compact,PM_PRIMARY_CLUSTER_CAP
+from ..pipeline.team_v2_pm_schema import validate_pm_premarket,project_pm_compact,project_pm_notes,PM_PRIMARY_CLUSTER_CAP
 from .team_v2_store import canonical
 from .team_v2_pm_policy import pm_shortlist, derive_pm_fallback
 
@@ -165,6 +165,7 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
     decision['input_projection']=input_projection
     decision['shortlist_audit']=shortlist
     decision['server_projection']={'schema':'PM_COMPACT_SOURCE_LINK_PROJECTION/1',
+        'note_normalization':project_pm_notes(output)[1],
         'source_link_authority':'FROZEN_PLAN_REFERENCE_NOT_MODEL_SUPPORTING_OR_OPPOSING_JUDGMENT',
         'raw_output_sha256':hashlib.sha256(canonical(output).encode()).hexdigest(),
         'derived_output_sha256':hashlib.sha256(canonical(derived).encode()).hexdigest() if valid else None}

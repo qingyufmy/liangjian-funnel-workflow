@@ -37,7 +37,7 @@ def test_compact_raw_separate_source_projection_never_invents_opposing_refs():
 @pytest.mark.parametrize('key,value',[
     ('plan_ref','p1'),('plan_ref','M'),('plan_ref','FOREIGN'),('plan_ref',[]),
     ('decision','BUY'),('decision',{}),('size_tier','HIGH_CONVICTION'),('size_tier',True),
-    ('reason_code','anything'),('reason_code',[]),('note','x'*41),('note',''),('note',None),
+    ('reason_code','anything'),('reason_code',[]),('note',''),('note',None),
     ('decision','WATCH'),('size_tier','NONE')])
 def test_compact_strict_five_fields_domain_enum_and_note(key,value):
     catalog,args=context();raw=response();raw['plan_decisions'][0][key]=value

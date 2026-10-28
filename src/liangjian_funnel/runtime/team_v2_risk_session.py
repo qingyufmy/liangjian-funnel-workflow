@@ -63,15 +63,8 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
     validate_risk_premarket(None,values['EVIDENCE_CATALOG'],**validator_args)
     original_request=repository.prepare_messages('A6',original_values,required_envelope=required_envelope,session='PREMARKET')
     request=repository.prepare_messages('A6',values,required_envelope=required_envelope,session='PREMARKET')
-    if quota_context is not None:
-        request=with_runtime_contract(request,dict(authority='CLAUDE_0937_LJ099',
-            effective_total_capacity=min(capacity_slots,sum(quota_context['cluster_upper_bounds'].values())),
-            clusters={c:dict(candidate_count=quota_context['cluster_plan_counts'][c],
-                upper_bound=quota_context['cluster_upper_bounds'][c]) for c in cluster_caps},
-            plan_clusters=quota_context['plan_clusters'],
-            instruction='envelope_adjustments array order IS your priority order; include every plan exactly once. '
-                'plans_acceptable must not exceed effective_total_capacity; obey each numeric cluster upper_bound. '
-                'Only plans explicitly listed in data_limited_plan_reviews may use DATA_LIMITED_REVIEWED.'))
+    # 0995: retain the original 6ea prompt; capacity remains a server-owned
+    # deterministic effective-review rule, not an extra model instruction.
     if gap_requirements:
         request=with_runtime_contract(request,dict(authority='0498_REGENERATION_A1_SOURCE_GAPS',
             data_limited_plan_reviews=gap_requirements, maximum_risk_unit='PROBE',

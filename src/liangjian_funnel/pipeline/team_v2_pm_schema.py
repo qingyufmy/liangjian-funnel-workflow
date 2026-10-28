@@ -6,6 +6,7 @@ have one allocation. Neither a model cluster nor its copied baseline is trusted.
 """
 from collections import Counter
 from collections.abc import Mapping
+from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 import json
 from typing import Any
@@ -69,6 +70,21 @@ def _allocation_risk_valid(unit,batches,conviction,envelope):
         and conviction in ('NORMAL','HIGH_CONVICTION'))
 
 
+def project_pm_notes(output):
+    """0995: truncate only free-text notes; preserve raw JSON and all structure."""
+    projected=deepcopy(output);changes=[]
+    if not isinstance(projected,Mapping):return projected,changes
+    rows=projected.get('plan_decisions')
+    if not isinstance(rows,list):return projected,changes
+    for index,row in enumerate(rows):
+        if (isinstance(row,dict) and set(row)=={'plan_ref','decision','size_tier','reason_code','note'}
+                and _text(row['note']) and len(row['note'])>40):
+            original=row['note'];row['note']=original[:40]
+            changes.append(dict(code='NOTE_TRUNCATED',path=f'plan_decisions.{index}.note',
+                original=original,projected=row['note'],original_chars=len(original),projected_chars=40))
+    return projected,changes
+
+
 def project_pm_compact(output,catalog,*,plan_refs,**context):
     """0404 five-field provider judgments -> original downstream allocation.
 
@@ -77,6 +93,7 @@ def project_pm_compact(output,catalog,*,plan_refs,**context):
     """
     baseline=validate_pm_slots(None,catalog,**context)
     if not isinstance(output,Mapping):return None,baseline
+    output,note_changes=project_pm_notes(output)
     issues,common=_root(output,catalog,session='PM_PREMARKET',keys=_COMPACT_PRE,
         required_envelope=context['required_envelope'],recipients={'to_a4','to_a6'})
     # Run the exact original global numeric/target/ref/shortfall validators with
@@ -125,6 +142,7 @@ def project_pm_compact(output,catalog,*,plan_refs,**context):
         cluster=r['cluster'],accept_order=i,source_link=r['source_link']) for i,r in enumerate(primary,1)]
     derived={k:v for k,v in output.items() if k!='plan_decisions'}
     derived.update(plan_ranking=ranking,plan_allocations=allocations,slot_plan=slots,
+        note_normalization=note_changes,
         derived_shortfall='NONE' if len(primary)==context['free_slots'] else
             'NO_ACCEPTED_PLANS' if not ranking else 'CLUSTER_CAP' if backup else 'RANKING_EXHAUSTED')
     validation=TeamValidation(not issues,tuple(dict.fromkeys(issues)),

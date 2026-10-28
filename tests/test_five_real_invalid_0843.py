@@ -35,9 +35,16 @@ def test_actual_five_invalid_become_valid_without_changing_decisions(row):
     assert changes
     assert [r['action'] for r in projected['signals']]==[r['action'] for r in raw['signals']]
     assert all(r['action']=='NO_ACTION' for r in raw['signals'])
-    # Correcting a reference echo never authorizes unknown IDs or new fields.
+    # 0995 permits unknown item deletion only, with its original explanation
+    # audited and NO_ACTION unchanged. New structural fields remain rejected.
     broken=deepcopy(raw);broken['signals'][0]['tech_reference_review'][0]['item']='UNKNOWN_REAL_NEGATIVE'
-    assert not validate_trader_output(broken,catalog,**args).valid
+    corrected,audit=project_trader_references(broken,refs)
+    assert any(c.get('code')=='UNKNOWN_REFERENCE_ITEM_DROPPED' and
+        c['original']['item']=='UNKNOWN_REAL_NEGATIVE' for c in audit)
+    assert all(r['action']=='NO_ACTION' for r in corrected['signals'])
+    missing_required=any(not {k for k,v in refs[r['plan_id']].items() if v=='UNMET'}.issubset(
+        {v['item'] for v in r['tech_reference_review']}) for r in corrected['signals'])
+    assert validate_trader_output(broken,catalog,**args).valid is (not missing_required)
     broken=deepcopy(raw);broken['signals'][0]['extra_authority']='BUY'
     assert not validate_trader_output(broken,catalog,**args).valid
     broken=deepcopy(raw);broken['signals'][0]['tech_reference_review'][0]['status']='UNKNOWN'

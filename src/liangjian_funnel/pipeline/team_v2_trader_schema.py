@@ -32,8 +32,9 @@ def project_trader_references(output, tech_reference):
     """Keep the raw vote immutable; server-owned facts are a separate projection.
 
     Only a known item in its own plan can receive its authoritative status.
-    Unknown items, duplicate items, explanations, actions and envelope fields
-    are deliberately left to the strict validator, never repaired here.
+    0995 permits dropping well-formed unknown items with their full original
+    explanation in the audit. Required items, duplicates, actions and identity
+    still pass through the strict validator unchanged.
     """
     projected = deepcopy(output)
     changes = []
@@ -51,7 +52,18 @@ def project_trader_references(output, tech_reference):
         reviews = row.get('tech_reference_review')
         if not isinstance(reviews, list):
             continue
+        retained = []
         for ordinal, ref in enumerate(reviews):
+            if (isinstance(ref, dict) and set(ref) in (
+                    {'item', 'my_read'}, {'item', 'status', 'my_read'})
+                    and isinstance(ref.get('item'), str) and _text(ref['item'])
+                    and ref['item'] not in tech_reference[pid] and _text(ref.get('my_read'))
+                    and ('status' not in ref or (isinstance(ref['status'],str) and ref['status'] in {'MET','UNMET'}))):
+                changes.append(dict(code='UNKNOWN_REFERENCE_ITEM_DROPPED',
+                    path=f'signals.{index}.tech_reference_review.{ordinal}',
+                    item=ref['item'],original=deepcopy(ref),my_read=ref['my_read']))
+                continue
+            retained.append(ref)
             if (not isinstance(ref, dict) or set(ref) not in (
                     {'item', 'my_read'}, {'item', 'status', 'my_read'})
                     or not isinstance(ref.get('item'), str) or ref['item'] not in tech_reference[pid]
@@ -65,6 +77,7 @@ def project_trader_references(output, tech_reference):
                     item=ref['item'], original_present='status' in ref,
                     original=ref.get('status'), authoritative=status))
             ref['status'] = status
+        row['tech_reference_review'] = retained
     return projected, changes
 
 
