@@ -98,10 +98,39 @@ def receipt(path):
     deadline = time.monotonic()+2
     while time.monotonic()<deadline:
         if path.exists():
-            value = json.loads(path.read_text())
+            try:
+                value = json.loads(path.read_text())
+            except (PermissionError, FileNotFoundError):
+                # The receipt is explicitly asynchronous. Windows may deny an
+                # open while the atomic writer replaces its current version.
+                # Keep the existing deadline and require a final receipt below.
+                time.sleep(0.01)
+                continue
             if value.get('lifecycle_status') != 'RUNNING': return value
         time.sleep(0.01)
     raise AssertionError('final fixture receipt missing')
+
+
+def test_receipt_waits_for_transient_replace_but_requires_terminal(tmp_path):
+    path = tmp_path / 'receipt.json'
+    path.write_text(json.dumps({'lifecycle_status': 'FAILED'}))
+    class ReplacingReceipt:
+        reads = 0
+        def exists(self): return path.exists()
+        def read_text(self):
+            self.reads += 1
+            if self.reads == 1: raise PermissionError('controlled atomic replace')
+            if self.reads == 2: return json.dumps({'lifecycle_status': 'RUNNING'})
+            return path.read_text()
+    pending = ReplacingReceipt()
+    assert receipt(pending)['lifecycle_status'] == 'FAILED'
+    assert pending.reads == 3
+
+
+def test_receipt_does_not_swallow_invalid_json(tmp_path):
+    path = tmp_path / 'receipt.json'
+    path.write_text('{')
+    with pytest.raises(json.JSONDecodeError): receipt(path)
 
 
 def test_close_success_receipt_is_additive_not_prompt_or_original_result(tmp_path, monkeypatch):
