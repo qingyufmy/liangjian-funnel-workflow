@@ -55,7 +55,7 @@ def test_real_endpoint_fields_four_counts_route_to_existing_classifier():
 
 
 @pytest.mark.parametrize('symbol,name,board,rate',[
-    ('600001.SH','普通','SSE_MAIN','.10'),('000001.SZ','*ST普通','SZSE_MAIN','.05'),
+    ('600001.SH','普通','SSE_MAIN','.10'),('000001.SZ','*ST普通','SZSE_MAIN','.10'),
     ('300001.SZ','ST普通','CHINEXT','.20'),('688001.SH','*ST普通','STAR','.20')])
 def test_derived_identity_board_st_rates_never_grants_trading(symbol,name,board,rate):
     actual=derive_identity(row(symbol,name=name),quote(symbol),as_of=AT,catalogue_as_of=CAT,calendar=CAL)
@@ -64,6 +64,26 @@ def test_derived_identity_board_st_rates_never_grants_trading(symbol,name,board,
     assert actual['fields']['security_status']['value']=='TRADING_OBSERVED'
     assert actual['included']==('ST' not in name)
     assert 'entry_tradable' not in actual and 'tradable' not in actual
+
+
+@pytest.mark.parametrize('day,rate',[('2026-07-03','.05'),('2026-07-06','.10'),('2026-10-19','.10')])
+@pytest.mark.parametrize('symbol',['600001.SH','000001.SZ'])
+def test_main_st_limit_date_boundary_preserves_st_exclusion(day,rate,symbol):
+    # Controlled historical observations, never a relabelled live quote.
+    at=datetime.fromisoformat(day+'T10:00:00+08:00')
+    actual=derive_identity(row(symbol,name='*ST边界'),quote(symbol),as_of=at,catalogue_as_of=at,calendar=CAL)
+    assert Decimal(actual['fields']['limit_rate']['value'])==Decimal(rate)
+    assert actual['fields']['is_st']['value'] is True
+    assert 'ST_EXCLUDED' in actual['excluded_reasons'] and actual['included'] is False
+    assert actual['authority']=='EMOTION_STATISTICS_ONLY'
+
+
+@pytest.mark.parametrize('symbol,rate',[('300001.SZ','.20'),('688001.SH','.20'),('920001.BJ',None)])
+def test_st_rule_change_does_not_change_other_boards(symbol,rate):
+    actual=derive_identity(row(symbol,name='ST边界'),quote(symbol),as_of=AT,catalogue_as_of=CAT,calendar=CAL)
+    value=actual['fields']['limit_rate']['value']
+    assert value is None if rate is None else Decimal(value)==Decimal(rate)
+    assert actual['included'] is False and 'ST_EXCLUDED' in actual['excluded_reasons']
 
 
 def test_bj_st_delisting_new_stock_and_no_trades_separate_denominator():

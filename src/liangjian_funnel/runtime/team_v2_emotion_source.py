@@ -17,6 +17,7 @@ from .stock_trading_rules import stock_trading_rules
 from .team_v2_sources import stamp
 
 VERSION='DERIVED_IDENTITY_V1'
+MAIN_ST_TEN_PERCENT_FROM=date(2026,7,6)
 
 
 def _hash(value):
@@ -94,12 +95,13 @@ def derive_identity(row,quote,*,as_of,catalogue_as_of,calendar):
     field('security_status','TRADING_OBSERVED' if traded else 'NO_TRADES_OBSERVED',
         'SNAPSHOT.volume+last_price',as_of)
     if not traded:reasons.append('NO_TRADES_OR_QUOTE_MISSING')
-    # One ordinary rate authority. ST override is the explicit 0247 policy;
+    # One ordinary rate authority. 0996 dates the mainboard ST rule change;
     # these fields are not supplied to strict PIT or any order/tradability gate.
     rate=RATES.get(board)
-    if board in ('SSE_MAIN','SZSE_MAIN') and is_st:rate=Decimal('.05')
+    if board in ('SSE_MAIN','SZSE_MAIN') and is_st:
+        rate=Decimal('.05') if as_of.date()<MAIN_ST_TEN_PERCENT_FROM else Decimal('.10')
     field('limit_rate',str(rate) if rate is not None else None,
-        'PRICE_LIMITS.RATES;0247_MAIN_ST_5_PERCENT',catalogue_as_of)
+        'PRICE_LIMITS.RATES;MAIN_ST_DATE_SPLIT_20260706',catalogue_as_of)
     return dict(schema_version=VERSION,symbol=symbol,fields=fields,
         excluded_reasons=reasons,included=not reasons,authority='EMOTION_STATISTICS_ONLY')
 
