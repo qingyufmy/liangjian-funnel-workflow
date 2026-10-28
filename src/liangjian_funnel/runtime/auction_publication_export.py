@@ -620,7 +620,7 @@ class ReadOnlyPublicationReader:
         if (any(not isinstance(summary.get(key), str) for key in ("run_id", "slot", "status", "run_role"))
                 or not isinstance(summary.get("primary_lane_ids"), list)):
             raise ExportError("PUBLICATION_SUMMARY_INVALID")
-        if (summary.get("run_id") != ref.run_id or summary.get("slot") not in {"close", "CLOSE"}
+        if (summary.get("run_id") != ref.run_id or str(summary.get("slot")).lower() != "close"
                 or summary.get("status") not in {"READY", "READY_DEGRADED"}
                 or summary.get("run_role") not in {"primary", "full"}
                 or summary.get("auction_refresh") is True
@@ -633,7 +633,7 @@ class ReadOnlyPublicationReader:
                 or len(set(publication["created"])) != len(publication["created"])
                 or publication.get("activated") != [] or not isinstance(snapshot, dict)):
             raise ExportError("PUBLICATION_SUMMARY_INVALID")
-        if not run or run["status"] != "PUBLISHED" or run["slot"] != "CLOSE":
+        if not run or run["status"] != "PUBLISHED" or str(run["slot"]).lower() != "close":
             raise ExportError("RUN_NOT_PUBLISHED_CLOSE")
         if not stage or stage["status"] not in PUBLISHABLE_A3_STATUSES:
             raise ExportError("A3_NOT_VALIDATED")

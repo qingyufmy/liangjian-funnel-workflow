@@ -929,32 +929,42 @@ class WorkflowLarkPublisher:
         title = title + '｜' + now.astimezone(ZoneInfo('Asia/Shanghai')).strftime('%H:%M 北京时间')
         body = list(lines)
         trace = []
+        unknown_labels = set()
         def visible(match):
             code = match.group(0)
             if code in {'A1','A2','A3','A4','A5','A6','PM','CAS','VWAP','MACD','T1','T2'}:
                 return code
-            trace.append(code)
             translated=(_DISPLAY_LABELS.get(code) or _ACTION_LABELS.get(code) or _STRATEGY_LABELS.get(code)
                 or {'READY':'已就绪','MET':'已满足','UNMET':'未满足','NO_ACTION':'不动',
                     'PROBE':'试探仓','WATCH':'观察','SIGNAL_READY':'技术条件成立',
                     'BLOCKED':'已拒绝','FAILED':'失败','PUBLISHED':'已发布','NOT_PUBLISHED':'未发布',
                     'PENDING_A4':'等待盘中确认','REQUIRED':'必须满足'}.get(code))
             if translated is None:
-                raise ValueError('NOTIFICATION_LABEL_MISSING:'+code)
+                unknown_labels.add(code)
+                return '系统内部状态，详见内部通道'
+            trace.append(code)
             return translated
-        body = [re.sub(r'\b[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)*\b',visible,line) for line in body]
+        body = [re.sub(r'\b[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)*\b',visible,line).replace('原码：','') for line in body]
         if any(re.search(r'\b(?:None|null)\b|未识别',line) for line in body):
             raise ValueError('NOTIFICATION_VALUE_CONTRACT_INVALID')
-        if not summary.get('symbol') and not summary.get('symbols') and kind not in {'A5_MIDDAY_REVIEW','A5_POST_CLOSE_REVIEW'}:
-            body.append('• 单股当前价、入场区间、止损、禁追价及形态条件：不适用。')
         if not any(token in '\n'.join(body) for token in ('接下来','下一步','下一','等待','无需','处理：','执行状态','系统将','交运维','不下单','不重跑')):
-            body.append('• 接下来：系统按原计划与数据、仓位和风控门处理；此通知不构成放行。')
-        body.append('追溯：'+source_id+('；'+','.join(sorted(set(trace))) if trace else ''))
+            body.append('• 接下来：盘中仅在触发区内且满足入场确认时才发出交易信号；超过禁止追价不追。')
+        reference=hashlib.sha256(source_id.encode()).hexdigest() if unknown_labels else source_id
+        body.append('追溯：'+reference+('；'+','.join(sorted(set(trace))) if trace else ''))
         payload=dict(title=title,lines=body,summary=dict(summary),source_id=source_id)
         state = str(summary.get('state') or summary.get('output_state') or summary.get('status') or
             summary.get('action') or kind)
         observed = policy.observe(event_key=delivery_key,kind=kind,symbol=str(summary.get('symbol') or ''),
             state=state,now=now,payload=payload)
+        if unknown_labels:
+            mapping_key='mapping:'+now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()+':'+hashlib.sha256(','.join(sorted(unknown_labels)).encode()).hexdigest()
+            try:
+                mapping_notice=self._internal_notice(key=mapping_key,kind='NOTIFICATION_MAPPING_GAP',
+                    title='通知说明映射待补全',lines=['状态已用安全中文显示；客户通知继续按原规则发送。',
+                        '内部定位：'+','.join(sorted(unknown_labels)),'来源：'+source_id],now=now)
+            except Exception as exc:
+                mapping_notice=dict(status='FAILED',exception_class=type(exc).__name__)
+            policy.receipt(delivery_key,'MAPPING_INTERNAL',mapping_notice['status'],mapping_notice)
         if observed['disposition'] != 'IMMEDIATE':
             return dict(status=observed['disposition'],group_id=observed['group_id'])
         channels=observed['routes']
@@ -1041,7 +1051,7 @@ class WorkflowLarkPublisher:
                 risks=[];reasons=[]
                 for code in reason_codes:
                     rendered=_display_text(code,limit=180)
-                    if any(token in str(code) for token in ('BELOW','MISSING','NOT_READY','RISK','REJECT','OVEREXTEND','CONFLICT','DEGRADED')) or any(token in rendered for token in ('低于','缺失','风险','不足','超限','未通过')):
+                    if any(token in str(code) for token in ('BELOW','MISSING','NOT_READY','RISK','REJECT','OVEREXTEND','CONFLICT','DEGRADED')) or any(token in rendered for token in ('低于','超出','缺失','风险','不足','超限','未通过','试探执行仍需')):
                         risks.append(rendered)
                     else:reasons.append(rendered)
                 confirmation=payload.get('entry_confirmation')
@@ -1518,12 +1528,12 @@ class WorkflowLarkPublisher:
                 return str(value) if type(value) is int else '不可用'
             from ..review.fact_guard import execution_blocker_counts
             blockers=execution_blocker_counts(facts)
-            risk=(f"今日旧发布通道{blockers.get('JUDGE_TIMEOUT',0)}条技术候选受复核超时阻断；不能据此认定成交或漏单。"
+            risk=("旧发布通道出现复核超时；技术机会不等于发布信号或成交，不能据此认定漏单。"
                 if blockers.get('JUDGE_TIMEOUT') else
                 'A2审计数据不可用，未将其写成零候选。' if metrics.get('a2_availability')=='NOT_AVAILABLE' else
                 '尚无足够已成交样本检验收益，信号不代表成交。')
             lines=[f'• 今日计划：{number(metrics.get("a3_plan_count"))}只。',
-                f'• 已发布交易信号：{number(metrics.get("a4_trade_signal_count"))}条；技术候选不等于已发布信号。',
+                f'• 技术买入机会：{number(counts.get("technical_opportunities"))}次（按股票和原闭合5分钟节拍去重）；已发布交易信号：{number(counts.get("signals"))}条。',
                 f'• 成交记录：{number(counts.get("fills"))}笔；以成交账本为准。',
                 '• 主要风险：'+risk,
                 '• 接下来：系统按自然调度继续核验，复盘提案待审，不自动改变策略。']

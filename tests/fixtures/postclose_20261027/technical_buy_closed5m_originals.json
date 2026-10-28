@@ -1,0 +1,554 @@
+{
+  "source_fact_path": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\a4-monitor-20261021\\a5-close-0837-originals-20261027\\post-close-a297e6a7175b-facts.json",
+  "source_fact_sha256": "6c04b96ae051c3b34ece00e93d64b04857e45dcd1de9b6967ebf69a019ef2089",
+  "minute_ledger_sha256": "5e398c3a5bc414c4aaf7ff7c2aea31dee2ac85737fd2da8bab900e9965c60557",
+  "scope": "EXACT_EVENT_ID_JOIN_ORIGINAL_CLOSED_5M_LABEL_NO_TIME_FLOOR_RECONSTRUCTION",
+  "rows": [
+    {
+      "event_id": "aba3404f-fd7a-51c2-8331-f9451cb18929",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T10:06:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:05:00+08:00"
+    },
+    {
+      "event_id": "5631edec-a130-5757-84fe-d0e6cd5a36ec",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T10:07:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:05:00+08:00"
+    },
+    {
+      "event_id": "e76e7302-ff8a-5975-9ced-f8c48c52ecf7",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T10:08:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:05:00+08:00"
+    },
+    {
+      "event_id": "4bf62744-673d-55b3-9b66-90d77e91ef30",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T10:09:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:05:00+08:00"
+    },
+    {
+      "event_id": "d88baed4-b1a9-5352-bbb3-aab17cd52387",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T10:10:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:05:00+08:00"
+    },
+    {
+      "event_id": "4075f9cf-b287-5535-bf36-376e5acb0e8e",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T10:11:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:10:00+08:00"
+    },
+    {
+      "event_id": "02ab5d0a-48cb-5f46-8def-6e0babc35cd7",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T10:12:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:10:00+08:00"
+    },
+    {
+      "event_id": "11823d58-cb4d-5a34-8f33-c9172dbc3a0b",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T10:13:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:10:00+08:00"
+    },
+    {
+      "event_id": "efac6213-5504-599f-8178-1900b73e1667",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T10:14:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:10:00+08:00"
+    },
+    {
+      "event_id": "6598088c-8af3-5ab1-b49b-bcc190366924",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T10:15:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:10:00+08:00"
+    },
+    {
+      "event_id": "e3ad9480-3e40-58e7-bee8-49ee4eefa424",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T10:31:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:30:00+08:00"
+    },
+    {
+      "event_id": "d5416283-8d03-5c55-b660-cd355fc30f5e",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T10:32:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:30:00+08:00"
+    },
+    {
+      "event_id": "4a72db8a-d503-55da-8d72-4db9c9f68b37",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T10:33:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:30:00+08:00"
+    },
+    {
+      "event_id": "a3340345-d442-58bf-b896-b32926955622",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T10:34:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:30:00+08:00"
+    },
+    {
+      "event_id": "9bb12d87-fd10-5cd8-902b-766a12c98522",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T10:35:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:30:00+08:00"
+    },
+    {
+      "event_id": "d5ca49fe-c0e9-5ad9-b761-789a58f5eef3",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:46:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:45:00+08:00"
+    },
+    {
+      "event_id": "00eee946-1947-50d0-bc1f-0919ba22a331",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:47:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:45:00+08:00"
+    },
+    {
+      "event_id": "cda8f84d-f04c-59fc-8ad4-c79950a6e20a",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:48:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:45:00+08:00"
+    },
+    {
+      "event_id": "93b2988c-dbf4-5ba5-82b1-371c79e43478",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:49:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:45:00+08:00"
+    },
+    {
+      "event_id": "990a292f-52cf-5af2-a226-a448e72e41ec",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:50:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:45:00+08:00"
+    },
+    {
+      "event_id": "877719ae-b172-5f61-892b-0534ba1824ab",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:51:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:50:00+08:00"
+    },
+    {
+      "event_id": "07abae9c-7626-5c50-a55c-62157a6b588e",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:52:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:50:00+08:00"
+    },
+    {
+      "event_id": "b9e744e8-3de6-51b2-95ab-38d51af744ae",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:53:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:50:00+08:00"
+    },
+    {
+      "event_id": "7818b4c0-dff2-5134-bb61-cb144aa27546",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:54:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:50:00+08:00"
+    },
+    {
+      "event_id": "eaaef5e1-b2d7-5829-a946-08b4f6248172",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:55:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:50:00+08:00"
+    },
+    {
+      "event_id": "4cfa7153-628e-5ead-8182-db833a42cc97",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:56:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:55:00+08:00"
+    },
+    {
+      "event_id": "eafb1909-ca70-5ca8-ac5e-ff98ff4d39ac",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T10:56:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:55:00+08:00"
+    },
+    {
+      "event_id": "1c27499b-6a58-5a86-a209-483a1441e04f",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T10:57:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:55:00+08:00"
+    },
+    {
+      "event_id": "bac63c23-fe42-585d-8b19-7bd209afaccd",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:57:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:55:00+08:00"
+    },
+    {
+      "event_id": "0e7bc66c-2680-5728-a500-24047f74ab4c",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:58:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:55:00+08:00"
+    },
+    {
+      "event_id": "d0c54795-7d8b-56d1-9aa2-ecb67eb31922",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T10:58:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:55:00+08:00"
+    },
+    {
+      "event_id": "4ee7adf1-61b6-5b3a-829f-a0563f6c2aa0",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T10:59:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:55:00+08:00"
+    },
+    {
+      "event_id": "a652cdaf-e188-555d-b12f-bc6f64eca97d",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T10:59:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:55:00+08:00"
+    },
+    {
+      "event_id": "038d28dd-4807-556f-84fe-c162343aede3",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T11:00:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:55:00+08:00"
+    },
+    {
+      "event_id": "7514f818-1d63-51b3-880d-4e4d848cdbc6",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:361ed37b9d352a75",
+      "minute_end": "2026-10-27T11:00:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T10:55:00+08:00"
+    },
+    {
+      "event_id": "9ef89d1a-b203-50b4-9f8a-9f7c776f7485",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T11:01:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T11:00:00+08:00"
+    },
+    {
+      "event_id": "6c133ca0-b77c-5141-9fca-1b41c28f477a",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T11:02:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T11:00:00+08:00"
+    },
+    {
+      "event_id": "b2c3b5b4-0c16-563f-bea1-7526708fd174",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T11:03:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T11:00:00+08:00"
+    },
+    {
+      "event_id": "6b495b3e-3faf-5747-ad6b-7d31d64592e5",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T11:04:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T11:00:00+08:00"
+    },
+    {
+      "event_id": "80585ef6-cd9f-5851-9dd3-e6dc5fb9583a",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T11:05:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T11:00:00+08:00"
+    },
+    {
+      "event_id": "85366a8c-1b45-51e6-a5e0-6b905e19935e",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T13:06:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:05:00+08:00"
+    },
+    {
+      "event_id": "cc48f6f5-5a51-5f65-b22f-777a9e926aa6",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+      "minute_end": "2026-10-27T13:06:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:05:00+08:00"
+    },
+    {
+      "event_id": "d5f72d8a-038e-5d71-a4f7-e0a3e77586fa",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T13:07:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:05:00+08:00"
+    },
+    {
+      "event_id": "e757b19e-756b-5b4b-b3cd-a7e38fdf22c1",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+      "minute_end": "2026-10-27T13:07:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:05:00+08:00"
+    },
+    {
+      "event_id": "77bc6d43-fc92-5a15-8615-309342e4d690",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T13:08:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:05:00+08:00"
+    },
+    {
+      "event_id": "c481290e-1dda-5bee-bdec-a7329b8cf47f",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+      "minute_end": "2026-10-27T13:08:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:05:00+08:00"
+    },
+    {
+      "event_id": "43014c4b-9a1d-5310-8131-462af48a92aa",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+      "minute_end": "2026-10-27T13:09:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:05:00+08:00"
+    },
+    {
+      "event_id": "f5f2e7cd-e5ba-5b8d-8868-012ebdb1719f",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T13:09:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:05:00+08:00"
+    },
+    {
+      "event_id": "664242f5-a0ee-5dc4-96d8-5b48572fcecf",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T13:10:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:05:00+08:00"
+    },
+    {
+      "event_id": "9582e263-b8d6-5197-b3fb-8c4ff1d39faf",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+      "minute_end": "2026-10-27T13:10:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:05:00+08:00"
+    },
+    {
+      "event_id": "4b398f98-4cce-5761-bd73-e2c768d23eb9",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "minute_end": "2026-10-27T13:11:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:10:00+08:00"
+    },
+    {
+      "event_id": "cbdedaef-c2f0-5dd9-bb2f-577d5686dbb3",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "minute_end": "2026-10-27T13:12:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:10:00+08:00"
+    },
+    {
+      "event_id": "83422b24-5b62-5955-8681-7e7494f65ea9",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "minute_end": "2026-10-27T13:13:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:10:00+08:00"
+    },
+    {
+      "event_id": "f431514a-ce9d-5917-b6bf-791076509022",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "minute_end": "2026-10-27T13:14:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:10:00+08:00"
+    },
+    {
+      "event_id": "61a8fe3d-f29d-5410-939c-896763586eb5",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "minute_end": "2026-10-27T13:15:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:10:00+08:00"
+    },
+    {
+      "event_id": "4ad7742b-19c7-5d1f-84d9-0f4fc131307f",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "minute_end": "2026-10-27T13:16:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:15:00+08:00"
+    },
+    {
+      "event_id": "7e2709fc-024c-5891-bb42-b1c1ee769807",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "minute_end": "2026-10-27T13:17:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:15:00+08:00"
+    },
+    {
+      "event_id": "a555d263-34a2-5fd8-b98f-a751f70bdd38",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "minute_end": "2026-10-27T13:18:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:15:00+08:00"
+    },
+    {
+      "event_id": "5260366b-403c-5f96-af0b-faf769121601",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "minute_end": "2026-10-27T13:19:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:15:00+08:00"
+    },
+    {
+      "event_id": "fefb148b-0a6f-573e-8d81-1c1b19436d2b",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "minute_end": "2026-10-27T13:20:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:15:00+08:00"
+    },
+    {
+      "event_id": "3f1a14c8-cd1f-5ccb-939c-4453be69ee68",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T13:21:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:20:00+08:00"
+    },
+    {
+      "event_id": "7e188768-d3f3-5f57-ab7e-2a767c374354",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+      "minute_end": "2026-10-27T13:21:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:20:00+08:00"
+    },
+    {
+      "event_id": "bee0ee21-d4fb-564a-8e2c-d4c9ed4d557a",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T13:21:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:20:00+08:00"
+    },
+    {
+      "event_id": "a737a85a-dbfe-5f12-86b9-6c65b4b4a7ca",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T13:22:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:20:00+08:00"
+    },
+    {
+      "event_id": "d858ae4f-ff37-5834-b78b-ea3e3dc9c83c",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+      "minute_end": "2026-10-27T13:22:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:20:00+08:00"
+    },
+    {
+      "event_id": "fdb59fc6-09b6-5480-bf68-65e40283014c",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T13:22:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:20:00+08:00"
+    },
+    {
+      "event_id": "47c77728-3319-513c-b2e0-00584531c62b",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T13:23:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:20:00+08:00"
+    },
+    {
+      "event_id": "6e5a655f-0526-5ad6-8830-9a10f80feeea",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+      "minute_end": "2026-10-27T13:23:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:20:00+08:00"
+    },
+    {
+      "event_id": "d312ca5e-8f1d-5e6b-9a4e-e60ac4700a45",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T13:23:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:20:00+08:00"
+    },
+    {
+      "event_id": "325ab312-366f-576f-b555-e9cee57e05f8",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:626769303277a486",
+      "minute_end": "2026-10-27T13:24:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:20:00+08:00"
+    },
+    {
+      "event_id": "79900bc2-9103-5eb7-9002-60a457f64620",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T13:24:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:20:00+08:00"
+    },
+    {
+      "event_id": "e5ff0e55-c0e7-5b4d-b75f-06a1b9328358",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T13:24:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:20:00+08:00"
+    },
+    {
+      "event_id": "2db36852-6032-5e25-8b60-b856c28eb9ef",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:7a88fafff8932347",
+      "minute_end": "2026-10-27T14:00:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:55:00+08:00"
+    },
+    {
+      "event_id": "8a97bf68-85e4-5ad1-9db7-70472f30fdf5",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:1226f92fc59fdba9",
+      "minute_end": "2026-10-27T14:00:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T13:55:00+08:00"
+    },
+    {
+      "event_id": "a16ece4b-6a5d-5cdf-bd80-5a6930432f72",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T14:06:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T14:05:00+08:00"
+    },
+    {
+      "event_id": "d096f490-e4ee-52c8-af3b-77cb2c4d1a0a",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T14:07:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T14:05:00+08:00"
+    },
+    {
+      "event_id": "5d58da0a-6288-5356-8d7c-dbdcfcd6ad70",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T14:08:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T14:05:00+08:00"
+    },
+    {
+      "event_id": "2ed91443-bfb1-5757-a6c8-363c4fbf81fc",
+      "plan_id": "recovery-close-20261026-e6a15d33-0778-r3:lane_1:36bc4a00304a2f34",
+      "minute_end": "2026-10-27T14:09:00+08:00",
+      "technical_action": "BUY_SIGNAL",
+      "closed_5m_end": "2026-10-27T14:05:00+08:00"
+    }
+  ]
+}

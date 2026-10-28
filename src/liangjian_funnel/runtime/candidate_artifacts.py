@@ -67,7 +67,7 @@ def verify_candidate_artifacts(batch, *, run_id, proof, calendar=None, verify_or
     summary = _json_file(root/'runs'/f'{run_id}.json', limit=2_000_000)
     binding = summary_binding(summary)
     if (object_hash(binding) != proof.get('summary_binding_sha256')
-            or binding['run_id'] != run_id or binding['slot'] != 'close'
+            or binding['run_id'] != run_id or str(binding['slot']).lower() != 'close'
             or summary.get('status') not in {'READY', 'READY_DEGRADED', 'PUBLISHED'}):
         raise ValueError('CANDIDATE_SUMMARY_BINDING_CONFLICT')
     try:

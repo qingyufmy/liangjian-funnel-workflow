@@ -6,7 +6,8 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from fixture_candidate_artifacts_0761 import prepare
-from liangjian_funnel.runtime.candidate_artifacts import verify_candidate_artifacts
+from liangjian_funnel.runtime.candidate_artifacts import verify_candidate_artifacts,summary_binding
+from liangjian_funnel.runtime.publication_receipt import object_hash
 from liangjian_funnel.runtime.reviewed_batch_natural import stage_natural_candidate
 from liangjian_funnel.runtime.state import RuntimeStore
 
@@ -55,6 +56,19 @@ def test_non_close_workflow_record_still_cannot_stage(tmp_path,record_slot):
     with pytest.raises(ValueError,match='CANDIDATE_WORKFLOW_SOURCE_CONFLICT'):
         stage_natural_candidate(store,batch,run_id='natural-close',observed_at=NOW,artifact_proof=proof)
     assert store._read(lambda db:db.execute('SELECT count(*) FROM natural_review_candidates').fetchone()[0])==0
+
+
+@pytest.mark.parametrize('slot',['CLOSE','Close','unknown'])
+def test_summary_case_normalization_preserves_original_binding_and_rejects_unknown(tmp_path,slot):
+    store,batch=fixture(tmp_path,record_slot='CLOSE');proof=prepare(store,batch,run_id='natural-close',observed_at=NOW)
+    path=Path(proof['workflow_output_dir'])/'runs/natural-close.json'
+    summary=json.loads(path.read_bytes());summary['slot']=slot;path.write_text(json.dumps(summary))
+    proof['summary_binding_sha256']=object_hash(summary_binding(summary))
+    if slot=='unknown':
+        with pytest.raises(ValueError,match='CANDIDATE_SUMMARY_BINDING_CONFLICT'):
+            verify_candidate_artifacts(batch,run_id='natural-close',proof=proof)
+    else:
+        assert verify_candidate_artifacts(batch,run_id='natural-close',proof=proof)['source_trade_date']=='2026-10-26'
 
 
 @pytest.mark.parametrize('change',['wrong_source','unknown_slot'])

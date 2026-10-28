@@ -21,7 +21,7 @@ def publish_customer_status(settings, store, *, now):
     for event_id,kind,raw,at,status in rows:
         if kind not in DUAL_KINDS:
             continue
-        card=native_card(kind=kind,body=json.loads(raw),observed_at=at,event_id=event_id)['card']
+        card=native_card(kind=kind,body=json.loads(raw),observed_at=at,event_id=event_id,internal=False)['card']
         lines=[element['text']['content'] for element in card['elements'] if element['tag']=='div']
         output.append(publisher._send(delivery_key='native-customer:'+event_id,kind=kind,source_id=event_id,
             title=card['header']['title']['content'],lines=lines,

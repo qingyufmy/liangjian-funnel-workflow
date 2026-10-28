@@ -11,7 +11,7 @@ from liangjian_funnel.runtime.lark import LarkNotifier
 from liangjian_funnel.runtime.lark_notifications import WorkflowLarkPublisher
 from liangjian_funnel.runtime.state import RuntimeStore
 from liangjian_funnel.runtime.notification_policy import NotificationPolicy,routes
-from liangjian_funnel.review.key_counts import reconcile_counts
+from liangjian_funnel.review.key_counts import reconcile_counts,technical_opportunities
 
 
 def render(path,card,description):
@@ -25,6 +25,9 @@ def checks(card):
     assert '北京时间' in value
     assert not any(x in value for x in ('None','null','未识别','原码：','标签映射告警'))
     assert value.count('接下来')<=1
+    for line in value.splitlines():
+        if '入选依据：' in line:
+            assert not any(word in line for word in ('低于','超出','不足','风险','试探执行仍需'))
     assert any(x in value for x in ('接下来','下一','处理：','等待','执行状态','无需'))
     return dict(happened=True,key_numbers_or_explicit_not_applicable=True,next_action=True,bjt=True,forbidden_zero=True)
 
@@ -75,7 +78,12 @@ def test_real_13_and_11_controlled_current_contract(tmp_path,monkeypatch):
             assert proof['paper']==[0] and proof['team']==[12] and proof['workflow']==[3347,3346,0]
             actual=dict(plans=14,monitor_rows=facts['metrics']['a4_monitor_observation_count'],signals=0,
                 model_calls=7 if kind=='MIDDAY' else 12,fills=0,minute_rows=1666 if kind=='MIDDAY' else 3346)
-            facts['key_count_reconciliation']=reconcile_counts(facts,actual,source_sha256=proof['sha256'],observed_at=proof['observed_at'])
+            original_rows=json.loads((Path(__file__).parent/'fixtures/postclose_20261027/technical_buy_closed5m_originals.json').read_bytes())['rows']
+            original_rows=[row for row in original_rows if row['minute_end']<=facts['cutoff_at']]
+            opportunity=technical_opportunities(original_rows)
+            actual['technical_opportunities']=opportunity['count']
+            facts['metrics']['a4_technical_opportunity_count']=opportunity['count']
+            facts['key_count_reconciliation']=reconcile_counts(facts,actual,source_sha256=proof['sha256'],observed_at=proof['observed_at'],technical_evidence=opportunity)
             result=publisher.publish_a5_review(dict(review_id='REAL:'+kind,trade_date='2026-10-27',review_kind=kind,
                 report=report.model_dump(mode='json'),fact_snapshot=facts),now=now)
             sent=customer.cards[-1];checks(sent)

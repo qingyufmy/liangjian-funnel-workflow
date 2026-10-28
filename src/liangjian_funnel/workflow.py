@@ -7353,6 +7353,7 @@ class WorkflowApplication:
         source_trade_date: date | None = None,
         regeneration=None,
     ) -> dict[str, Any]:
+        slot=str(slot).lower()
         batch: list[dict[str, Any]] = []
         # Metadata is captured before normalization/authority injection. It is
         # not execution eligibility and never goes back into an A2/A3 prompt.
@@ -10176,6 +10177,7 @@ def _plan_expiry(
     *,
     minimum_trade_date: date | None = None,
 ) -> datetime:
+    slot=str(slot).lower()
     current = _aware(now)
     if minimum_trade_date is not None and (
         isinstance(minimum_trade_date, datetime) or not isinstance(minimum_trade_date, date)

@@ -752,3 +752,34 @@ review_0889_corrections:
   - test_d8_contract_0881.py
   latest_targeted_run: run-20261027T170912956243
   current_full: PENDING_NEW_HEAD_NOT_REUSED
+
+
+review_0892_and_lj098_20261028:
+  status: SOURCE_WRITTEN_TARGETED_PASS_NEW_HEAD_FULL_PENDING
+  changes:
+  - producer: review/daily.py + review/key_counts.py
+    consumers: [A5 frozen facts, customer summaries, engineering reports, numeric publication gate]
+    actual: recorded BUY/ADD opportunities deduplicate by plan and original closed_5m label; independent SQL ledger reconciliation; unavailable is not zero; midday attempts exclude afternoon decision clocks
+    tests: [test_a5_key_counts_0881.py, test_a5_daily_review.py, test_d8_contract_0881.py]
+  - producer: runtime/lark_notifications.py + runtime/notification_presentation.py
+    consumers: [customer plan cards, native internal cards, customer native status fanout, wire archive]
+    actual: positive/risk separation; no invented system stock row; one action; unknown label keeps safe customer message and internal diagnostic
+    tests: [test_notification_0892_fallback.py, test_d8_contract_0881.py, test_team_v2_internal.py, test_team_v2_internal_command.py]
+  - producer: runtime/research_source_date.py
+    consumers: [pipeline workflow source record, candidate staging, natural morning source and activation contracts]
+    actual: real ResearchPipeline CLOSE enum normalized; proof still derives source day; wrong proof remains rejected
+    tests: [test_research_source_date_0761.py, test_candidate_artifacts_0761.py, test_morning_research_contract.py]
+  - producer: runtime/candidate_artifacts.py + runtime/close_regeneration.py + runtime/auction_publication_export.py + workflow publication/expiry helpers
+    consumers: [WP1 archive reader, regeneration source reader, auction original export, normalized publisher and expiry]
+    actual: normalize known close/morning case at boundaries; original metadata/hash identity preserved; unknown source still rejected
+    tests: [test_candidate_artifacts_0761.py, test_wp5_auction_publication_export.py, test_research_source_date_0761.py]
+  no_trading_authority_expansion: true
+  no_model_latency_or_30s_pass_claimed: true
+  production: UNCHANGED_6eaaf75
+
+  slot_ci_inventory: docs/SLOT_CASE_COMPARISON_INVENTORY_LJ098_20261028.json
+  slot_ci_test: test_slot_case_inventory_lj098.py
+  slot_comparison_count: 35
+  original_5m_labels_fixture: tests/fixtures/postclose_20261027/technical_buy_closed5m_originals.json
+  historical_opportunity_counts: {midday_stock_5m: 8, full_day_stock_5m: 18, stock_minute_buy_rows: 78}
+  numeric_scope_review: 0918_SUBMITTED_NOT_ASSUMED_ACCEPTED

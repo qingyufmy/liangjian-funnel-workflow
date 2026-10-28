@@ -246,7 +246,7 @@ def bind_close_regeneration(app,source_run_id,*,now,head,source_trade_date=None,
         if not isinstance(summary,dict):raise ValueError()
     except (OSError,ValueError,TypeError):raise ValueError('REGEN_SOURCE_SUMMARY_UNPROVEN') from None
     if (summary.get('run_id')!=source_run_id or summary.get('market_trade_date')!=day
-            or summary.get('status')!='READY' or summary.get('slot')!='close'):
+            or summary.get('status')!='READY' or str(summary.get('slot')).lower()!='close'):
         raise ValueError('REGEN_SOURCE_DATE_OR_STATE_INVALID')
     primary=app.settings.research_primary_lane_id
     rows=app.store.list_execution_plans(lane_id=primary,status='PENDING_MORNING_REVIEW')

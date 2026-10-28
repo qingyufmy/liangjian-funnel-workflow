@@ -31,7 +31,7 @@ EVENT_LABELS = {
 }
 
 
-def native_card(*,kind,body,observed_at,event_id,diagnostics=None):
+def native_card(*,kind,body,observed_at,event_id,diagnostics=None,internal=True):
     from .lark import LarkNotifier
     from .lark_notifications import _DISPLAY_LABELS, _ACTION_LABELS
     at=datetime.fromisoformat(observed_at) if isinstance(observed_at,str) else observed_at
@@ -52,7 +52,7 @@ def native_card(*,kind,body,observed_at,event_id,diagnostics=None):
         translated=EVENT_LABELS.get(value) or _DISPLAY_LABELS.get(value) or _ACTION_LABELS.get(value) or aliases.get(value)
         if translated is None:
             unmapped.append(value)
-            return '说明待核实'
+            return '系统内部状态，详见内部通道'
         return translated
     text=re.sub(r'\b(?:None|null|[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)*)\b',label,original)
     def timestamp(match):
@@ -76,11 +76,11 @@ def native_card(*,kind,body,observed_at,event_id,diagnostics=None):
         '保留本次原件与原因；系统按原调度和准入规则继续，运维核验异常。')
     if diagnostics is not None:
         diagnostics['unmapped_code_counts']={code:unmapped.count(code) for code in set(unmapped)}
-    lines=[f'• 发生了什么：{text}',
-        '• 单股当前价、绑定区间、止损、禁追价及形态条件：不适用。' if not stock else
-        '• 价格与条件：以下原件有值才引用；未留存的当时价格或条件数明确不可用，不以当前值补齐。',
-        '• 接下来：'+next_action,
-        '追溯：'+event_id+'；'+kind+('；'+','.join(sorted(set(codes))) if codes else '')]
-    if unmapped:
+    lines=[f'• 发生了什么：{text}']
+    if stock:
+        lines.append('• 价格与条件：以下原件有值才引用；未留存的当时价格或条件数明确不可用，不以当前值补齐。')
+    lines.extend(['• 接下来：'+next_action,
+        '追溯：'+event_id+('；'+kind+('；'+','.join(sorted(set(codes))) if codes else '') if internal else '')])
+    if unmapped and internal:
         lines.insert(-1,f'• 说明映射告警：{len(set(unmapped))}种原码尚待补齐；原码已附追溯，请运维核验。当前状态不因此放行。')
     return LarkNotifier.build_card(title,lines,'orange')

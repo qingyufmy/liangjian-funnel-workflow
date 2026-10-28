@@ -1540,6 +1540,7 @@ def build_a5_fact_snapshot(
             "diagnostic_code": payload.get("diagnostic_code"),
             "strategy_profile": _json_mapping(payload.get("strategy")).get("strategy_profile"),
             "strategy_reason_codes": _json_mapping(payload.get("strategy")).get("reason_codes") or [],
+            "technical_action": strategy.get('action'),
             "unmet_conditions": _json_mapping(payload.get("strategy")).get("unmet_conditions") or [],
             "entry_geometry": {key: strategy[key] for key in (
                 "live_entry_price", "live_stop_level", "live_target_price", "live_no_chase_price",
@@ -1628,6 +1629,10 @@ def build_a5_fact_snapshot(
         "a4_mean_net_return": (sum(finished_returns) / len(finished_returns)) if finished_returns else None,
         "a4_positive_return_count": sum(value > 0 for value in finished_returns),
     }
+    from .key_counts import technical_opportunities
+    metrics['a4_technical_opportunity_count']=technical_opportunities([
+        {**row,'closed_5m_end':(row.get('entry_geometry') or {}).get('closed_5m_end')}
+        for row in events])['count']
     snapshot = {
         "schema_version": "a5-review-facts/1.0.0",
         "trade_date": trade_date.isoformat(),
@@ -2339,12 +2344,13 @@ class A5DailyReviewService:
                     # A retry uses the original frozen ledger attestation;
                     # later intraday rows cannot alter a midday denominator.
                     checked=reconcile_counts(facts,receipt['actual'],source_sha256=receipt['source_sha256'],
-                        observed_at=receipt['observed_at'])
+                        observed_at=receipt['observed_at'],technical_evidence=receipt.get('technical_opportunity_evidence'))
                     if checked!=receipt:
                         raise ValueError('A5_FROZEN_COUNT_RECEIPT_MISMATCH')
                 facts['key_count_reconciliation']=receipt
                 facts['metrics'].update(a4_team_model_attempt_count=receipt['actual']['model_calls'],
-                    a4_team_fill_count=receipt['actual']['fills'],a4_stock_minute_count=receipt['actual']['minute_rows'])
+                    a4_team_fill_count=receipt['actual']['fills'],a4_stock_minute_count=receipt['actual']['minute_rows'],
+                    a4_technical_opportunity_count=receipt['actual'].get('technical_opportunities'))
             except (ValueError,KeyError,TypeError) as exc:
                 raise A5ReviewError('A5_KEY_COUNT_RECONCILIATION_FAILED',diagnostics={
                     'phase':'KEY_COUNT_LEDGER_GATE','detail':str(exc)}) from exc
