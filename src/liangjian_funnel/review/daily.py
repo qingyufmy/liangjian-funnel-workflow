@@ -1636,6 +1636,9 @@ def build_a5_fact_snapshot(
         for row in events])['count']
     from ..runtime.a6_effective_review import read_capacity_summary
     metrics['a6_capacity_summary']=read_capacity_summary(store.path,day=trade_date.isoformat(),cutoff=cutoff)
+    from .research_execution import research_execution_summary
+    metrics['research_execution_summary']=research_execution_summary(
+        store.path,day=trade_date.isoformat(),lane=lane_id,cutoff=cutoff)
     snapshot = {
         "schema_version": "a5-review-facts/1.0.0",
         "trade_date": trade_date.isoformat(),
@@ -1922,6 +1925,9 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
         "", "## 总结", "", report.executive_summary, "",
     ]
     capacity=metrics.get('a6_capacity_summary') or {}
+    research_execution=metrics.get('research_execution_summary') or {}
+    if research_execution.get('status')=='AVAILABLE':
+        lines.append(f"- 研究候选 {research_execution['research_candidate_count']} / 已发布执行计划 {research_execution['published_execution_count']}；研究候选不等于可执行计划。")
     if capacity.get('status')=='AVAILABLE':
         lines.append(f"- 晨审候选 {capacity['candidate_count']} / 可执行 {capacity['candidate_eligible_count']} / 容量截取 {capacity['capacity_trimmed_count']}；可执行为A6资格，非PM分配或成交。")
     if report.fact_reconciliation:

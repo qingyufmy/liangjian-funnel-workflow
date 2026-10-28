@@ -1551,6 +1551,15 @@ class WorkflowLarkPublisher:
             capacity_line=(f"• 候选 {capacity_summary['candidate_count']} / 可执行 {capacity_summary['candidate_eligible_count']} / 容量截取 {capacity_summary['capacity_trimmed_count']}（A6资格，非PM分配或成交）。"
                 if isinstance(capacity_summary,dict) and capacity_summary.get('status')=='AVAILABLE'
                 else f'• 今日计划：{number(metrics.get("a3_plan_count"))}只。')
+            research_summary=(facts.get('metrics') or {}).get('research_execution_summary') or {}
+            if (research_summary.get('status')=='AVAILABLE'
+                    and research_summary.get('published_execution_count')==0 and counts.get('plans')==0
+                    and counts.get('research_candidates')==research_summary.get('research_candidate_count')
+                    and counts.get('published_research_plans')==0):
+                a6=research_summary.get('a6') or {}
+                cause=('晨会 A6 失败' if a6.get('status')=='VALIDATION_FAILED'
+                       else '晨会结果未完整核实' if a6.get('status')=='UNKNOWN' else '尚未发布执行计划')
+                capacity_line=f"• 研究候选 {research_summary['research_candidate_count']} / 可执行 0（{cause}）。"
             lines=[capacity_line,
                 f'• 技术买入机会：{number(counts.get("technical_opportunities"))}次（按股票和原闭合5分钟节拍去重）；已发布交易信号：{number(counts.get("signals"))}条。',
                 f'• 成交记录：{number(counts.get("fills"))}笔；以成交账本为准。',

@@ -330,6 +330,17 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
         from .daily import A5UnresolvedQuestion
         report.unresolved_questions = [A5UnresolvedQuestion(question="当前差异是否影响完整策略动作？",
             reason="INSUFFICIENT_SAMPLE", resolution="按冻结输入与明确的数据修订版本分别复算，保留原始判断。")]
+    research=(facts.get('metrics') or {}).get('research_execution_summary') or {}
+    if (research.get('status')=='AVAILABLE' and research.get('published_execution_count')==0
+            and metrics.get('a3_plan_count')==0 and research.get('research_candidate_count',0)>0):
+        a6=research.get('a6') or {}
+        reason=('晨会A6原回复校验失败' if a6.get('status')=='VALIDATION_FAILED'
+                else '尚未核实完整晨会结果' if a6.get('status')=='UNKNOWN' else '尚未发布执行计划')
+        boundary=(f"研究候选{research['research_candidate_count']}只，已发布执行计划0只（{reason}）；"
+                  '研究候选不等于可执行计划，不能将本轮表述为无研究候选。')
+        report.a3_review.summary=boundary
+        report.executive_summary=boundary+' '+report.executive_summary
+        notes.append('研究候选和已发布执行域按同批原件分列；晨会失败依据原A6校验记录，未由零执行计划推断。')
     from .time_presentation import bjt_presentation
     projected=type(report).model_validate(bjt_presentation(report.model_dump()))
     for name in type(report).model_fields:

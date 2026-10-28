@@ -64,6 +64,12 @@ def reconcile_counts(facts, actual, *, source_sha256, observed_at,technical_evid
         signals=metrics.get('a4_trade_signal_count'))
     mismatches={name:dict(fact=value,ledger=actual.get(name)) for name,value in expected.items()
         if type(value) is not int or type(actual.get(name)) is not int or value!=actual[name]}
+    research=(metrics.get('research_execution_summary') or {})
+    if research.get('status')=='AVAILABLE':
+        for field,key in [('research_candidates','research_candidate_count'),
+                          ('published_research_plans','published_execution_count')]:
+            if type(actual.get(field)) is not int or actual[field]!=research.get(key):
+                mismatches[field]=dict(fact=research.get(key),ledger=actual.get(field))
     if len((facts.get('a3') or {}).get('plans') or [])!=actual.get('plans'):
         mismatches['plan_rows']=dict(fact=len((facts.get('a3') or {}).get('plans') or []),ledger=actual.get('plans'))
     for name in ('model_calls','fills','minute_rows','technical_opportunities'):
@@ -127,6 +133,11 @@ def freeze_key_counts(facts, *, store, root, observed_at):
         model_calls=review_attempt_count(attempts,cutoff),
         fills=len(fills) if fills is not None else None,
         technical_opportunities=technical['count'])
+    from .research_execution import research_execution_summary
+    research=research_execution_summary(store.path,day=day,lane=lane,cutoff=datetime.fromisoformat(cutoff))
+    if research.get('status')=='AVAILABLE':
+        actual.update(research_candidates=research['research_candidate_count'],
+            published_research_plans=research['published_execution_count'])
     receipt=reconcile_counts(facts,actual,source_sha256=_hash(dict(plan_ids=actual_ids,plan_rows=all_rows,event_rows=events,
-        review_attempts=attempts,paper_fills=fills)),observed_at=observed_at.isoformat(),technical_evidence=technical)
+        review_attempts=attempts,paper_fills=fills,research_execution=research)),observed_at=observed_at.isoformat(),technical_evidence=technical)
     return receipt
