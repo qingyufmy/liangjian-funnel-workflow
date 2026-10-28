@@ -21,8 +21,9 @@ def fetch_board_history(code, trade_day):
     params = {'secid':'90.'+code,'klt':'101','fqt':'0','beg':(trade_day-timedelta(days=30)).strftime('%Y%m%d'),
               'end':trade_day.strftime('%Y%m%d'),'fields1':'f1,f2,f3,f4,f5,f6',
               'fields2':'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61'}
-    response = httpx.get('https://push2his.eastmoney.com/api/qt/stock/kline/get',params=params,
-                         timeout=8,trust_env=False)
+    from ..runtime.close_stage_budget import configure_source_client
+    with configure_source_client(httpx.Client(timeout=8,trust_env=False)) as client:
+        response = client.get('https://push2his.eastmoney.com/api/qt/stock/kline/get',params=params)
     response.raise_for_status()
     data = response.json().get('data') or {}
     if data.get('code') != code:

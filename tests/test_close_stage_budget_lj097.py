@@ -238,3 +238,21 @@ def test_precreated_source_client_retains_closed_owner_budget_for_late_worker():
         with budget_scope(b):assert client.get('https://controlled.invalid/in-owner').content==b'ok'
         with pytest.raises(CloseStageBudgetExceeded):client.get('https://controlled.invalid/late-worker')
     assert len(seen)==1
+
+
+def test_real_board_history_fallback_obeys_same_data_deadline_and_original_source(monkeypatch):
+    from datetime import date
+    from liangjian_funnel.data.board_history import fetch_board_history
+    import liangjian_funnel.data.board_history as module
+    original=httpx.Client;seen=[];clock=[0.0];b=CloseStageBudget(0,90,lambda:clock[0])
+    def transport(request):
+        assert request.url.host=='push2his.eastmoney.com' and request.url.path=='/api/qt/stock/kline/get'
+        assert b.source_attempts_registered==len(seen)+1
+        seen.append(request)
+        return httpx.Response(200,json={'data':{'code':'BK0001','name':'CONTROLLED','klines':['2026-10-27,1,2,3,1,10']}},request=request)
+    monkeypatch.setattr(module.httpx,'Client',lambda **kwargs:original(transport=httpx.MockTransport(transport),**kwargs))
+    with budget_scope(b):
+        assert fetch_board_history('BK0001',date(2026,10,27))['closes']=={'2026-10-27':2.0}
+        clock[0]=30
+        with pytest.raises(CloseStageBudgetExceeded):fetch_board_history('BK0001',date(2026,10,27))
+    assert len(seen)==1
