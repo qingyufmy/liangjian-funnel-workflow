@@ -79,7 +79,7 @@ def a6_gap_requirements(catalog, envelopes):
     return result
 
 
-def gap_reviewed_ids(output, requirements):
+def gap_reviewed_ids(output, requirements, *, allow_capacity_trimmed=False):
     rows = output.get('envelope_adjustments', []) if isinstance(output, Mapping) else []
     if not isinstance(rows, list):
         return set()
@@ -91,7 +91,8 @@ def gap_reviewed_ids(output, requirements):
         row = candidates[0]
         texts = row.get('what_would_change_my_mind')
         refs = row.get('supporting_refs')
-        if (row.get('reason_code') != 'DATA_LIMITED_REVIEWED' or not isinstance(texts, list)
+        if ((row.get('reason_code') != 'DATA_LIMITED_REVIEWED' and not (allow_capacity_trimmed
+                and row.get('adjustment')=='SUSPEND' and row.get('reason_code')=='CAPACITY_TRIMMED')) or not isinstance(texts, list)
                 or not all(isinstance(t, str) for t in texts) or not isinstance(refs, list)
                 or requirement['plan_ref'] not in refs):
             continue

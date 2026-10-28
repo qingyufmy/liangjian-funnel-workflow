@@ -3,6 +3,7 @@
 No clock override, manual model runner, direct production SQL, or latch unlock.
 An old batch is retained when input, raw model, or geometry proof is missing.
 """
+from ..research_slots import research_slot, require_research_slot
 from dataclasses import dataclass
 from datetime import datetime,date
 from pathlib import Path
@@ -246,7 +247,7 @@ def bind_close_regeneration(app,source_run_id,*,now,head,source_trade_date=None,
         if not isinstance(summary,dict):raise ValueError()
     except (OSError,ValueError,TypeError):raise ValueError('REGEN_SOURCE_SUMMARY_UNPROVEN') from None
     if (summary.get('run_id')!=source_run_id or summary.get('market_trade_date')!=day
-            or summary.get('status')!='READY' or str(summary.get('slot')).lower()!='close'):
+            or summary.get('status')!='READY' or research_slot(summary.get('slot'))!='close'):
         raise ValueError('REGEN_SOURCE_DATE_OR_STATE_INVALID')
     primary=app.settings.research_primary_lane_id
     rows=app.store.list_execution_plans(lane_id=primary,status='PENDING_MORNING_REVIEW')

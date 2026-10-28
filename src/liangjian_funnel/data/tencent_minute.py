@@ -7,6 +7,7 @@ normalized into the same immutable :class:`MinuteBar` contract.
 """
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import source_get
 
 import re
 from collections.abc import Callable, Mapping
@@ -87,7 +88,7 @@ def _provider_symbol(symbol: str) -> str:
 def _default_json_fetcher(url: str, params: Mapping[str, str], timeout: float) -> Any:
     import requests
 
-    response = requests.get(
+    response = source_get(
         url,
         params=dict(params),
         timeout=(min(5.0, timeout), timeout),
@@ -103,7 +104,7 @@ def _default_json_fetcher(url: str, params: Mapping[str, str], timeout: float) -
 def _default_text_fetcher(url: str, params: Mapping[str, str], timeout: float) -> str:
     import requests
 
-    response = requests.get(
+    response = source_get(
         url,
         params=dict(params),
         timeout=(min(5.0, timeout), timeout),

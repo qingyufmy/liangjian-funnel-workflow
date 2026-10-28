@@ -8,6 +8,7 @@ fact layer.
 """
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import bounded_data_sleep
 
 import hashlib
 import json
@@ -88,7 +89,7 @@ def collect_ths_industry_membership(
                     break
                 if result.reason_code not in {"RATE_LIMITED", "REQUEST_FAILED"} or attempt >= max_attempts:
                     break
-                sleep(retry_wait_seconds * attempt)
+                bounded_data_sleep(sleep)(retry_wait_seconds * attempt)
             assert result is not None
             if not result.ok or not result.complete:
                 failures.append({

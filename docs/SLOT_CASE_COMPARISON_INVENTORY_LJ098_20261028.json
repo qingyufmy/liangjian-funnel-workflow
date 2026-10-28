@@ -4,283 +4,214 @@
     {
       "path": "src/liangjian_funnel/cli.py",
       "function": "_doctor",
-      "line": 919,
       "comparison": "runtime.get('research_slots') == {'premarket': '08:30', 'morning': '09:26', 'close': '15:10'}",
-      "contract": "RUNTIME_SCHEDULE_IDENTITY_MAP_NOT_RESEARCH_SLOT_ENUM",
-      "source_sha256": "11e63ed83b61c30ddc6764e59de4c90efa3063b8c46cf486030d757f385abb99"
+      "contract": "RUNTIME_SCHEDULE_IDENTITY_MAP_NOT_RESEARCH_SLOT_ENUM"
     },
     {
       "path": "src/liangjian_funnel/cli.py",
       "function": "_workflow_command",
-      "line": 1308,
       "comparison": "args.slot != 'morning'",
-      "contract": "ARGPARSE_CHOICES_CANONICAL_LOWER_ONLY",
-      "source_sha256": "11e63ed83b61c30ddc6764e59de4c90efa3063b8c46cf486030d757f385abb99"
+      "contract": "ARGPARSE_CHOICES_CANONICAL_LOWER_ONLY"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "observed",
-      "line": 599,
-      "comparison": "str(slot).lower() != 'close'",
-      "contract": "READER_OR_HELPER_CASE_NORMALIZED",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "comparison": "research_slot(slot) != 'close'",
+      "contract": "READER_OR_HELPER_CASE_NORMALIZED"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "run_research",
-      "line": 3343,
       "comparison": "normalized_slot == 'close'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "run_research",
-      "line": 3457,
       "comparison": "normalized_slot == 'close'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "run_research",
-      "line": 3473,
       "comparison": "normalized_slot == 'morning'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "run_research",
-      "line": 3526,
       "comparison": "normalized_slot == 'close'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "_publish_plans",
-      "line": 7601,
       "comparison": "slot == 'close'",
-      "contract": "HELPER_NORMALIZES_AT_ENTRY",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "CENTRAL_RESEARCH_SLOT_AT_ENTRY"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "_publish_plans",
-      "line": 7697,
       "comparison": "slot == 'close'",
-      "contract": "HELPER_NORMALIZES_AT_ENTRY",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "CENTRAL_RESEARCH_SLOT_AT_ENTRY"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "_publish_plans",
-      "line": 7722,
       "comparison": "slot == 'close'",
-      "contract": "HELPER_NORMALIZES_AT_ENTRY",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "CENTRAL_RESEARCH_SLOT_AT_ENTRY"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "_publish_plans",
-      "line": 7727,
       "comparison": "slot == 'close'",
-      "contract": "HELPER_NORMALIZES_AT_ENTRY",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "CENTRAL_RESEARCH_SLOT_AT_ENTRY"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "_publish_plans",
-      "line": 7802,
       "comparison": "slot == 'close'",
-      "contract": "HELPER_NORMALIZES_AT_ENTRY",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "CENTRAL_RESEARCH_SLOT_AT_ENTRY"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "_plan_expiry",
-      "line": 10190,
       "comparison": "slot == 'morning'",
-      "contract": "HELPER_NORMALIZES_AT_ENTRY",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "CENTRAL_RESEARCH_SLOT_AT_ENTRY"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "run_research",
-      "line": 3326,
       "comparison": "normalized_slot != 'close'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "run_research",
-      "line": 3353,
       "comparison": "normalized_slot != 'close'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "run_research",
-      "line": 3382,
       "comparison": "normalized_slot != 'close'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "run_research",
-      "line": 3388,
       "comparison": "normalized_slot != 'morning'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "run_research",
-      "line": 3400,
       "comparison": "normalized_slot != 'close'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "run_research",
-      "line": 3434,
       "comparison": "normalized_slot != 'morning'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "run_research",
-      "line": 3482,
       "comparison": "normalized_slot == 'close'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "_publish_plans",
-      "line": 7555,
       "comparison": "slot == 'close'",
-      "contract": "HELPER_NORMALIZES_AT_ENTRY",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "CENTRAL_RESEARCH_SLOT_AT_ENTRY"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "run_research",
-      "line": 3795,
       "comparison": "normalized_slot == 'close'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "_publish_plans",
-      "line": 7743,
       "comparison": "slot == 'close'",
-      "contract": "HELPER_NORMALIZES_AT_ENTRY",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "CENTRAL_RESEARCH_SLOT_AT_ENTRY"
     },
     {
       "path": "src/liangjian_funnel/workflow.py",
       "function": "_publish_plans",
-      "line": 7764,
       "comparison": "slot == 'close'",
-      "contract": "HELPER_NORMALIZES_AT_ENTRY",
-      "source_sha256": "b35502c995383502f8664f38d4e9132e9ec6401b08a4954c13e43cee125ebc62"
+      "contract": "CENTRAL_RESEARCH_SLOT_AT_ENTRY"
     },
     {
       "path": "src/liangjian_funnel/pipeline/research_overlay_resume.py",
       "function": "require_resume_arguments",
-      "line": 34,
       "comparison": "normalized_slot != 'close'",
-      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER",
-      "source_sha256": "b00a3bfdd55b240b494dbb7c260a6b3b8d2417afcad4cd8408cea166240ac8d4"
+      "contract": "WORKFLOW_ENTRY_NORMALIZES_TO_LOWER"
     },
     {
       "path": "src/liangjian_funnel/review/daily.py",
       "function": "build_a5_fact_snapshot",
-      "line": 1485,
-      "comparison": "str(row.get('slot') or '').lower() == 'close'",
-      "contract": "READER_OR_HELPER_CASE_NORMALIZED",
-      "source_sha256": "43bf070679bfe20acd8bf5f3ce1f0d20f14b190a72c6ce46c895132d6705ec5b"
+      "comparison": "research_slot(row.get('slot')) == 'close'",
+      "contract": "READER_OR_HELPER_CASE_NORMALIZED"
     },
     {
       "path": "src/liangjian_funnel/runtime/auction_publication_export.py",
       "function": "_publication",
-      "line": 623,
-      "comparison": "str(summary.get('slot')).lower() != 'close'",
-      "contract": "READER_OR_HELPER_CASE_NORMALIZED",
-      "source_sha256": "ffbce27f9a325978a8243ceaf1f98afd01ba6a3a57cefc4024b63b7e7eb366d8"
+      "comparison": "research_slot(summary.get('slot')) != 'close'",
+      "contract": "READER_OR_HELPER_CASE_NORMALIZED"
     },
     {
       "path": "src/liangjian_funnel/runtime/auction_publication_export.py",
       "function": "_publication",
-      "line": 636,
-      "comparison": "str(run['slot']).lower() != 'close'",
-      "contract": "READER_OR_HELPER_CASE_NORMALIZED",
-      "source_sha256": "ffbce27f9a325978a8243ceaf1f98afd01ba6a3a57cefc4024b63b7e7eb366d8"
+      "comparison": "research_slot(run['slot']) != 'close'",
+      "contract": "READER_OR_HELPER_CASE_NORMALIZED"
     },
     {
       "path": "src/liangjian_funnel/runtime/candidate_artifacts.py",
       "function": "verify_candidate_artifacts",
-      "line": 70,
-      "comparison": "str(binding['slot']).lower() != 'close'",
-      "contract": "READER_OR_HELPER_CASE_NORMALIZED",
-      "source_sha256": "a7bff222d61e41122825d450bf9d8fddf092e85ba2331f2f16b72a2f64b86880"
+      "comparison": "research_slot(binding['slot']) != 'close'",
+      "contract": "READER_OR_HELPER_CASE_NORMALIZED"
     },
     {
       "path": "src/liangjian_funnel/runtime/close_regeneration.py",
       "function": "bind_close_regeneration",
-      "line": 249,
-      "comparison": "str(summary.get('slot')).lower() != 'close'",
-      "contract": "READER_OR_HELPER_CASE_NORMALIZED",
-      "source_sha256": "b6322107b5c14416b8f758f6d71212ac5a42633426f8598bd6c3d7b6ea36b8dc"
+      "comparison": "research_slot(summary.get('slot')) != 'close'",
+      "contract": "READER_OR_HELPER_CASE_NORMALIZED"
     },
     {
       "path": "src/liangjian_funnel/runtime/morning_research_contract.py",
       "function": "inspect_morning_research",
-      "line": 22,
-      "comparison": "str(row.get('slot')).lower() == 'close'",
-      "contract": "READER_OR_HELPER_CASE_NORMALIZED",
-      "source_sha256": "5488f6edf2c9085dc1887afe66aef30291ae5727f720001d31f71dd1a27eb3d2"
+      "comparison": "research_slot(row.get('slot')) == 'close'",
+      "contract": "LOCAL_SLOT_NORMALIZED_BEFORE_COMPARISON"
     },
     {
       "path": "src/liangjian_funnel/runtime/morning_research_contract.py",
       "function": "inspect_morning_research",
-      "line": 51,
       "comparison": "slot != 'close'",
-      "contract": "LOCAL_SLOT_NORMALIZED_BEFORE_COMPARISON",
-      "source_sha256": "5488f6edf2c9085dc1887afe66aef30291ae5727f720001d31f71dd1a27eb3d2"
+      "contract": "LOCAL_SLOT_NORMALIZED_BEFORE_COMPARISON"
     },
     {
       "path": "src/liangjian_funnel/runtime/research_source_date.py",
       "function": "runtime_trade_date",
-      "line": 3,
-      "comparison": "str(slot).lower() != 'close'",
-      "contract": "READER_OR_HELPER_CASE_NORMALIZED",
-      "source_sha256": "7682ac6d8d78aba335d50316158a675ff024d976f41ffd185c0fd04a78590b0b"
+      "comparison": "require_research_slot(slot) != 'close'",
+      "contract": "READER_OR_HELPER_CASE_NORMALIZED"
     },
     {
       "path": "src/liangjian_funnel/runtime/reviewed_batch_natural.py",
       "function": "operation",
-      "line": 104,
-      "comparison": "str(record['slot']).lower() != 'close'",
-      "contract": "READER_OR_HELPER_CASE_NORMALIZED",
-      "source_sha256": "52123b58d3b257a631aa274851f7a28e7fb577d57cb48868c5e8d6f5b94ca4a0"
+      "comparison": "research_slot(record['slot']) != 'close'",
+      "contract": "READER_OR_HELPER_CASE_NORMALIZED"
     },
     {
       "path": "src/liangjian_funnel/runtime/reviewed_batch_natural.py",
       "function": "read_natural_candidate",
-      "line": 164,
-      "comparison": "str(record['slot']).lower() != 'close'",
-      "contract": "READER_OR_HELPER_CASE_NORMALIZED",
-      "source_sha256": "52123b58d3b257a631aa274851f7a28e7fb577d57cb48868c5e8d6f5b94ca4a0"
+      "comparison": "research_slot(record['slot']) != 'close'",
+      "contract": "READER_OR_HELPER_CASE_NORMALIZED"
     }
   ],
-  "unreviewed": []
+  "unreviewed": [],
+  "semantic_entry": "src/liangjian_funnel/research_slots.py"
 }

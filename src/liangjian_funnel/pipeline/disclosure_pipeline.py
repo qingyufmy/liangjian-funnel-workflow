@@ -66,11 +66,13 @@ def industry_batch_order(symbols: Iterable[str], membership_rows: Iterable[Mappi
 
 class DisclosurePipeline:
     def __init__(self, fetch: Callable[[str], Any], *, workers: int, deadline: float,
-                 close_resources: Callable[[], None] | None = None):
+                 close_resources: Callable[[], None] | None = None,
+                 unavailable_factory: Callable[[str], Any] | None = None):
         if not 1 <= workers <= 16:
             raise ValueError('INVALID_DISCLOSURE_WORKER_COUNT')
         self.fetch, self.workers, self.deadline = fetch, workers, deadline
         self.close_resources = close_resources
+        self.unavailable_factory = unavailable_factory
         self._queue: Queue = Queue()
         self._stop = Event()
         self._lock = Lock()
@@ -158,6 +160,13 @@ class DisclosurePipeline:
     def submit(self, symbol: str, *, input_hash: str):
         if self._final_domain is not None and symbol not in self._final_domain:
             raise DisclosurePipelineError('DISCLOSURE_PIPELINE_OUTSIDE_FINAL_DOMAIN')
+        if self._entered and time.monotonic() >= self.deadline and self.unavailable_factory is not None:
+            if symbol not in self._futures:
+                future=Future();future.set_result(self.unavailable_factory(symbol))
+                self._futures[symbol]=future;self._inputs[symbol]=input_hash
+            elif self._inputs[symbol]!=input_hash:
+                raise DisclosurePipelineError('DISCLOSURE_PIPELINE_INPUT_CHANGED')
+            return
         if not self._entered or self._stop.is_set() or time.monotonic() >= self.deadline:
             raise DisclosurePipelineError('DISCLOSURE_PIPELINE_DEADLINE')
         if symbol in self._futures:
@@ -190,11 +199,20 @@ class DisclosurePipeline:
         for symbol in ordered:
             remaining = self.deadline-time.monotonic()
             if remaining <= 0:
+                if self.unavailable_factory is not None:
+                    values.append(self.unavailable_factory(symbol));continue
                 raise DisclosurePipelineError('DISCLOSURE_PIPELINE_DEADLINE')
             try:
                 values.append(self._futures[symbol].result(timeout=remaining))
             except TimeoutError as exc:
+                if self.unavailable_factory is not None:
+                    values.append(self.unavailable_factory(symbol));continue
                 raise DisclosurePipelineError('DISCLOSURE_PIPELINE_DEADLINE') from exc
+            except DisclosurePipelineError as exc:
+                if self.unavailable_factory is not None and str(exc) in {
+                        'DISCLOSURE_PIPELINE_DEADLINE','DISCLOSURE_PIPELINE_LATE_RESULT'}:
+                    values.append(self.unavailable_factory(symbol));continue
+                raise
         return values
 
     @contextmanager

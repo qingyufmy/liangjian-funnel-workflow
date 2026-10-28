@@ -7,9 +7,16 @@ import {
   modelNameLabel,
   planPriorityText,
   stockSymbolLabel,
+  slotLabel,
 } from "../../web/src/localization";
 
 describe("中文展示词典", () => {
+  it("研究标记大小写和空白只影响展示，未知值不冒已知收盘", () => {
+    expect(slotLabel("CLOSE")).toBe("收盘");
+    expect(slotLabel(" Close ")).toBe("收盘");
+    expect(slotLabel("premarket")).toBe("盘前");
+    expect(slotLabel("UNKNOWN_CLOSE")).not.toBe("收盘");
+  });
   it("将内部状态和策略原因转换为中文", () => {
     expect(codeLabel("READY")).toBe("就绪");
     expect(codeLabel("NO_NEW_ENTRY")).toBe("暂不追高开仓");

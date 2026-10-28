@@ -782,4 +782,30 @@ review_0892_and_lj098_20261028:
   slot_comparison_count: 35
   original_5m_labels_fixture: tests/fixtures/postclose_20261027/technical_buy_closed5m_originals.json
   historical_opportunity_counts: {midday_stock_5m: 8, full_day_stock_5m: 18, stock_minute_buy_rows: 78}
-  numeric_scope_review: 0918_SUBMITTED_NOT_ASSUMED_ACCEPTED
+  numeric_scope_review: ACCEPTED_BY_CLAUDE0924_AND0935_18_FULL8_MIDDAY
+
+patches_0937_20261028:
+  authority: CLAUDE_0937
+  status: IMPLEMENTED_CLAUDE0942_SCOPE_APPLIED_NEW_HEAD_FULL_PENDING
+  LJ099:
+    producers: [pipeline/team_v2_effective_risk.py, runtime/a6_effective_review.py, runtime/team_v2_risk_session.py]
+    consumers: [A6 risk envelopes, PM original capture gate, reviewed_batch_evidence, automatic CAS, activation, A4 risk admission, A5 facts, customer CAS and activation cards]
+    boundaries: [immutable original raw and validated flag, independently recomputed derived hash, exact original 7-plan CAS domain, unknown issue rejected, source-gap refs retained, server-only trim reason, SUSPEND never revived]
+    scope: CLAUDE0942_A_ONLY_CAPACITY_INVALID_TRIM_VALID_PRIMARY_BACKUP_UNCHANGED
+    tests: [tests/test_effective_a6_lj099.py, tests/test_d5_day_replay_0837.py, tests/test_team_v2_risk_session.py, tests/test_reviewed_batch_evidence_0546.py, tests/test_natural_reviewed_batch_0595.py]
+    actual_test_names: [test_real_capacity6_reply_reduces_to_exact4_and_preserves_original, test_model_cannot_claim_server_capacity_trimmed_reason, test_real1027_valid_qualifications_and_six_primary_six_backup_are_unchanged, test_false_gap_label_only_never_trims_otherwise_valid_primary_backup_pool]
+  LJ098:
+    producer: research_slots.py
+    consumers: [workflow CLI and resumable markers, source date, candidate artifacts, regeneration, natural morning contract, auction SQL export, A5, web label]
+    inventory: docs/RESEARCH_SLOT_ALL_LANGUAGES_LJ098_20261028.json
+    inventory_generator: scripts/research_slot_census_lj098.py
+    boundaries: [original persisted slot bytes and hashes unchanged, unknown publication slot rejected, premarket reporting identity is not new publication entry, scheduler and numeric slots remain separate]
+    tests: [tests/test_research_slot_semantics_lj098.py, tests/test_slot_case_inventory_lj098.py, test/web/localization.test.ts]
+  LJ097:
+    producer: runtime/close_stage_budget.py
+    consumers: [workflow close decorator, all opted-in source clients, retry and pacing waits, latest daily priming, disclosure priming and pipeline, research model client, candidate finalization, native internal notice sender]
+    source_client_files: [a2_market, board_reference, bse, cninfo, cninfo_pdf, eastmoney_hot, exchange_disclosure, gov_policy, live_quote, open_news, publication, rotation_theme, sina_minute_shadow, tencent_minute, ths_industry, ths_taxonomy, pipeline/data_source]
+    boundaries: [same parent monotonic deadline, data1800 research3540 finalize60 total5400, no source HTTP after data deadline, original transport API preserved, no source whitelist expansion, no model budget increase, unavailable never zero, latest-only receipt never full-history READY, required publication gates retained]
+    tests: [tests/test_close_stage_budget_lj097.py, tests/test_pipeline_data_sync.py, tests/test_wp5_disclosure_pipeline.py, tests/test_workflow_integration.py]
+    actual_test_names: [test_parent_elapsed_and_each_stage_never_reset_budget, test_source_positional_keyword_and_stream_calls_register_before_transport, test_trickling_source_stream_closes_at_data_deadline, test_redirect_cannot_dispatch_another_source_request_after_deadline, test_real_model_client_still_reads_and_archives_original_stream_after_data_cutoff, test_research_deadline_blocks_before_real_model_transport, test_latest_day_for_all_symbols_precedes_full_history_and_financial_sync, test_disclosure_at_deadline_keeps_domain_and_explicit_unavailability, test_immediate_budget_notice_occurs_once_per_phase_before_finalization]
+  verification_limitations: [no new real model or source request, no production changes, 30-second TrainB gate not claimed, current-day replay bounded by actual capture time]

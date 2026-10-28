@@ -4,6 +4,7 @@
 and 09:26 only validates auction quotes and activates already published plans.
 Failed/unavailable research is an explicit internal alert, not market EMPTY_SCOPE.
 """
+from ..research_slots import research_slot, require_research_slot
 from datetime import datetime
 import json
 import hashlib
@@ -19,7 +20,7 @@ def inspect_morning_research(store, settings, plans, *, now, calendar=None):
     lane = getattr(settings, 'research_primary_lane_id', 'lane_1')
     all_records = store.list_workflow_runs(limit=200)
     records = [row for row in all_records
-               if row.get('lane_id') == lane and str(row.get('slot')).lower() == 'close'
+               if row.get('lane_id') == lane and research_slot(row.get('slot')) == 'close'
                and row.get('trade_date') == previous]
     latest = max(records, key=lambda row: (row.get('updated_at') or '', row['run_id']), default=None)
     sources, rejected = {}, []
@@ -45,7 +46,7 @@ def inspect_morning_research(store, settings, plans, *, now, calendar=None):
                 except (OSError, ValueError):
                     pass
             market_day = (summary or {}).get('market_trade_date') or (record or {}).get('trade_date')
-            slot = str((summary or {}).get('slot') or (record or {}).get('slot')).lower()
+            slot = research_slot((summary or {}).get('slot') or (record or {}).get('slot'))
             status = (summary or {}).get('status') or (record or {}).get('status')
             reason = ('MORNING_SOURCE_RESEARCH_UNPROVEN' if not record and not summary
                       else 'MORNING_SOURCE_NOT_PREVIOUS_CLOSE' if slot != 'close' or market_day != previous

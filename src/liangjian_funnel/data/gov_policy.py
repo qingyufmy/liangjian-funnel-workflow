@@ -6,6 +6,7 @@ request/response contract and treats any drift as unavailable data.
 """
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import bounded_data_sleep,configure_source_client
 
 import hashlib
 import html
@@ -230,13 +231,14 @@ class GovPolicyClient:
             raise ValueError("provide only one HTTP client")
         injected = client or http_client
         self._owns = injected is None
-        self._client = injected or httpx.Client(timeout=timeout_seconds, transport=transport, trust_env=False)
+        self._client = injected or configure_source_client(httpx.Client(timeout=timeout_seconds, transport=transport, trust_env=False))
         self._endpoint = f"{base_url.rstrip('/')}/search-gov/data"
-        self._sleep = sleep
+        self._sleep = bounded_data_sleep(sleep)
         self._monotonic = monotonic
         self._last_request = 0.0
         self._min_interval = min_request_interval_seconds
         self._now_fn = now or (lambda: datetime.now(SHANGHAI))
+        configure_source_client(self._client)
 
     def __enter__(self) -> "GovPolicyClient":
         return self

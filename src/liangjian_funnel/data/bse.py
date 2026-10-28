@@ -9,6 +9,7 @@ so the research pipeline can consume both official announcement sources while
 """
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import bounded_data_sleep,configure_source_client
 
 import hashlib
 import html
@@ -326,12 +327,12 @@ class BseClient:
         injected = http_client or client
         self._owns_client = injected is None
         self._timeout_seconds = float(timeout_seconds)
-        self._client = injected or httpx.Client(
+        self._client = injected or configure_source_client(httpx.Client(
             timeout=timeout_seconds,
             transport=transport,
             trust_env=False,
             follow_redirects=True,
-        )
+        ))
         headers = getattr(self._client, "headers", None)
         if headers is not None:
             try:
@@ -339,12 +340,13 @@ class BseClient:
             except Exception:
                 pass
         self._endpoint = f"{base_url.rstrip('/')}/disclosureInfoController/companyAnnouncement.do"
-        self._sleep = sleep
+        self._sleep = bounded_data_sleep(sleep)
         self._monotonic = monotonic
         self._min_request_interval = float(min_request_interval_seconds)
         self._last_request: float | None = None
         self._throttle_lock = Lock()
         self._now_fn = now or (lambda: datetime.now(SHANGHAI))
+        configure_source_client(self._client)
 
     @staticmethod
     def _headers() -> dict[str, str]:

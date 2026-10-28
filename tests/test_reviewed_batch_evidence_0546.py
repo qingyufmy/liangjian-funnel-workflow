@@ -18,7 +18,7 @@ SCOPE = 'review-scope'
 DAY = '2026-10-19'
 
 
-def prepared(tmp_path, monkeypatch):
+def prepared(tmp_path, monkeypatch, *, a6_capacity_override=None):
     import liangjian_funnel.runtime.team_v2_morning as morning
     settings, clock = fixture(tmp_path, trade_date=DAY)
     with sqlite3.connect(settings.state_db_path) as db:
@@ -51,7 +51,7 @@ def prepared(tmp_path, monkeypatch):
         if envelope['stage_id'] == 'A6':
             raw['utilization_cap']['cap_pct'] = 65
             # One actual plan: original answer passes without quota repair.
-            raw['capacity_for_tomorrow'].update(plans_acceptable=1, cluster_quota={'bank': 1})
+            raw['capacity_for_tomorrow'].update(plans_acceptable=1 if a6_capacity_override is None else a6_capacity_override, cluster_quota={'bank': 1})
         else:
             raw['plan_decisions'][0].update(plan_ref='MORNING:PLAN:p1', size_tier='PROBE')
             raw['deployment_target'].update(target_pct=60, baseline_range=[40, 65])

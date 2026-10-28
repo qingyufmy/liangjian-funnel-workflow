@@ -1,0 +1,923 @@
+{
+  "schema_version": "research-slot-domain-census/2",
+  "authority": "CLAUDE_0937",
+  "domains_separate": true,
+  "publication_slots": [
+    "close",
+    "morning"
+  ],
+  "premarket_is_reporting_identity_not_new_publication_alias": true,
+  "sensitive_sql_filters": [],
+  "sites": [
+    {
+      "path": "config/runtime.yaml",
+      "domain": "DECLARED_SCHEDULE_OR_CI_CONFIGURATION",
+      "expression": "research_slots:"
+    },
+    {
+      "path": "config/runtime.yaml",
+      "domain": "DECLARED_SCHEDULE_OR_CI_CONFIGURATION",
+      "expression": "review_slots:"
+    },
+    {
+      "path": "scripts/audit_preopen_readonly.py",
+      "domain": "SQL_ORIGINAL_FIELD_OR_SEMANTIC_FILTER",
+      "expression": "SQL:\nimport collections, hashlib, importlib, json, pathlib, sqlite3, subprocess\nfrom datetime import datetime\nfrom zoneinfo import ZoneInfo\nfrom liangjian_funnel.settings import Settings\nfrom liangjian_funnel.data.tencent_minute import TencentIntradayAdapter\nroot = pathlib.Path.cwd()\ns = Settings.from_env(root=root)\nnow = datetime.now(ZoneInfo('Asia/Shanghai'))\nday = now.date().isoformat()\ndef rows(db, query, args=()):\n    return [dict(r) for r in db.execute(query, args)]\ndef readonly(path):\n    db = sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True, timeout=5)\n    db.row_factory = sqlite3.Row\n    return db\nout = {'captured_at':now.isoformat(), 'root':str(root), 'host':subprocess.check_output(['hostname'],text=True).strip(),\n       'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),\n       'mode':'READ_ONLY_NO_MODEL_NO_PRODUCTION_WRITE',\n       'settings':{'rotation_source':s.rotation_membership_source,'a4_quote_backup_mode':s.a4_quote_backup_mode,\n                   'research_models':s.research_models,'monitor_model':s.monitor_model,'review_model':s.review_model,\n                   'lark_config_present':s.lark_webhook_path.is_file()}}\nout['modules'] = []\nfor name in ['data.board_reference','data.hithink_board_reference','data.rotation_theme','pipeline.data_source',\n             'runtime.auction_base','settings','workflow','data.publication','data.live_fetch',\n             'data.tencent_minute','runtime.monitor','pipeline.a2_role_logic', 'pipeline.a3_strategy',\n             'pipeline.research', 'pipeline.research.common', 'pipeline.research.a1',\n             'pipeline.research.a2', 'pipeline.research.a3', 'cli']:\n    try:\n        m = importlib.import_module('liangjian_funnel.'+name)\n    except ModuleNotFoundError:\n        continue\n    p = pathlib.Path(m.__file__)\n    src = root/'src/liangjian_funnel'/pathlib.Path(*name.split('.')).with_suffix('.py')\n    if not src.is_file():\n        src = src.with_suffix('')/'__init__.py'\n    out['modules'].append({'module':name,'path':str(p),'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),\n                           'matches_src':src.is_file() and p.read_bytes()==src.read_bytes()})\nwith readonly(s.state_db_path) as c:\n    out['today_plans'] = rows(c,'select plan_id,symbol,status,valid_from,expires_at,created_at from execution_plans where expires_at>=? and expires_at<?',(day,day+'T23:59:59'))\n    out['positions'] = rows(c,'select symbol,total_qty,sellable_qty from virtual_positions where total_qty>0')\n    out['leases'] = rows(c,'select * from scheduler_leases')\n    out['current_unexpired_leases'] = [r for r in out['leases'] if r['state']=='ACTIVE' and r['expires_at']>now.isoformat()]\n    out['recent_workflows'] = []\n    for r in rows(c,'select run_id,trade_date,slot,status,reason_codes_json,updated_at,outcome_json from workflow_runs order by updated_at desc limit 4'):\n        o = json.loads(r.pop('outcome_json'))\n        r['outcome'] = {k:o.get(k) for k in ['job_status','data_sufficiency_state','actionability_state','counts']}\n        r['stages'] = [{k:t.get(k) for k in ['stage','counts','data_sufficiency_state','reason_codes']} for t in o.get('stages',[])]\n        out['recent_workflows'].append(r)\n    out['today_notifications'] = rows(c,'select kind,status,last_reason_code,sent_at,title from notification_deliveries where created_at>=? order by created_at',(day,))\n    out['recent_notification_summary'] = rows(c,'select kind,status,count(*) n,max(sent_at) last_sent from notification_deliveries where created_at>=? group by kind,status',('2026-10-08',))\n    out['today_a4_counts'] = rows(c,'select action,reason_code,count(*) n,min(minute_end) first,max(minute_end) last from monitor_events where minute_end>=? group by action,reason_code',(day,))\nwith readonly(root/'state/a1_registry.sqlite3') as c:\n    ptr = rows(c,\"select * from a1_active_pointer where pointer_name='A1'\")\n    out['a1_pointer'] = ptr[0] if ptr else None\n    if ptr:\n        r = rows(c,'select * from a1_generations where generation_id=?',(ptr[0]['generation_id'],))[0]\n        out['a1_generation'] = {k:v for k,v in r.items() if not k.endswith('_json')}\n        manifest = json.loads(r.get('manifest_json','{}'))\n        out['a1_manifest'] = {k:manifest.get(k) for k in ['schema_version','mode','as_of','g0_count','candidate_record_count','lane_ids','last_full_period','maintenance_week']}\n        out['a1_partition_scope_counts'] = {lane:len(symbols) for lane,symbols in manifest.get('partition_symbols_by_lane',{}).items()}\nmarker = root/'outputs/auction_base'/f'{day}.json'\nout['auction_base'] = json.loads(marker.read_text()) if marker.is_file() else None\nout['node_business_events'] = []\nlog = root/'outputs/node'/f'node-{day}.jsonl'\nif log.is_file():\n    for line in log.read_text().splitlines():\n        try: r=json.loads(line)\n        except ValueError: continue\n        msg=str(r.get('message',''))\n        if r.get('stream')=='node' and (r.get('job') is not None or '启动' in msg):\n            out['node_business_events'].append({k:r.get(k) for k in ['timestamp','job','level','runId','message']})\nout['node_business_events'] = out['node_business_events'][-40:]\nout['node_processes'] = []\nfor entry in pathlib.Path('/proc').iterdir():\n    if not entry.name.isdigit(): continue\n    try:\n        argv=(entry/'cmdline').read_bytes().split(b'\\0')\n        if b'dist/server/index.js' not in argv: continue\n        env=dict(v.split(b'=',1) for v in (entry/'environ').read_bytes().split(b'\\0') if b'=' in v)\n        out['node_processes'].append({'pid':int(entry.name),'scheduler_enabled':env.get(b'LIANGJIAN_SCHEDULER_ENABLED',b'true').decode(),\n                                     'working_directory':str((entry/'cwd').resolve())})\n    except (OSError,ValueError): pass\nprovider = TencentIntradayAdapter(timeout_seconds=3)\nout['market_transport_probes'] = []\nfor symbol in ['600026.SH','603906.SH','600519.SH']:\n    q=provider.fetch_quote(symbol,as_of=now)\n    b=provider.fetch_bars(symbol,'1m',12,as_of=now)\n    out['market_transport_probes'].append({'symbol':symbol,'quote_reason':q.reason_code,'quote_time':q.quote.quote_time.isoformat() if q.quote else None,\n         'quote_price':q.quote.price if q.quote else None,'minute_reason':b.reason_code,'bar_count':len(b.bars),\n         'last_bar_end':b.bars[-1].bar_end.isoformat() if b.bars else None,\n         'preopen_context':'PRIOR_SESSION_QUOTES_ARE_NOT_TODAY_EXECUTABLE' if now.hour<9 else 'VALIDATE_CURRENT_TRADE_DATE'})\nprint(json.dumps(out,ensure_ascii=False,default=str))\n"
+    },
+    {
+      "path": "scripts/audit_team_model_usage_readonly.py",
+      "domain": "SQL_ORIGINAL_FIELD_OR_SEMANTIC_FILTER",
+      "expression": "SQL:\nimport codecs,datetime,hashlib,json,pathlib,re,sqlite3,subprocess,time,urllib.request\nfrom zoneinfo import ZoneInfo\nfrom liangjian_funnel.settings import Settings\nroot=pathlib.Path.cwd()\nassert str(root)=='/www1/Agu/liangjian-funnel-workflow'\nassert subprocess.check_output(['hostname'],text=True).strip()=='debian'\nhead=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()\nassert head==EXPECTED_HEAD\ns=Settings.from_env(root=root)\nstarted=time.monotonic();cutoff=started+8\nnow=datetime.datetime.now(ZoneInfo('Asia/Shanghai'));assert now.date().isoformat()==AS_OF\nout={'actual_at':now.isoformat(),'production_head':head,'trading_days':TRADING_DAYS,\n     'calendar_version':CALENDAR_VERSION,'production_writes':0,'models_called':0,'source_calls':0,\n     'research_markdown_stages':[],'files':[],'skipped':[]}\nc=sqlite3.connect(s.state_db_path.resolve().as_uri()+'?mode=ro',uri=True,timeout=2)\nc.row_factory=sqlite3.Row;c.execute('PRAGMA query_only=ON');c.execute('BEGIN')\nc.set_progress_handler(lambda: int(time.monotonic()>cutoff),1000)\ntry:\n out['research_run_rows']=[dict(row) for row in c.execute('SELECT run_id,trade_date,slot,model,status,created_at,updated_at FROM research_runs WHERE trade_date>=? AND trade_date<=? ORDER BY trade_date,run_id',(TRADING_DAYS[0],AS_OF))]\n out['a5_persisted_reviews']=[dict(row) for row in c.execute('SELECT review_id,trade_date,review_kind,cutoff_at,status,model,input_hash,prompt_hash,output_hash,latency_ms,attempts,created_at FROM a5_daily_reviews WHERE trade_date>=? AND trade_date<=? ORDER BY trade_date,review_id',(TRADING_DAYS[0],AS_OF))]\nfinally:c.rollback();c.close()\nlane_re=re.compile(r'^### (\\S+) · (\\S+)\\s*$')\nstage_re=re.compile(r'^- (A[123])：`([^`]+)`；原因：`([^`]*)`；请求次数：`(\\d+)`；耗时：`([^`]+)`')\nrun_re=re.compile(r'^- run_id：`([^`]+)`',re.M)\ngenerated_re=re.compile(r'^- 运行时间：`([^`]+)`',re.M)\ntotal=0\nfor p in sorted((s.workflow_output_dir/'research').glob('research_*.md')):\n if time.monotonic()>cutoff:out['skipped'].append({'reason':'WALL_BUDGET_REACHED'});break\n # File-name date selects candidates only; report provenance below is mandatory.\n named=re.search(r'(\\d{4}-\\d{2}-\\d{2})',p.name)\n if not named or not TRADING_DAYS[0]<=named[1]<=AS_OF:continue\n st=p.stat()\n if total+min(st.st_size,32768)>2*1024*1024:\n  out['skipped'].append({'path':str(p.relative_to(root)),'reason':'BOUNDED_METADATA_READ_LIMIT','bytes':st.st_size});continue\n with p.open('rb') as f:raw=f.read(32768)\n total+=len(raw);after=p.stat()\n if (st.st_ino,st.st_size,st.st_mtime_ns)!=(after.st_ino,after.st_size,after.st_mtime_ns):\n  out['skipped'].append({'path':str(p.relative_to(root)),'reason':'SOURCE_IDENTITY_CHANGED'});continue\n text=codecs.getincrementaldecoder('utf-8-sig')().decode(raw,final=len(raw)==st.st_size);run=run_re.search(text);generated=generated_re.search(text)\n if not run or not generated:continue\n source={'path':str(p.relative_to(root)),'prefix_sha256':hashlib.sha256(raw).hexdigest(),'prefix_bytes':len(raw),'file_bytes':st.st_size,'prefix_only':len(raw)<st.st_size,\n         'run_id':run[1],'generated_at':generated[1],'basis':'GENERATED_STAGE_AUDIT_PROJECTION_NOT_RAW_PROVIDER_LOG'}\n out['files'].append(source);lane=None;model=None\n for line in text.splitlines():\n  match=lane_re.match(line)\n  if match:lane,model=match.groups();continue\n  match=stage_re.match(line)\n  if not match or lane is None:continue\n  stage,status,reasons,attempts,latency=match.groups()\n  out['research_markdown_stages'].append({'run_id':run[1],'generated_at':generated[1],'lane':lane,'model':model,\n    'stage':stage,'status':status,'reason_codes':reasons,'stage_request_attempts':int(attempts),\n    'latency_ms':int(latency[:-3]) if re.fullmatch(r'\\d+ ms',latency) else None,\n    'source_path':source['path'],'source_prefix_sha256':source['prefix_sha256']})\nout['bytes_read_from_research_markdown']=total\nout['coverage_limits']=['A4_NOT_SCANNED_DURING_ACTIVE_A1','A5_FAILED_CALLS_WITHOUT_PERSISTED_REVIEW_NOT_COUNTED',\n 'RESEARCH_AGGREGATE_STAGE_ATTEMPTS_NOT_INDEPENDENT_LOGICAL_CALL_IDS','PASS_VETO_FOCUS_AND_ENGINE_AGREEMENT_PENDING_RAW_RESPONSE_EXPORT',\n 'MISSING_FILES_OR_ROWS_ARE_UNKNOWN_NOT_ZERO','TWO_MIB_FILE_READ_BUDGET','ONLY_FIRST_32768_BYTES_PER_MARKDOWN_PREFIX_HASH_NOT_FULL_FILE_HASH']\nout['elapsed_seconds']=round(time.monotonic()-started,3)\nprint(json.dumps(out,ensure_ascii=True))\n"
+    },
+    {
+      "path": "scripts/generate_acceptance_report.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "_md_value(run.get('slot'))"
+    },
+    {
+      "path": "scripts/generate_acceptance_report.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "_upper(summary.get('slot'))"
+    },
+    {
+      "path": "scripts/generate_acceptance_report.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "lines.extend(['', '## 运行与模型', '', f\"- run_id: `{_md_value(run.get('run_id'))}`\", f\"- slot/status: `{_md_value(run.get('slot'))}` / `{_md_value(run.get('status'))}`\", '', '| lane | 模型 | 主/对比 | 状态 | 证据文件 |', '| --- | --- | --- | --- | --- |'])"
+    },
+    {
+      "path": "scripts/generate_acceptance_report.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "run.get('slot')"
+    },
+    {
+      "path": "scripts/generate_acceptance_report.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "summary.get('slot')"
+    },
+    {
+      "path": "scripts/inspect_a2_prompt.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "ResearchPipeline(settings, prompt_repository=settings.prompt_dir, model_client=application.model_client, output_dir=settings.workflow_output_dir / 'research', runtime_store=RuntimeStore(settings.state_db_path), slot='close', checkpoint_store=application.research_checkpoints, stage_snapshot_enricher=application._stage_snapshot_enricher)"
+    },
+    {
+      "path": "scripts/inspect_a2_prompt.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "slot='close'"
+    },
+    {
+      "path": "scripts/replay_frozen_research.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "ResearchPipeline(settings, prompt_repository=settings.prompt_dir, model_client=application.model_client, output_dir=settings.workflow_output_dir / 'research', parallel_lanes=True, runtime_store=RuntimeStore(settings.state_db_path), slot=args.slot, batch_workers=settings.research_batch_workers, progress_callback=research_progress, checkpoint_store=application.research_checkpoints, stage_snapshot_enricher=application._stage_snapshot_enricher)"
+    },
+    {
+      "path": "scripts/replay_frozen_research.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "_resume_a2(pipeline=pipeline, snapshot=snapshot, settings=settings, previous=previous, audit_path=audit_path, lane_id=lane_id, model=model, run_id=run_id, slot=slot, generated_at=generated_at)"
+    },
+    {
+      "path": "scripts/replay_frozen_research.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "_resume_stage(application, pipeline, snapshot, settings, args.resume_audit, args.stage, run_id, slot=args.slot, publish=args.publish, generated_at=current, model_override=args.model)"
+    },
+    {
+      "path": "scripts/replay_frozen_research.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "application._publish_plans(result, args.slot, current, snapshot_data=snapshot.data)"
+    },
+    {
+      "path": "scripts/replay_frozen_research.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "application._publish_plans(result, slot, generated_at, snapshot_data=stage_snapshot.data)"
+    },
+    {
+      "path": "scripts/replay_frozen_research.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "args.slot"
+    },
+    {
+      "path": "scripts/replay_frozen_research.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "atomic_write_json(run_summary_path, {'run_id': run_id, 'slot': slot, 'status': result.status, 'run_role': 'A3_RESUME', 'models': [model], 'primary_lane_ids': [lane_id], 'outcome_v2': result.outcome().as_dict(), 'snapshot': {'snapshot_id': snapshot.snapshot_id, 'snapshot_hash': snapshot.snapshot_hash, 'as_of': snapshot.as_of.isoformat() if snapshot.as_of else None}, 'research_markdown': str(markdown_path), 'stage_markdown': stage_markdown, 'plan_publication': publication, 'resume_source_audit': str(audit_path), 'a3_candidate_count': len(upstream_symbols), 'a3_gate_summary': gate.summary})"
+    },
+    {
+      "path": "scripts/replay_frozen_research.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "parser.add_argument('--slot', choices=('morning', 'close'), default='close')"
+    },
+    {
+      "path": "scripts/replay_frozen_research.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "slot=args.slot"
+    },
+    {
+      "path": "scripts/replay_frozen_research.py",
+      "domain": "OFFLINE_DIAGNOSTIC_OR_REPORT_CONSUMER",
+      "expression": "slot=slot"
+    },
+    {
+      "path": "server/dashboard.ts",
+      "domain": "ORIGINAL_AUDIT_FIELD_COPY_NO_AUTHORITY",
+      "expression": "slot: currentRows[0] ? asString(currentRows[0].slot) : latestRun?.slot ?? null,"
+    },
+    {
+      "path": "server/dashboard.ts",
+      "domain": "ORIGINAL_AUDIT_FIELD_COPY_NO_AUTHORITY",
+      "expression": "slot: null,"
+    },
+    {
+      "path": "server/dashboard.ts",
+      "domain": "ORIGINAL_AUDIT_FIELD_COPY_NO_AUTHORITY",
+      "expression": "slot: row ? asString(row.slot) : null,"
+    },
+    {
+      "path": "server/files.ts",
+      "domain": "ORIGINAL_AUDIT_FIELD_COPY_NO_AUTHORITY",
+      "expression": "readonly slot: string | null;"
+    },
+    {
+      "path": "server/files.ts",
+      "domain": "ORIGINAL_AUDIT_FIELD_COPY_NO_AUTHORITY",
+      "expression": "slot: recordString(payload, \"slot\"),"
+    },
+    {
+      "path": "server/monitor-health.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "const slot = Math.floor(started / 60000);"
+    },
+    {
+      "path": "server/monitor-health.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "if (day < this.state.day || (day === this.state.day && slot < this.state.lastSlot))"
+    },
+    {
+      "path": "server/monitor-health.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "if (failed && (slot !== this.state.lastSlot + 1 || this.state.failureStreak === 0)) this.state.failureEpisodeStart = slot;"
+    },
+    {
+      "path": "server/monitor-health.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "if (notificationKeys.length && !this.pending.has(key) && this.state.lastAttempts[key] !== slot) {"
+    },
+    {
+      "path": "server/monitor-health.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "if (slot > this.state.lastSlot) {"
+    },
+    {
+      "path": "server/monitor-health.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "this.state.failureStreak = failed ? (slot === this.state.lastSlot + 1 ? this.state.failureStreak + 1 : 1) : 0;"
+    },
+    {
+      "path": "server/monitor-health.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "this.state.lastAttempts[key] = slot;"
+    },
+    {
+      "path": "server/monitor-health.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "this.state.lastSlot = slot;"
+    },
+    {
+      "path": "server/runner.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "const current = this.childFor(slot);"
+    },
+    {
+      "path": "server/runner.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "const slot = job === \"team-internal\" ? \"notification\" : job === \"comparison\" ? \"comparison\" : job.startsWith(\"team-morning-\") || job.startsWith(\"team-a5-\") || job === \"team-eod\" || job === \"auction-evidence\" || job === \"auction-refresh\" || job === \"a5-midday\" || job === \"a5-close\" || job === \"outcomes\" || job === \"paper-settle\" || job === \"team-close-bar\" ? \"review\" : \"primary\";"
+    },
+    {
+      "path": "server/runner.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "else if (slot === \"notification\") this.notification = child;"
+    },
+    {
+      "path": "server/runner.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "else if (slot === \"review\") this.review = child;"
+    },
+    {
+      "path": "server/runner.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "if (slot === \"comparison\") this.comparison = child;"
+    },
+    {
+      "path": "server/runner.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "if (this.childFor(slot)?.runId === runId) this.setChild(slot, null);"
+    },
+    {
+      "path": "server/runner.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "private childFor(slot: \"primary\" | \"comparison\" | \"review\" | \"notification\"): ActiveChild | null {"
+    },
+    {
+      "path": "server/runner.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "private setChild(slot: \"primary\" | \"comparison\" | \"review\" | \"notification\", child: ActiveChild | null): void {"
+    },
+    {
+      "path": "server/runner.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "return slot === \"notification\" ? this.notification : slot === \"comparison\" ? this.comparison : slot === \"review\" ? this.review : this.active;"
+    },
+    {
+      "path": "server/runner.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "return this.runChild(job, definition.command, slot);"
+    },
+    {
+      "path": "server/runner.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "slot: \"primary\" | \"comparison\" | \"review\" | \"notification\","
+    },
+    {
+      "path": "server/runner.ts",
+      "domain": "PROCESS_CONCURRENCY_OR_CLOCK_BUCKET_SEPARATE",
+      "expression": "this.setChild(slot, { runId, process: child });"
+    },
+    {
+      "path": "src/liangjian_funnel/cli.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research.add_argument('--slot', type=require_research_slot, choices=('morning', 'close'), required=True)"
+    },
+    {
+      "path": "src/liangjian_funnel/cli.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "application.run_research(args.slot, **research_kwargs)"
+    },
+    {
+      "path": "src/liangjian_funnel/cli.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "args.slot"
+    },
+    {
+      "path": "src/liangjian_funnel/cli.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "args.slot != 'morning'"
+    },
+    {
+      "path": "src/liangjian_funnel/cli.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "sub.add_parser('run-auction-evidence', help='capture the current fixed 09:25 poll slot; no research, activation or rebase')"
+    },
+    {
+      "path": "src/liangjian_funnel/data/provider_governance.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "self.store.release_provider_concurrency(spec.quota_scope, slot, attempt_owner)"
+    },
+    {
+      "path": "src/liangjian_funnel/data/provider_governance.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot is None"
+    },
+    {
+      "path": "src/liangjian_funnel/evaluation/a4_replay.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot='close'"
+    },
+    {
+      "path": "src/liangjian_funnel/evaluation/a4_replay.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "store.record_workflow_run(run_id=counterfactual_source, lane_id=lane_id, trade_date=previous_session, slot='close', model='TEST_ONLY_COUNTERFACTUAL_ASSUMPTION', status='READY', snapshot_hash=hashlib.sha256(json.dumps(dict(source_plan), sort_keys=True, ensure_ascii=False, default=str).encode('utf-8')).hexdigest(), reason_codes=('TEST_ONLY_COUNTERFACTUAL_CLOSE_SOURCE',), outcome=assumption)"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/a3_attention_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "1 <= row['slot'] <= 30"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/a3_attention_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "_require(isinstance(row, Mapping) and isinstance(row.get('symbol'), str) and (row['symbol'] not in by_symbol) and (type(row.get('slot')) is int) and (1 <= row['slot'] <= 30), 'SIDE_SLOT_PROOF_INVALID')"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/a3_attention_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "_require(len({r['slot'] for r in slots}) == len(slots), 'DUPLICATE_SLOT')"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/a3_attention_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "by_symbol[symbol]['slot']"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/a3_attention_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "dict(schema=SCHEMA, symbol=symbol, theme_id=hypothesis['theme_id'], node_id=hypothesis['node_id'], hypothesis_id=hypothesis['hypothesis_id'], original_a1_partition='monitor_pool', candidate_id=candidate['candidate_id'], source_trade_date=source_trade_date, capture_as_of=candidate['capture_as_of'], source_slot=by_symbol[symbol]['slot'], a2_call_ids=list(row['team_call_ids']), a2_output_hash=audit['output_hash'], review_id=review['review_id'], theme_review=deepcopy(review['review']), membership_source_hash=hypothesis['membership_source_hash'], hypothesis=deepcopy(hypothesis), formal_a1_member=False, fundamental_admission_passed=False, execution_authority=False, execution_permission='BLOCKED', risk_unit='NO_ENTRY', status='PENDING_ORDINARY_A3_TECHNICAL_REVIEW')"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/a3_attention_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "len({r['slot'] for r in slots})"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/a3_attention_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "len({r['slot'] for r in slots}) == len(slots)"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/a3_attention_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "r['slot']"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/a3_attention_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "row.get('slot')"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/a3_attention_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "row['slot']"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/a3_attention_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "type(row.get('slot'))"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/a3_attention_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "type(row.get('slot')) is int"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/research/common.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "runtime_trade_date(frozen, generated_at=current, slot=self.slot)"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/research/common.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "self.runtime_store.record_workflow_run(run_id=effective_run_id, lane_id=lane.lane, trade_date=runtime_trade_date(frozen, generated_at=current, slot=self.slot), slot=self.slot, model=lane.model, status='READY_TO_PUBLISH' if lane.status in {'READY', 'READY_DEGRADED'} else 'BLOCKED', snapshot_hash=frozen.snapshot_hash, prompt_hash=prompt_hash, config_hash=config_hash, reason_codes=reasons, outcome=lane.outcome().as_dict())"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/research/common.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "self.slot"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/research/common.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "slot=self.slot"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/research/common.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "str(slot or 'UNSPECIFIED')"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/research/common.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "str(slot or 'UNSPECIFIED').upper()"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/team_v2_a2_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "dict(slot=len(slots) + 1, symbol=symbol, owner_route=route, queue_position=positions[route])"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/team_v2_a2_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "slot.update(evidence_routes=[r for r, pool in (('NOMINATION', nomination_symbols), ('HOT100', attention_symbols)) if symbol in pool], transport_representation='NOMINATION_ROW_WITH_HOT100_PROOF' if symbol in nomination_symbols & attention_symbols else 'NOMINATION_ROW' if symbol in nomination_symbols else 'HOT100_THEME_RESEARCH_ROW')"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/team_v2_a2_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "slot=len(slots) + 1"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/team_v2_a2_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "slot['symbol']"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/team_v2_a2_research.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "slots.append(dict(slot=len(slots) + 1, symbol=symbol, owner_route=route, queue_position=positions[route]))"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/team_v2_pm_schema.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "_item(row, {'slot', 'primary_plan_id', 'backup_plan_id', 'cluster', 'accept_order'} | _REFS)"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/team_v2_pm_schema.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "dict(slot=i, primary_plan_id=r['plan_id'], backup_plan_id=backup[i - 1]['plan_id'] if i <= len(backup) else '', cluster=r['cluster'], accept_order=i, source_link=r['source_link'])"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/team_v2_pm_schema.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "dict(slot=i, primary_plan_id=row['plan_id'], backup_plan_id=backup[i - 1]['plan_id'] if i <= len(backup) else '', cluster=row['cluster'], accept_order=i, **{k: row[k] for k in _REFS | _OPTIONAL if k in row})"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/team_v2_pm_schema.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "row['slot']"
+    },
+    {
+      "path": "src/liangjian_funnel/pipeline/team_v2_pm_schema.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "slot=i"
+    },
+    {
+      "path": "src/liangjian_funnel/review/daily.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "[str(row.get('run_id')) for row in store.list_workflow_runs(limit=200) if str(row.get('lane_id') or '') == lane_id and research_slot(row.get('slot')) == 'close' and (str(row.get('trade_date') or '') < trade_date.isoformat()) and str(row.get('run_id') or '')][:1]"
+    },
+    {
+      "path": "src/liangjian_funnel/review/daily.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(row.get('slot'))"
+    },
+    {
+      "path": "src/liangjian_funnel/review/daily.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(row.get('slot')) == 'close'"
+    },
+    {
+      "path": "src/liangjian_funnel/review/daily.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "row.get('slot')"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/auction_publication_export.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(run['slot'])"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/auction_publication_export.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(run['slot']) != 'close'"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/auction_publication_export.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(summary.get('slot'))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/auction_publication_export.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(summary.get('slot')) != 'close'"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/auction_publication_export.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "any((not isinstance(summary.get(key), str) for key in ('run_id', 'slot', 'status', 'run_role')))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/auction_publication_export.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "connection.execute(\"SELECT run_id,lane_id,trade_date,slot,status,created_at FROM workflow_runs WHERE lane_id=? AND LOWER(TRIM(slot))='close' AND trade_date=? AND status='PUBLISHED' ORDER BY run_id\", (ref.lane_id, previous.isoformat()))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/auction_publication_export.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "run['slot']"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/auction_publication_export.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "summary.get('slot')"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/auction_publication_export.py",
+      "domain": "SQL_ORIGINAL_FIELD_OR_SEMANTIC_FILTER",
+      "expression": "SQL:SELECT run_id,lane_id,trade_date,slot,status,created_at FROM workflow_runs WHERE lane_id=? AND LOWER(TRIM(slot))='close' AND trade_date=? AND status='PUBLISHED' ORDER BY run_id"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/candidate_artifacts.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(binding['slot'])"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/candidate_artifacts.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(binding['slot']) != 'close'"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/candidate_artifacts.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "binding['slot']"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/candidate_artifacts.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "dict(discovery, run_id=run_id, status=status, slot='close', market_trade_date=str(market_trade_date), plan_publication=dict(projection_manifests=projection_manifests, pattern_preparation=pattern_preparation))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/candidate_artifacts.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "dict(run_id=summary.get('run_id'), slot=summary.get('slot'), market_trade_date=summary.get('market_trade_date'), projection_manifests=[{k: row.get(k) for k in ('lane_id', 'path', 'sha256')} for row in publication.get('projection_manifests', [])], pattern_preparation=publication.get('pattern_preparation'))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/candidate_artifacts.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot='close'"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/candidate_artifacts.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot=summary.get('slot')"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/candidate_artifacts.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "summary.get('slot')"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/close_regeneration.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(summary.get('slot'))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/close_regeneration.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(summary.get('slot')) != 'close'"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/close_regeneration.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "summary.get('slot')"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/morning_research_contract.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot((summary or {}).get('slot') or (record or {}).get('slot'))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/morning_research_contract.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(row.get('slot'))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/morning_research_contract.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(row.get('slot')) == 'close'"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/morning_research_contract.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "(record or {}).get('slot')"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/morning_research_contract.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "(summary or {}).get('slot')"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/morning_research_contract.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "dict(schema='morning-research-contract/1', previous_session=previous, plan_origin='PREVIOUS_SESSION_CLOSE_ONLY', activation='AUCTION_VALIDATION_ONLY', research_model_calls=0, status='BLOCKED' if issue else 'READY', reason_code=issue, latest_prior_close={k: latest.get(k) for k in ('run_id', 'status', 'trade_date', 'slot')} if latest else None, source_checks=list(sources.values()), rejected_plans=rejected, reference_scan_limit=200, reference_scan_truncated=len(all_records) >= 200)"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/morning_research_contract.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "dict(source_run_id=source, market_trade_date=market_day, slot=slot, status=status, reason_code=reason)"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/morning_research_contract.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "row.get('slot')"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/morning_research_contract.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot != 'close'"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/morning_research_contract.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot=slot"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/opening_evidence.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "capture_opening_evidence(settings, calendar=calendar, now=current, clock=clock, fetch=fetch, poll_slot=slot)"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/opening_evidence.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot is None"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/research_source_date.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "require_research_slot(slot)"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/research_source_date.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "require_research_slot(slot) != 'close'"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/research_source_date.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "isinstance(slot, str)"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/research_source_date.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot in {'A1_MAINTENANCE', 'UNSPECIFIED'}"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/resource_sampler.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "max(0, min(math.floor(duration_seconds / interval_seconds) + 1 - slot, math.ceil((now - start) / interval_seconds) - slot))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/resource_sampler.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "min(math.floor(duration_seconds / interval_seconds) + 1 - slot, math.ceil((now - start) / interval_seconds) - slot)"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/resource_sampler.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "now > start + slot * interval_seconds"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/resource_sampler.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "start + slot * interval_seconds <= end"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/reviewed_batch_natural.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(record['slot'])"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/reviewed_batch_natural.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(record['slot']) != 'close'"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/reviewed_batch_natural.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "db.execute('SELECT trade_date,slot FROM workflow_runs WHERE run_id=? AND lane_id=?', (body['run_id'], body['lane_id']))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/reviewed_batch_natural.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "db.execute('SELECT trade_date,slot FROM workflow_runs WHERE run_id=? AND lane_id=?', (body['run_id'], body['lane_id'])).fetchone()"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/reviewed_batch_natural.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "db.execute('SELECT trade_date,slot FROM workflow_runs WHERE run_id=? AND lane_id=?', (run_id, lane))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/reviewed_batch_natural.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "db.execute('SELECT trade_date,slot FROM workflow_runs WHERE run_id=? AND lane_id=?', (run_id, lane)).fetchone()"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/reviewed_batch_natural.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "record['slot']"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/reviewed_batch_natural.py",
+      "domain": "SQL_ORIGINAL_FIELD_OR_SEMANTIC_FILTER",
+      "expression": "SQL:SELECT trade_date,slot FROM workflow_runs WHERE run_id=? AND lane_id=?"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/shadow_close_schedule.py",
+      "domain": "SCHEDULE_OR_DECLARED_EVENT_IDENTITY_SEPARATE",
+      "expression": "value.get('slot')"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/shadow_close_schedule.py",
+      "domain": "SCHEDULE_OR_DECLARED_EVENT_IDENTITY_SEPARATE",
+      "expression": "value.get('slot') != 'A5_POST_CLOSE_1600'"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/state.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "connection.execute('INSERT INTO research_runs(run_id,trade_date,slot,model,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)', (run_id, trade_date, str(slot), model, RunStatus.CREATED.value, now, now))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/state.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "connection.execute('SELECT * FROM research_runs WHERE trade_date=? AND slot=? AND model=?', (trade_date, str(slot), model))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/state.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "connection.execute('SELECT * FROM research_runs WHERE trade_date=? AND slot=? AND model=?', (trade_date, str(slot), model)).fetchone()"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/state.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "connection.execute('\\n                    INSERT INTO provider_concurrency_leases(\\n                        quota_scope,slot_id,owner,expires_at,updated_at\\n                    ) VALUES(?,?,?,?,?)\\n                    ', (quota_scope, slot, owner, expires_at, now_text))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/state.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "connection.execute('\\n                INSERT INTO workflow_runs(\\n                    run_id,lane_id,trade_date,slot,model,status,snapshot_hash,prompt_hash,config_hash,\\n                    reason_codes_json,outcome_json,created_at,updated_at\\n                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)\\n                ON CONFLICT(run_id,lane_id) DO UPDATE SET\\n                    status=excluded.status,prompt_hash=COALESCE(excluded.prompt_hash,workflow_runs.prompt_hash),\\n                    config_hash=COALESCE(excluded.config_hash,workflow_runs.config_hash),\\n                    reason_codes_json=excluded.reason_codes_json,outcome_json=excluded.outcome_json,\\n                    updated_at=excluded.updated_at\\n                ', (run_id, lane_id, trade_date, slot, model, status, snapshot_hash, prompt_hash, config_hash, reasons, outcome_json, now, now))"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/state.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "connection.executescript(\"\\n                    CREATE TABLE IF NOT EXISTS runtime_meta (\\n                        key TEXT PRIMARY KEY,\\n                        value TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS research_runs (\\n                        run_id TEXT PRIMARY KEY,\\n                        trade_date TEXT NOT NULL,\\n                        slot TEXT NOT NULL,\\n                        model TEXT NOT NULL,\\n                        status TEXT NOT NULL,\\n                        snapshot_hash TEXT,\\n                        prompt_hash TEXT,\\n                        config_hash TEXT,\\n                        created_at TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL,\\n                        UNIQUE(trade_date, slot, model)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS lane_stages (\\n                        run_id TEXT NOT NULL REFERENCES research_runs(run_id),\\n                        stage TEXT NOT NULL CHECK(stage IN ('A1','A2','A3')),\\n                        status TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL,\\n                        PRIMARY KEY(run_id, stage)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS execution_plans (\\n                        plan_id TEXT PRIMARY KEY,\\n                        lane_id TEXT NOT NULL,\\n                        symbol TEXT NOT NULL,\\n                        status TEXT NOT NULL,\\n                        plan_version INTEGER NOT NULL DEFAULT 1,\\n                        valid_from TEXT,\\n                        expires_at TEXT,\\n                        payload_json TEXT NOT NULL DEFAULT '{}',\\n                        created_at TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL,\\n                        UNIQUE(lane_id, plan_id)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS plan_supersessions (\\n                        old_plan_id TEXT PRIMARY KEY,\\n                        replacement_run_id TEXT NOT NULL,\\n                        reason TEXT NOT NULL,\\n                        replaced_at TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS reviewed_batch_bundles (\\n                        scope_id TEXT PRIMARY KEY,account_id TEXT NOT NULL,trade_date TEXT NOT NULL,\\n                        lane_id TEXT NOT NULL,bundle_sha256 TEXT NOT NULL,body_json TEXT NOT NULL,\\n                        created_at TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS natural_review_candidates (\\n                        scope_id TEXT PRIMARY KEY,account_id TEXT NOT NULL,trade_date TEXT NOT NULL,\\n                        lane_id TEXT NOT NULL,run_id TEXT NOT NULL,body_sha256 TEXT NOT NULL,\\n                        body_json TEXT NOT NULL,created_at TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'PENDING'\\n                    );\\n                    CREATE TABLE IF NOT EXISTS natural_review_candidate_head (\\n                        account_id TEXT NOT NULL,trade_date TEXT NOT NULL,lane_id TEXT NOT NULL,\\n                        scope_id TEXT NOT NULL,body_sha256 TEXT NOT NULL,revision INTEGER NOT NULL,\\n                        PRIMARY KEY(account_id,trade_date,lane_id)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS active_reviewed_batch_scope (\\n                        account_id TEXT NOT NULL,trade_date TEXT NOT NULL,scope_id TEXT NOT NULL,\\n                        bundle_sha256 TEXT NOT NULL,revision INTEGER NOT NULL,updated_at TEXT NOT NULL,\\n                        PRIMARY KEY(account_id,trade_date),FOREIGN KEY(scope_id) REFERENCES reviewed_batch_bundles(scope_id)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS reviewed_batch_switch_audit (\\n                        scope_id TEXT PRIMARY KEY,account_id TEXT NOT NULL,trade_date TEXT NOT NULL,\\n                        old_scope_id TEXT,old_revision INTEGER,new_revision INTEGER NOT NULL,\\n                        old_rows_sha256 TEXT NOT NULL,old_plan_ids_json TEXT NOT NULL,new_plan_ids_json TEXT NOT NULL,\\n                        bundle_sha256 TEXT NOT NULL,switched_at TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS monitor_events (\\n                        event_id TEXT PRIMARY KEY,\\n                        event_key TEXT NOT NULL UNIQUE,\\n                        lane_id TEXT NOT NULL,\\n                        minute_end TEXT NOT NULL,\\n                        action TEXT NOT NULL,\\n                        reason_code TEXT,\\n                        effective INTEGER NOT NULL CHECK(effective IN (0,1)),\\n                        payload_json TEXT NOT NULL DEFAULT '{}',\\n                        created_at TEXT NOT NULL\\n                    );\\n                    CREATE INDEX IF NOT EXISTS idx_monitor_events_lane_time\\n                        ON monitor_events(lane_id,minute_end,event_id);\\n                    CREATE INDEX IF NOT EXISTS idx_monitor_events_lane_effective_action\\n                        ON monitor_events(lane_id,effective,action,minute_end,event_id);\\n                    CREATE INDEX IF NOT EXISTS idx_monitor_events_lane_reason\\n                        ON monitor_events(lane_id,reason_code,minute_end,event_id);\\n                    CREATE INDEX IF NOT EXISTS idx_monitor_events_effective_time\\n                        ON monitor_events(effective,minute_end,event_id);\\n                    CREATE TABLE IF NOT EXISTS a4_signal_lifecycles (\\n                        lifecycle_id TEXT PRIMARY KEY,\\n                        signal_id TEXT NOT NULL UNIQUE,\\n                        entry_event_key TEXT NOT NULL UNIQUE,\\n                        entry_event_id TEXT NOT NULL UNIQUE,\\n                        plan_id TEXT NOT NULL,\\n                        lane_id TEXT NOT NULL,\\n                        account_id TEXT NOT NULL,\\n                        symbol TEXT NOT NULL,\\n                        trade_date TEXT NOT NULL,\\n                        source_run_id TEXT NOT NULL,\\n                        name TEXT NOT NULL DEFAULT '',\\n                        stock_behavior_type TEXT NOT NULL,\\n                        strategy_profile TEXT NOT NULL,\\n                        strategy_snapshot_json TEXT NOT NULL DEFAULT '{}',\\n                        plan_snapshot_json TEXT NOT NULL DEFAULT '{}',\\n                        status TEXT NOT NULL CHECK(status IN (\\n                            'SIGNALLED','OPEN','EXIT_PENDING','PARTIALLY_CLOSED','CLOSED',\\n                            'UNFILLED','CANCELLED','INVALIDATED','DATA_ERROR'\\n                        )),\\n                        signal_time TEXT NOT NULL,\\n                        signal_price REAL,\\n                        entry_time TEXT,\\n                        entry_price REAL,\\n                        entry_qty INTEGER NOT NULL DEFAULT 0 CHECK(entry_qty >= 0),\\n                        exit_signal_time TEXT,\\n                        exit_signal_price REAL,\\n                        exit_signal_qty INTEGER NOT NULL DEFAULT 0 CHECK(exit_signal_qty >= 0),\\n                        exit_time TEXT,\\n                        exit_price REAL,\\n                        exit_qty INTEGER NOT NULL DEFAULT 0 CHECK(exit_qty >= 0),\\n                        remaining_qty INTEGER NOT NULL DEFAULT 0 CHECK(remaining_qty >= 0),\\n                        entry_fee REAL NOT NULL DEFAULT 0 CHECK(entry_fee >= 0),\\n                        exit_fee REAL NOT NULL DEFAULT 0 CHECK(exit_fee >= 0),\\n                        total_fee REAL NOT NULL DEFAULT 0 CHECK(total_fee >= 0),\\n                        gross_pnl REAL,\\n                        net_pnl REAL,\\n                        realized_pnl REAL,\\n                        gross_return REAL,\\n                        net_return REAL,\\n                        max_price REAL,\\n                        min_price REAL,\\n                        mfe REAL,\\n                        mae REAL,\\n                        holding_minutes INTEGER,\\n                        last_bar_end TEXT,\\n                        last_close REAL,\\n                        exit_reason TEXT,\\n                        last_fill_key TEXT,\\n                        applied_fill_keys_json TEXT NOT NULL DEFAULT '[]',\\n                        applied_exit_event_keys_json TEXT NOT NULL DEFAULT '[]',\\n                        created_at TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS a5_daily_reviews (\\n                        review_id TEXT PRIMARY KEY,\\n                        review_key TEXT NOT NULL UNIQUE,\\n                        trade_date TEXT NOT NULL,\\n                        review_kind TEXT NOT NULL CHECK(review_kind IN ('MIDDAY','POST_CLOSE')),\\n                        cutoff_at TEXT NOT NULL,\\n                        status TEXT NOT NULL CHECK(status IN ('COMPLETED','DEGRADED')),\\n                        model TEXT NOT NULL,\\n                        source_run_ids_json TEXT NOT NULL DEFAULT '[]',\\n                        input_hash TEXT NOT NULL,\\n                        prompt_hash TEXT NOT NULL,\\n                        output_hash TEXT NOT NULL,\\n                        latency_ms INTEGER NOT NULL DEFAULT 0 CHECK(latency_ms >= 0),\\n                        attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),\\n                        thinking_variant TEXT,\\n                        fact_snapshot_json TEXT NOT NULL,\\n                        report_json TEXT NOT NULL,\\n                        markdown_path TEXT NOT NULL,\\n                        created_at TEXT NOT NULL,\\n                        UNIQUE(trade_date, review_kind, input_hash)\\n                    );\\n                    CREATE INDEX IF NOT EXISTS idx_a4_signal_lifecycles_account_symbol\\n                        ON a4_signal_lifecycles(account_id, symbol, status, updated_at DESC);\\n                    CREATE INDEX IF NOT EXISTS idx_a4_signal_lifecycles_plan\\n                        ON a4_signal_lifecycles(plan_id, trade_date, updated_at DESC);\\n                    CREATE INDEX IF NOT EXISTS idx_a4_signal_lifecycles_status\\n                        ON a4_signal_lifecycles(status, updated_at DESC);\\n                    CREATE TABLE IF NOT EXISTS a4_entry_matching_attempts (\\n                        plan_id TEXT NOT NULL,\\n                        signal_id TEXT NOT NULL,\\n                        eligible_bar_end TEXT NOT NULL,\\n                        result TEXT NOT NULL,\\n                        reason_code TEXT NOT NULL,\\n                        evidence_json TEXT NOT NULL,\\n                        created_at TEXT NOT NULL,\\n                        PRIMARY KEY(plan_id,signal_id)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS a4_lifecycle_reconciliations (\\n                        plan_id TEXT NOT NULL,\\n                        signal_id TEXT NOT NULL,\\n                        account_id TEXT NOT NULL,\\n                        symbol TEXT NOT NULL,\\n                        reason_code TEXT NOT NULL,\\n                        evidence_json TEXT NOT NULL,\\n                        created_at TEXT NOT NULL,\\n                        PRIMARY KEY(plan_id,signal_id)\\n                    );\\n                    CREATE INDEX IF NOT EXISTS a4_reconciliation_account_symbol\\n                        ON a4_lifecycle_reconciliations(account_id,symbol);\\n                    CREATE TABLE IF NOT EXISTS notification_deliveries (\\n                        delivery_id TEXT PRIMARY KEY,\\n                        delivery_key TEXT NOT NULL UNIQUE,\\n                        kind TEXT NOT NULL,\\n                        source_id TEXT NOT NULL,\\n                        status TEXT NOT NULL CHECK(status IN ('SENT','FAILED')),\\n                        title TEXT NOT NULL,\\n                        color TEXT NOT NULL,\\n                        attempt_count INTEGER NOT NULL DEFAULT 1 CHECK(attempt_count >= 0),\\n                        last_reason_code TEXT,\\n                        created_at TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL,\\n                        sent_at TEXT,\\n                        payload_json TEXT NOT NULL DEFAULT '{}'\\n                    );\\n                    CREATE INDEX IF NOT EXISTS idx_notification_deliveries_created\\n                        ON notification_deliveries(created_at DESC, delivery_id DESC);\\n                    CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status\\n                        ON notification_deliveries(status, updated_at DESC);\\n                    CREATE TABLE IF NOT EXISTS virtual_accounts (\\n                        account_id TEXT PRIMARY KEY,\\n                        model TEXT NOT NULL UNIQUE,\\n                        initial_cash REAL NOT NULL CHECK(initial_cash >= 0),\\n                        cash REAL NOT NULL CHECK(cash >= 0),\\n                        equity REAL NOT NULL CHECK(equity >= 0),\\n                        status TEXT NOT NULL DEFAULT 'ACTIVE',\\n                        created_at TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS virtual_positions (\\n                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),\\n                        symbol TEXT NOT NULL,\\n                        total_qty INTEGER NOT NULL CHECK(total_qty >= 0),\\n                        sellable_qty INTEGER NOT NULL CHECK(sellable_qty >= 0),\\n                        avg_cost REAL NOT NULL CHECK(avg_cost >= 0),\\n                        stop_level REAL,\\n                        plan_id TEXT,\\n                        updated_at TEXT NOT NULL,\\n                        PRIMARY KEY(account_id, symbol),\\n                        CHECK(sellable_qty <= total_qty)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS position_risk_plans (\\n                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),\\n                        symbol TEXT NOT NULL,\\n                        source_plan_id TEXT,\\n                        status TEXT NOT NULL,\\n                        entry_price REAL NOT NULL CHECK(entry_price > 0),\\n                        stop_level REAL NOT NULL CHECK(stop_level > 0),\\n                        max_adds INTEGER NOT NULL DEFAULT 1 CHECK(max_adds >= 0),\\n                        adds_used INTEGER NOT NULL DEFAULT 0 CHECK(adds_used >= 0),\\n                        corporate_action_version TEXT,\\n                        unresolved_corporate_action INTEGER NOT NULL DEFAULT 0 CHECK(unresolved_corporate_action IN (0,1)),\\n                        primary_theme_id TEXT NOT NULL DEFAULT 'UNKNOWN',\\n                        strategy_identity TEXT,\\n                        exit_rules_json TEXT NOT NULL DEFAULT '{}',\\n                        created_at TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL,\\n                        PRIMARY KEY(account_id, symbol)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS portfolio_marks (\\n                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),\\n                        symbol TEXT NOT NULL,\\n                        price REAL NOT NULL CHECK(price > 0),\\n                        bar_end TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL,\\n                        PRIMARY KEY(account_id, symbol)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS account_trading_days (\\n                        account_id TEXT PRIMARY KEY REFERENCES virtual_accounts(account_id),\\n                        trade_date TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS applied_corporate_actions (\\n                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),\\n                        symbol TEXT NOT NULL,\\n                        action_id TEXT NOT NULL,\\n                        quantity_factor REAL NOT NULL CHECK(quantity_factor > 0),\\n                        price_factor REAL NOT NULL CHECK(price_factor > 0),\\n                        effective_at TEXT NOT NULL,\\n                        applied_at TEXT NOT NULL,\\n                        PRIMARY KEY(account_id, symbol, action_id)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS simulation_intents (\\n                        intent_id TEXT PRIMARY KEY,\\n                        intent_key TEXT NOT NULL UNIQUE,\\n                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),\\n                        signal_id TEXT NOT NULL,\\n                        symbol TEXT NOT NULL,\\n                        action TEXT NOT NULL,\\n                        status TEXT NOT NULL,\\n                        requested_qty INTEGER NOT NULL DEFAULT 0,\\n                        filled_qty INTEGER NOT NULL DEFAULT 0,\\n                        remaining_qty INTEGER NOT NULL DEFAULT 0,\\n                        reserved_cash REAL NOT NULL DEFAULT 0,\\n                        order_metadata_json TEXT NOT NULL DEFAULT '{}',\\n                        created_at TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS virtual_fills (\\n                        fill_id TEXT PRIMARY KEY,\\n                        intent_id TEXT NOT NULL REFERENCES simulation_intents(intent_id),\\n                        fill_sequence INTEGER NOT NULL,\\n                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),\\n                        signal_id TEXT NOT NULL,\\n                        symbol TEXT NOT NULL,\\n                        action TEXT NOT NULL,\\n                        qty INTEGER NOT NULL CHECK(qty > 0),\\n                        price REAL NOT NULL CHECK(price > 0),\\n                        fee REAL NOT NULL CHECK(fee >= 0),\\n                        gross REAL NOT NULL DEFAULT 0,\\n                        commission REAL NOT NULL DEFAULT 0,\\n                        sell_tax REAL NOT NULL DEFAULT 0,\\n                        other_fee REAL NOT NULL DEFAULT 0,\\n                        fee_model_version TEXT NOT NULL DEFAULT 'legacy',\\n                        trading_rules_version TEXT NOT NULL DEFAULT 'legacy',\\n                        fill_model_version TEXT NOT NULL DEFAULT 'legacy',\\n                        evidence_source_id TEXT,\\n                        bar_end TEXT NOT NULL,\\n                        created_at TEXT NOT NULL,\\n                        UNIQUE(intent_id, fill_sequence)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS scheduler_leases (\\n                        lease_name TEXT PRIMARY KEY,\\n                        owner TEXT NOT NULL,\\n                        acquired_at TEXT NOT NULL,\\n                        heartbeat_at TEXT NOT NULL,\\n                        expires_at TEXT NOT NULL,\\n                        generation INTEGER NOT NULL DEFAULT 1,\\n                        last_dispatch_key TEXT\\n                    );\\n                    CREATE TABLE IF NOT EXISTS risk_reservations (\\n                        reservation_id TEXT PRIMARY KEY,\\n                        order_identity TEXT NOT NULL UNIQUE,\\n                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),\\n                        symbol TEXT NOT NULL,\\n                        primary_theme_id TEXT NOT NULL DEFAULT 'UNKNOWN',\\n                        requested_qty INTEGER NOT NULL CHECK(requested_qty > 0),\\n                        reserved_cash REAL NOT NULL CHECK(reserved_cash >= 0),\\n                        reserved_risk REAL NOT NULL CHECK(reserved_risk >= 0),\\n                        consumed_cash REAL NOT NULL DEFAULT 0 CHECK(consumed_cash >= 0),\\n                        consumed_risk REAL NOT NULL DEFAULT 0 CHECK(consumed_risk >= 0),\\n                        status TEXT NOT NULL CHECK(status IN ('RESERVED','CONSUMED','RELEASED','REJECTED')),\\n                        reason_code TEXT,\\n                        metadata_json TEXT NOT NULL DEFAULT '{}',\\n                        created_at TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS simulation_order_events (\\n                        order_event_id TEXT PRIMARY KEY,\\n                        order_identity TEXT NOT NULL,\\n                        sequence INTEGER NOT NULL CHECK(sequence > 0),\\n                        status TEXT NOT NULL CHECK(status IN (\\n                            'CREATED','PENDING_REVIEW','READY','RESERVED','SUBMITTED',\\n                            'PARTIALLY_FILLED','FILLED','CANCEL_PENDING','CANCELLED',\\n                            'EXPIRED','REJECTED'\\n                        )),\\n                        reason_code TEXT,\\n                        at TEXT NOT NULL,\\n                        metadata_json TEXT NOT NULL DEFAULT '{}',\\n                        UNIQUE(order_identity,sequence)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS position_lots (\\n                        lot_id TEXT PRIMARY KEY,\\n                        fill_id TEXT NOT NULL UNIQUE REFERENCES virtual_fills(fill_id),\\n                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),\\n                        symbol TEXT NOT NULL,\\n                        acquired_trade_date TEXT NOT NULL,\\n                        sellable_from TEXT NOT NULL,\\n                        original_qty INTEGER NOT NULL CHECK(original_qty > 0),\\n                        remaining_qty INTEGER NOT NULL CHECK(remaining_qty >= 0),\\n                        created_at TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS provider_quota_state (\\n                        quota_scope TEXT PRIMARY KEY,\\n                        window_started_at TEXT NOT NULL,\\n                        request_count INTEGER NOT NULL DEFAULT 0,\\n                        cooldown_until TEXT,\\n                        circuit_state TEXT NOT NULL DEFAULT 'CLOSED',\\n                        consecutive_failures INTEGER NOT NULL DEFAULT 0,\\n                        half_open_owner TEXT,\\n                        half_open_expires_at TEXT,\\n                        updated_at TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS provider_request_leases (\\n                        request_key TEXT PRIMARY KEY,\\n                        owner TEXT NOT NULL,\\n                        fencing_token INTEGER NOT NULL,\\n                        expires_at TEXT NOT NULL,\\n                        state TEXT NOT NULL,\\n                        result_json TEXT,\\n                        error_kind TEXT,\\n                        updated_at TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS provider_concurrency_leases (\\n                        quota_scope TEXT NOT NULL,\\n                        slot_id INTEGER NOT NULL,\\n                        owner TEXT NOT NULL,\\n                        expires_at TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL,\\n                        PRIMARY KEY(quota_scope, slot_id)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS provider_last_good (\\n                        request_key TEXT PRIMARY KEY,\\n                        provider TEXT NOT NULL,\\n                        capability TEXT NOT NULL,\\n                        quota_scope TEXT NOT NULL,\\n                        upstream_identity TEXT NOT NULL,\\n                        payload_json TEXT NOT NULL,\\n                        metadata_json TEXT NOT NULL DEFAULT '{}',\\n                        effective_at TEXT,\\n                        fetched_at TEXT NOT NULL,\\n                        ingested_at TEXT NOT NULL,\\n                        expires_at TEXT NOT NULL,\\n                        content_hash TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL\\n                    );\\n                    CREATE TABLE IF NOT EXISTS provider_attempt_log (\\n                        attempt_id TEXT PRIMARY KEY,\\n                        request_key TEXT NOT NULL,\\n                        provider TEXT NOT NULL,\\n                        capability TEXT NOT NULL,\\n                        outcome TEXT NOT NULL,\\n                        reason_code TEXT NOT NULL,\\n                        started_at TEXT NOT NULL,\\n                        finished_at TEXT NOT NULL,\\n                        metadata_json TEXT NOT NULL DEFAULT '{}'\\n                    );\\n                    CREATE TABLE IF NOT EXISTS workflow_runs (\\n                        run_id TEXT NOT NULL,\\n                        lane_id TEXT NOT NULL,\\n                        trade_date TEXT NOT NULL,\\n                        slot TEXT NOT NULL,\\n                        model TEXT NOT NULL,\\n                        status TEXT NOT NULL,\\n                        snapshot_hash TEXT NOT NULL,\\n                        prompt_hash TEXT,\\n                        config_hash TEXT,\\n                        reason_codes_json TEXT NOT NULL DEFAULT '[]',\\n                        created_at TEXT NOT NULL,\\n                        updated_at TEXT NOT NULL,\\n                        PRIMARY KEY(run_id, lane_id)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS workflow_stages (\\n                        run_id TEXT NOT NULL,\\n                        lane_id TEXT NOT NULL,\\n                        stage TEXT NOT NULL CHECK(stage IN ('A1','A2','A3')),\\n                        status TEXT NOT NULL,\\n                        reason_codes_json TEXT NOT NULL DEFAULT '[]',\\n                        updated_at TEXT NOT NULL,\\n                        PRIMARY KEY(run_id, lane_id, stage),\\n                        FOREIGN KEY(run_id, lane_id) REFERENCES workflow_runs(run_id, lane_id)\\n                    );\\n                    CREATE TABLE IF NOT EXISTS astock_outcome_labels (\\n                        label_id TEXT PRIMARY KEY,\\n                        run_id TEXT NOT NULL,\\n                        lane_id TEXT NOT NULL,\\n                        trade_date TEXT NOT NULL,\\n                        stage TEXT NOT NULL CHECK(stage IN ('G0','A1','A2','A3','A4')),\\n                        symbol TEXT NOT NULL,\\n                        decision TEXT NOT NULL CHECK(decision IN ('PASSED','REJECTED','NOT_SENT_TO_LLM')),\\n                        reason_codes TEXT NOT NULL DEFAULT '[]',\\n                        selection_basis TEXT,\\n                        score REAL,\\n                        snapshot_id TEXT NOT NULL,\\n                        config_hash TEXT NOT NULL,\\n                        fwd_return_1d REAL,\\n                        fwd_return_3d REAL,\\n                        fwd_return_5d REAL,\\n                        fwd_return_10d REAL,\\n                        mfe_5d REAL,\\n                        mae_5d REAL,\\n                        benchmark_return_5d REAL,\\n                        excess_return_5d REAL,\\n                        labeled_at TEXT,\\n                        baseline_status TEXT NOT NULL DEFAULT 'PENDING',\\n                        baseline_sample_size INTEGER,\\n                        metadata_json TEXT NOT NULL DEFAULT '{}',\\n                        UNIQUE(run_id, lane_id, stage, symbol)\\n                    );\\n                    \")"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/state.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "slot in occupied"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/state.py",
+      "domain": "ORIGINAL_RESEARCH_OR_AUDIT_WRITER_PRESERVES_LABEL",
+      "expression": "str(slot)"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/state.py",
+      "domain": "SQL_ORIGINAL_FIELD_OR_SEMANTIC_FILTER",
+      "expression": "SQL:\n                INSERT INTO workflow_runs(\n                    run_id,lane_id,trade_date,slot,model,status,snapshot_hash,prompt_hash,config_hash,\n                    reason_codes_json,outcome_json,created_at,updated_at\n                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)\n                ON CONFLICT(run_id,lane_id) DO UPDATE SET\n                    status=excluded.status,prompt_hash=COALESCE(excluded.prompt_hash,workflow_runs.prompt_hash),\n                    config_hash=COALESCE(excluded.config_hash,workflow_runs.config_hash),\n                    reason_codes_json=excluded.reason_codes_json,outcome_json=excluded.outcome_json,\n                    updated_at=excluded.updated_at\n                "
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/state.py",
+      "domain": "SQL_ORIGINAL_FIELD_OR_SEMANTIC_FILTER",
+      "expression": "SQL:SELECT * FROM research_runs WHERE trade_date=? AND slot=? AND model=?"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/team_v2_allocation.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "row['slot']"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/team_v2_allocation.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "set(slot[1:])"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/team_v2_allocation.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "slot is None"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/team_v2_allocation.py",
+      "domain": "PORTFOLIO_NUMERIC_SLOT_SEPARATE",
+      "expression": "slot[1:]"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/team_v2_pm_policy.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "dict(slot=i, primary_plan_id=pid, backup_plan_id='', cluster=plan_clusters[pid], accept_order=i, supporting_refs=[], opposing_refs=[])"
+    },
+    {
+      "path": "src/liangjian_funnel/runtime/team_v2_pm_policy.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot=i"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "require_research_slot(slot)"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(marker.get('slot'))"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(marker.get('slot')) != require_research_slot(slot)"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(slot)"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "CENTRAL_RESEARCH_SLOT_SEMANTICS",
+      "expression": "research_slot(slot) != 'close'"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "_plan_expiry(payload.get('plan_expiry'), now, slot, minimum_trade_date=minimum_trade_date)"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "_slot(slot)"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "atomic_write_json(self._research_resume_marker_path(slot, trade_date), {'schema_version': _RESEARCH_RESUME_SCHEMA, 'slot': slot, 'trade_date': trade_date, 'status': status, 'reason_code': reason_code, 'updated_at': datetime.now(SHANGHAI).isoformat(), 'prepared_snapshot': prepared.as_dict()})"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "batch.append({'plan_id': plan_id, 'lane_id': lane.lane, 'symbol': symbol, 'status': PlanStatus.ACTIVE_TODAY.value, 'valid_from': _at_time(now, 9, 32), 'expires_at': _plan_expiry(payload.get('plan_expiry'), now, slot, minimum_trade_date=minimum_trade_date), 'payload': payload, 'parent_plan_id': str(parent['plan_id'])})"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "batch.append({'plan_id': plan_id, 'lane_id': lane.lane, 'symbol': symbol, 'status': PlanStatus.PENDING_MORNING_REVIEW.value, 'expires_at': _plan_expiry(payload.get('plan_expiry'), now, slot, minimum_trade_date=minimum_trade_date), 'payload': payload})"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "function(self, slot, *args, **kwargs)"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "marker.get('slot')"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "now > self.started_mono + slot * _CLOSE_RESOURCE_INTERVAL_SECONDS"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "projection_manifests.append({'lane_id': lane.lane, **write_publication_manifest(output_dir=self.settings.workflow_output_dir / 'publication_proofs', run_id=result.run_id, lane_id=lane.lane, base_snapshot_path=publication_snapshot_path, base_snapshot_id=result.snapshot_id, base_snapshot_hash=result.snapshot_hash, audit_path=lane.audit_path, originals=original_plans, published=published, published_at=datetime.now(SHANGHAI), research_as_of=now, publication_mode='CANDIDATE_PENDING_REVIEW' if natural_candidate else 'CLOSE' if slot == 'close' else slot.upper(), publication_contract='team-publication/rr-geometry-1' if lane.lane in team_geometry_lanes else 'legacy-publication/1', minimum_trade_date=minimum_trade_date)})"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "request.get('slot')"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "self._new_research_pipeline(**{'configured_team_research': configured_team_research} if configured_team_research is not None else {}, prompt_repository=self.prompts, model_client=self.model_client, output_dir=self.settings.workflow_output_dir / 'research', parallel_lanes=False, runtime_store=self.store if record_runtime else None, slot=normalized_slot, batch_workers=1, progress_callback=research_progress, checkpoint_store=self.research_checkpoints, stage_snapshot_enricher=stage_enricher, enable_feature_store=not from_active_a1)"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "self._new_research_pipeline(prompt_repository=self.prompts, model_client=self.model_client, output_dir=self.settings.workflow_output_dir / 'research', parallel_lanes=False, runtime_store=None if _research_update is not None else self.store, slot='A1_MAINTENANCE', batch_workers=1, checkpoint_store=self.research_checkpoints, stage_snapshot_enricher=self._stage_snapshot_enricher, progress_callback=research_progress)"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "self._research_resume_marker_path(slot, trade_date)"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "self.run_research(str(request.get('slot') or 'close'), as_of=snapshot_as_of, snapshot_id=str(request.get('snapshot_id') or ''), snapshot_expected_hash=str(request.get('snapshot_hash') or ''), models=models, lane_start_index=int(request.get('lane_start_index') or 2), primary_lane_ids=tuple((str(item) for item in request.get('primary_lane_ids', ('lane_2', 'lane_3')))), publish_plans=False, comparison_run=True, run_id_override=child_run_id, snapshot_expected_date=str(request.get('trade_date') or snapshot_as_of.date().isoformat()), record_runtime=False, from_active_a1=bool(request.get('a1_generation_id')), active_a1_generation_id=str(request.get('a1_generation_id')) if request.get('a1_generation_id') else None)"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "self.store.publish_plan_batch(batch, expire_active_lanes=ready_lanes if formal_close and regeneration is None else (), invalidate_pending_lanes=ready_lanes if regeneration is None and (slot == 'close' or same_day_recovery) else (), **{'supersede_pending_plan_ids': regeneration.old_plan_ids, 'supersession_run_id': regeneration.run_id} if regeneration is not None else {})"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot == 'close'"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot == 'morning'"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot.upper()"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot='A1_MAINTENANCE'"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "slot=normalized_slot"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "str(request.get('slot') or 'close')"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "str(slot)"
+    },
+    {
+      "path": "src/liangjian_funnel/workflow.py",
+      "domain": "RESEARCH_FLOW_BOUNDARY_REGISTERED_SOURCE",
+      "expression": "write_publication_manifest(output_dir=self.settings.workflow_output_dir / 'publication_proofs', run_id=result.run_id, lane_id=lane.lane, base_snapshot_path=publication_snapshot_path, base_snapshot_id=result.snapshot_id, base_snapshot_hash=result.snapshot_hash, audit_path=lane.audit_path, originals=original_plans, published=published, published_at=datetime.now(SHANGHAI), research_as_of=now, publication_mode='CANDIDATE_PENDING_REVIEW' if natural_candidate else 'CLOSE' if slot == 'close' else slot.upper(), publication_contract='team-publication/rr-geometry-1' if lane.lane in team_geometry_lanes else 'legacy-publication/1', minimum_trade_date=minimum_trade_date)"
+    },
+    {
+      "path": "web/src/types.ts",
+      "domain": "ORIGINAL_AUDIT_FIELD_COPY_NO_AUTHORITY",
+      "expression": "slot?: string | null;"
+    }
+  ]
+}

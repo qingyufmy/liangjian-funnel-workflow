@@ -63,6 +63,15 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
     validate_risk_premarket(None,values['EVIDENCE_CATALOG'],**validator_args)
     original_request=repository.prepare_messages('A6',original_values,required_envelope=required_envelope,session='PREMARKET')
     request=repository.prepare_messages('A6',values,required_envelope=required_envelope,session='PREMARKET')
+    if quota_context is not None:
+        request=with_runtime_contract(request,dict(authority='CLAUDE_0937_LJ099',
+            effective_total_capacity=min(capacity_slots,sum(quota_context['cluster_upper_bounds'].values())),
+            clusters={c:dict(candidate_count=quota_context['cluster_plan_counts'][c],
+                upper_bound=quota_context['cluster_upper_bounds'][c]) for c in cluster_caps},
+            plan_clusters=quota_context['plan_clusters'],
+            instruction='envelope_adjustments array order IS your priority order; include every plan exactly once. '
+                'plans_acceptable must not exceed effective_total_capacity; obey each numeric cluster upper_bound. '
+                'Only plans explicitly listed in data_limited_plan_reviews may use DATA_LIMITED_REVIEWED.'))
     if gap_requirements:
         request=with_runtime_contract(request,dict(authority='0498_REGENERATION_A1_SOURCE_GAPS',
             data_limited_plan_reviews=gap_requirements, maximum_risk_unit='PROBE',
@@ -70,11 +79,9 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
             review_instruction='For EACH listed plan, explicitly review EACH exact reason_code in '
                 'what_would_change_my_mind and cite its plan_ref in supporting_refs. '
                 'Suspend if insufficient; missing reviews cannot use conservative fallback.'))
+    from .a6_effective_review import validate_review, effective_review
     def validate(raw):
-        checked=validate_risk_premarket(raw,values['EVIDENCE_CATALOG'],**validator_args)
-        missing=set(gap_requirements)-gap_reviewed_ids(raw,gap_requirements)
-        issues=(*checked.issues,*(f'A6_DATA_LIMITED_REVIEW_REQUIRED:{pid}' for pid in sorted(missing)))
-        return TeamValidation(not issues,issues,checked.judgments,checked.sentinel_count)
+        return validate_review(raw,values['EVIDENCE_CATALOG'],validator_args,gap_requirements)
     binding=hashlib.sha256(canonical(dict(input_hash=request.input_hash,run_id=run_id,model=model,
         trade_date=trade_date,source_trade_date=source_trade_date,context_hash=context_hash)).encode()).hexdigest()
     original_observed=store.claim_risk_session(meeting_id,input_sha256=binding,observed_at=now)
@@ -109,27 +116,29 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
         except ValueError as exc:
             if str(exc) not in {'TEAM_MODEL_CALL_FAILED','TEAM_MODEL_RESULT_INVALID'}:raise
     if quota_context is not None and output is not None:
-        projection=normalize_cluster_quota(output,quota_context)
+        # Keep the existing arithmetic-only diagnostic for historical consumers.
+        # It is never PM/CAS authority; the new proof below is independently checked.
+        legacy=normalize_cluster_quota(output,quota_context)
+        if legacy is not None:
+            legacy_raw,legacy_audit=legacy;legacy_checked=validate(legacy_raw)
+            from ..pipeline.team_v2_effective_risk import digest,repairable_issue
+            store.freeze_control_context('a6-quota-normalization:'+meeting_id,
+                source_sha256=request.input_hash,body=dict(**legacy_audit,
+                    consumer_contract='LEGACY_DIAGNOSTIC_ONLY_NOT_PM_AUTHORITY',
+                    source_call_id=call_id,provider_validated=bool(valid),provider_issues=list(provider_issues),
+                    provider_raw_sha256=digest(output),effective_raw_sha256=digest(legacy_raw),effective_raw=legacy_raw,
+                    effective_validation_issues=list(legacy_checked.issues),quota_context=quota_context,
+                    status='VALIDATED' if legacy_checked.valid and all(repairable_issue(x) for x in provider_issues) else 'BLOCKED'))
+        projection=effective_review(output,catalog=values['EVIDENCE_CATALOG'],arguments=validator_args,
+            requirements=gap_requirements,quota_context=quota_context,captured_issues=provider_issues)
         if projection is not None:
             effective,audit=projection
-            checked=validate(effective)
-            # Only capacity arithmetic is repairable. In particular a prior
-            # validator exception is not a quota vote, even if revalidation of
-            # the derived JSON happens to succeed after restart.
-            quota_issues_only=all(issue=='A6_CAPACITY_INVALID' or issue.startswith(
-                ('A6_CAPACITY_DETAIL:cluster_quota:','A6_CAPACITY_DETAIL:plans_acceptable:'))
-                for issue in provider_issues)
-            effective_valid=checked.valid and quota_issues_only
-            sha=lambda value:hashlib.sha256(canonical(value).encode()).hexdigest()
-            store.freeze_control_context('a6-quota-normalization:'+meeting_id,source_sha256=request.input_hash,
-                body=dict(**audit,source_call_id=call_id,provider_validated=bool(valid),
-                    provider_issues=list(provider_issues),provider_raw_sha256=sha(output),
-                    effective_raw_sha256=sha(effective),effective_raw=effective,
-                    effective_validation_issues=list(checked.issues),status='VALIDATED' if effective_valid else 'BLOCKED',
-                    quota_context=quota_context))
-            output=effective;valid=effective_valid
+            frozen_audit=store.freeze_control_context('a6-effective-review:'+meeting_id,
+                source_sha256=request.input_hash,body=audit)
+            if frozen_audit!=audit:raise ValueError('A6_EFFECTIVE_PROOF_CONFLICT')
+            output=effective;valid=True
     if gap_requirements:
-        reviewed=gap_reviewed_ids(output,gap_requirements) if valid else set()
+        reviewed=gap_reviewed_ids(output,gap_requirements,allow_capacity_trimmed=quota_context is not None) if valid else set()
         envelopes=restrict_unreviewed(envelopes,reviewed)
         store.freeze_control_context('a6-source-gap-review:'+meeting_id,source_sha256=request.input_hash,
             body=dict(authority='0498_REGENERATION_A1_SOURCE_GAPS',source_call_id=call_id,

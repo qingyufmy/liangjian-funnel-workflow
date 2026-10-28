@@ -21,6 +21,7 @@ EVENT_LABELS = {
     'NATURAL_CLOSE_TIMEOUT':'自然收盘进程终止','CLOSE_AUDIT_GUARD_STOP':'审计研究守卫停止',
     'A4_BUY_VALIDATION_REJECTED':'原买入结论被校验拒绝',
     'AUDITED_RESEARCH_FAILED':'收盘研究进程终止',
+    'CLOSE_STAGE_BUDGET_EXHAUSTED':'收盘阶段预算到界',
     'AUDITED_RESEARCH_DATA_STALLED':'收盘研究数据阶段进度告警',
     'AUDITED_RESEARCH_REVIEW_NEEDED':'收盘研究等待范围裁定',
     'PREMARKET_BATCH_READY':'盘前计划最终就绪',

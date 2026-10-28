@@ -275,11 +275,10 @@ def run_candidate_morning_reviews(*, settings, scope_id, clock=None, calendar=No
         pm_meeting_id=pm_id, pm_call_id=pm_call, risk=json.loads(canonical(asdict(risk))), production_writes=0, publication_calls=0)
     if risk.status != 'READY':
         return dict(base, status='BLOCKED', reason_code='CANDIDATE_A6_NOT_READY', pm_called=False)
-    with closing(sqlite3.connect((directory / 'model.db').as_uri() + '?mode=ro', uri=True)) as db:
-        db.execute('PRAGMA query_only=ON')
-        raw = db.execute('SELECT validated,issues_json FROM model_calls WHERE call_id=?', (risk_call,)).fetchone()
-    if raw is None or raw[0] != 1 or json.loads(raw[1]) != []:
-        return dict(base, status='BLOCKED', reason_code='CANDIDATE_A6_ORIGINAL_NOT_VALIDATED', pm_called=False)
+    from .a6_effective_review import verify_premarket_capture
+    if not verify_premarket_capture(directory,engine=frozen,meeting_id=risk_id,
+            scope_id=scope_id,account_id=ACCOUNT,day=day):
+        return dict(base,status='BLOCKED',reason_code='CANDIDATE_A6_ORIGINAL_NOT_VALIDATED',pm_called=False)
     _window(scope_id, clock, calendar)
     _configuration(settings, frozen)
     pm_policy = load_pm_policy(settings.root)

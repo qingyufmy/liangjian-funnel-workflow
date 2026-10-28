@@ -392,7 +392,7 @@ export function jobLabel(value?: string | null): string {
 
 export function slotLabel(value?: string | null): string {
   const labels: Record<string, string> = { MORNING: "早盘", CLOSE: "收盘", PREMARKET: "盘前", INTRADAY: "盘中" };
-  return labels[String(value ?? "").toUpperCase()] ?? codeLabel(value);
+  return labels[String(value ?? "").trim().toUpperCase()] ?? codeLabel(value);
 }
 
 export function logLevelLabel(value?: string | null): string {

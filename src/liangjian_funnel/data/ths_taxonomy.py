@@ -1,6 +1,7 @@
 """Generic, versioned THS industry/concept membership collector."""
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import bounded_data_sleep
 
 import hashlib
 import json
@@ -88,7 +89,7 @@ def collect_ths_taxonomy_membership(
                     break
                 if result.reason_code not in {"RATE_LIMITED", "REQUEST_FAILED"} or attempt >= max_attempts:
                     break
-                sleep(retry_wait_seconds * attempt)
+                bounded_data_sleep(sleep)(retry_wait_seconds * attempt)
             assert result is not None
             if not result.ok or not result.complete:
                 failures.append({"taxonomy_code": index["taxonomy_code"], "reason_code": result.reason_code})

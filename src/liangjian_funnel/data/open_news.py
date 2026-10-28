@@ -15,6 +15,7 @@ empty-and-healthy.
 """
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import bounded_data_sleep,configure_source_client
 
 import hashlib
 import html
@@ -828,13 +829,13 @@ class OpenNewsClient:
             raise ValueError("invalid open news client timing")
         injected = client or http_client
         self._owns = injected is None
-        self._client = injected or httpx.Client(
+        self._client = injected or configure_source_client(httpx.Client(
             timeout=timeout_seconds,
             transport=transport,
             follow_redirects=True,
             trust_env=False,
-        )
-        self._sleep = sleep
+        ))
+        self._sleep = bounded_data_sleep(sleep)
         self._now_fn = now or (lambda: datetime.now(SHANGHAI))
         self._max_retries = max_retries
         self._endpoints = {
@@ -842,6 +843,7 @@ class OpenNewsClient:
             "global": normalize_url(base_eastmoney_7x24_url),
             "stock": normalize_url(base_eastmoney_stock_url),
         }
+        configure_source_client(self._client)
 
     def __enter__(self) -> "OpenNewsClient":
         return self

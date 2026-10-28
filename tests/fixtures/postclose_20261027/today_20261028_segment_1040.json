@@ -1,0 +1,1319 @@
+{
+  "schema": "recorded-day-segment/0942",
+  "source_path": "D:\\dev_A股\\liangjian_team_v2_20261016\\artifacts\\a4-monitor-20261021\\SYSTEM_WATCH_RO_0935_1040_20261028T104024.json",
+  "source_sha256": "495dd40eecbe8d1246243622ed3e6332b2c30d91bf3a4ffec9409912f598a321",
+  "observed_until": "2026-10-28T10:40:24.968282+08:00",
+  "production_head": "6eaaf7582e3a16c8e8e288d2521c3876a62a19ac",
+  "plans": [],
+  "source_gap_originals": [
+    {
+      "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:f76efc4235a49b7b",
+      "symbol": "000858.SZ",
+      "source_data_limits": {
+        "a6_explicit_review_required": true,
+        "authority": "0589_A1_SOURCE_GAPS",
+        "maximum_risk_unit": "PROBE",
+        "reason_codes": [
+          "OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE"
+        ],
+        "source_as_of": "2026-10-27T23:07:31.383371+08:00",
+        "source_failures_sha256": "ac4e336039fbf07cd5e3b36ef6fdee4a65183d50806dfb167fd61ee581d3375a",
+        "status": "DATA_LIMITED",
+        "symbol": "000858.SZ"
+      },
+      "degradation_tags": [
+        "DATA_LIMITED"
+      ],
+      "risk_unit": "PROBE"
+    },
+    {
+      "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:2f42f0194ec29838",
+      "symbol": "002966.SZ",
+      "source_data_limits": {
+        "a6_explicit_review_required": true,
+        "authority": "0589_A1_SOURCE_GAPS",
+        "maximum_risk_unit": "PROBE",
+        "reason_codes": [
+          "OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE"
+        ],
+        "source_as_of": "2026-10-27T23:07:31.383371+08:00",
+        "source_failures_sha256": "ac4e336039fbf07cd5e3b36ef6fdee4a65183d50806dfb167fd61ee581d3375a",
+        "status": "DATA_LIMITED",
+        "symbol": "002966.SZ"
+      },
+      "degradation_tags": [
+        "DATA_LIMITED"
+      ],
+      "risk_unit": "PROBE"
+    },
+    {
+      "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:82b50889ae04a79f",
+      "symbol": "600628.SH",
+      "source_data_limits": {
+        "a6_explicit_review_required": true,
+        "authority": "0589_A1_SOURCE_GAPS",
+        "maximum_risk_unit": "PROBE",
+        "reason_codes": [
+          "OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE"
+        ],
+        "source_as_of": "2026-10-27T23:07:31.383371+08:00",
+        "source_failures_sha256": "ac4e336039fbf07cd5e3b36ef6fdee4a65183d50806dfb167fd61ee581d3375a",
+        "status": "DATA_LIMITED",
+        "symbol": "600628.SH"
+      },
+      "degradation_tags": [
+        "DATA_LIMITED"
+      ],
+      "risk_unit": "PROBE"
+    },
+    {
+      "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:4de277b24ad5718e",
+      "symbol": "600694.SH",
+      "source_data_limits": {
+        "a6_explicit_review_required": true,
+        "authority": "0589_A1_SOURCE_GAPS",
+        "maximum_risk_unit": "PROBE",
+        "reason_codes": [
+          "OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE"
+        ],
+        "source_as_of": "2026-10-27T23:07:31.383371+08:00",
+        "source_failures_sha256": "ac4e336039fbf07cd5e3b36ef6fdee4a65183d50806dfb167fd61ee581d3375a",
+        "status": "DATA_LIMITED",
+        "symbol": "600694.SH"
+      },
+      "degradation_tags": [
+        "DATA_LIMITED"
+      ],
+      "risk_unit": "PROBE"
+    },
+    {
+      "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d",
+      "symbol": "601077.SH",
+      "source_data_limits": null,
+      "degradation_tags": null,
+      "risk_unit": "PROBE"
+    },
+    {
+      "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:c4ed7a2ecded0cf6",
+      "symbol": "601825.SH",
+      "source_data_limits": {
+        "a6_explicit_review_required": true,
+        "authority": "0589_A1_SOURCE_GAPS",
+        "maximum_risk_unit": "PROBE",
+        "reason_codes": [
+          "OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE"
+        ],
+        "source_as_of": "2026-10-27T23:07:31.383371+08:00",
+        "source_failures_sha256": "ac4e336039fbf07cd5e3b36ef6fdee4a65183d50806dfb167fd61ee581d3375a",
+        "status": "DATA_LIMITED",
+        "symbol": "601825.SH"
+      },
+      "degradation_tags": [
+        "DATA_LIMITED"
+      ],
+      "risk_unit": "PROBE"
+    },
+    {
+      "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:68d00fca447a53d1",
+      "symbol": "603101.SH",
+      "source_data_limits": {
+        "a6_explicit_review_required": true,
+        "authority": "0589_A1_SOURCE_GAPS",
+        "maximum_risk_unit": "PROBE",
+        "reason_codes": [
+          "OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE"
+        ],
+        "source_as_of": "2026-10-27T23:07:31.383371+08:00",
+        "source_failures_sha256": "ac4e336039fbf07cd5e3b36ef6fdee4a65183d50806dfb167fd61ee581d3375a",
+        "status": "DATA_LIMITED",
+        "symbol": "603101.SH"
+      },
+      "degradation_tags": [
+        "DATA_LIMITED"
+      ],
+      "risk_unit": "PROBE"
+    }
+  ],
+  "workflow_run": [
+    {
+      "run_id": "recovery-close-20261027-6eaaf75-0910-r12b",
+      "trade_date": "2026-10-27",
+      "slot": "CLOSE",
+      "status": "READY_TO_PUBLISH"
+    }
+  ],
+  "scope_id": "bd_3380d3b574acae75e3044f0f8c28",
+  "body_sha256": "dde2f7074d99fce028d55625b964ef04ea808ad138e53da92b90410b0b6436ec",
+  "daily_latch_originals": [
+    {
+      "trade_date": "2026-10-27",
+      "row_exists": true,
+      "body": {
+        "consecutive_failures": 3,
+        "engine_only": true,
+        "trigger_decision_id": "team:20261027T1406:reviewed:bd_c3b92f336a0a5b86ac624f5d28bc",
+        "triggered_at": "2026-10-27T14:06:00+08:00"
+      },
+      "sha256": "b873b641c9eb36dc8997c46a04beddff3b80fc62b72a473b8ebbf8f81b0a5307"
+    },
+    {
+      "trade_date": "2026-10-28",
+      "row_exists": false,
+      "body": null,
+      "sha256": null
+    }
+  ],
+  "daily_latch_effective": {
+    "state": {
+      "engine_only": false,
+      "consecutive_failures": 0
+    },
+    "basis": "NATIVE_READER_DEFAULT_FOR_ABSENT_DAY_ROW",
+    "actual_validated_model_call_proven": false
+  },
+  "recent_trader_sessions": [],
+  "monitor_window": {
+    "start": "2026-10-28T09:35:15.408786+08:00",
+    "end": "2026-10-28T10:40:24.968282+08:00",
+    "source_size": 1003564,
+    "read_offset": 0,
+    "coverage_complete": true,
+    "first_observed_at": "2026-10-27T19:30:00.387000+00:00",
+    "ended": [
+      {
+        "run_id": "team-internal-2026-10-28T01-36-00-993Z-986132ab",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 784
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-36-03-996Z-66534ae8",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 692
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-37-00-052Z-cc8bc10b",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 646
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-37-03-054Z-205b8b9d",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 700
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-38-00-123Z-6c9802a6",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 655
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-38-03-126Z-f3bcdc5a",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 691
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-39-00-196Z-45d138b6",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 605
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-39-03-200Z-079ca809",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 736
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-40-00-264Z-7a94c66b",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 653
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-40-03-268Z-8097f5b9",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 4044
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-41-00-323Z-44bc769b",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 602
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-41-03-327Z-5cbad919",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 670
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-42-00-394Z-198f3125",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 1506
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-42-03-396Z-0cb51da6",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 719
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-43-00-450Z-66686c84",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 605
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-43-03-454Z-c0038eda",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 781
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-44-00-516Z-73b27e8b",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 716
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-44-03-519Z-e97919ee",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 728
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-45-00-590Z-d0275b69",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 744
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-45-03-595Z-258a4f05",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 4480
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-46-00-676Z-46becd7c",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 631
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-46-03-678Z-9f16194d",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 716
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-47-00-743Z-2d8bfbfd",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 632
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-47-03-747Z-65b32ab4",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 1028
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-48-00-815Z-031a560d",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 689
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-48-03-819Z-93cf34ce",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 772
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-49-00-886Z-53f56c3b",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 609
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-49-03-889Z-c8bdac79",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 699
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-50-00-962Z-052a53e1",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 717
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-50-03-964Z-ffff0863",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 4143
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-51-00-030Z-6ac96547",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 645
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-51-03-034Z-55378309",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 713
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-52-00-102Z-5d5f0586",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 737
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-52-03-104Z-a815e212",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 772
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-53-00-174Z-131fcfdf",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 613
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-53-03-178Z-2e053b12",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 733
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-54-00-244Z-55cb53db",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 623
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-54-03-245Z-1a24d153",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 709
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-55-00-306Z-e34cced7",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 786
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-55-03-309Z-00181e4d",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 4172
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-56-00-377Z-1d01b234",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 682
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-56-03-380Z-8ad1372a",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 743
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-57-00-448Z-e1b793cf",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 815
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-57-03-450Z-963477ca",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 771
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-58-00-510Z-b8043126",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 695
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-58-03-514Z-0df98b87",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 668
+      },
+      {
+        "run_id": "team-internal-2026-10-28T01-59-00-578Z-b9b0a1b2",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 693
+      },
+      {
+        "run_id": "monitor-2026-10-28T01-59-03-580Z-d8a5f2f2",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 804
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-00-00-648Z-779ee572",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 792
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-00-03-653Z-ed74cbb9",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 4167
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-01-00-716Z-082cb44b",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 683
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-01-03-720Z-dc42f00d",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 747
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-02-00-782Z-80520f1b",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 642
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-02-03-785Z-d4f9f292",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 717
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-03-00-848Z-14a38695",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 669
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-03-03-852Z-ff21c57b",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 761
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-04-00-917Z-703ad213",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 697
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-04-03-920Z-9e47e258",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 800
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-05-00-975Z-cdd43bdb",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 920
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-05-03-979Z-665867b6",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 4777
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-06-00-050Z-effe446a",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 848
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-06-03-053Z-894c255d",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 911
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-07-00-122Z-d3d522b7",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 690
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-07-03-124Z-180aeaf8",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 663
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-08-00-193Z-3ced324b",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 646
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-08-03-196Z-1e411f52",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 717
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-09-00-259Z-86365780",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 828
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-09-03-260Z-d57e675d",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 1143
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-10-00-341Z-9a83668d",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 826
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-10-03-343Z-c5c635ab",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 6420
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-11-00-416Z-3df69a6f",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 647
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-11-03-418Z-b3f85002",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 788
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-12-00-485Z-da666302",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 659
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-12-03-487Z-c7d886d0",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 668
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-13-00-551Z-5fb7c596",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 640
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-13-03-551Z-90840c51",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 650
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-14-00-614Z-ea30150f",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 681
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-14-03-617Z-4cfd68d3",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 688
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-15-00-674Z-83d20377",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 698
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-15-03-675Z-b72310a0",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 4041
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-16-00-733Z-f3d5f1d1",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 669
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-16-03-736Z-cba77db8",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 926
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-17-00-798Z-ec2c6567",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 623
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-17-03-802Z-733408e4",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 708
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-18-00-868Z-a18fdf76",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 631
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-18-03-871Z-602ef70b",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 671
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-19-00-942Z-57f6b2c8",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 617
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-19-03-946Z-aecbc9e1",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 686
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-20-00-016Z-9e0c56aa",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 595
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-20-03-017Z-a16f94b1",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 3998
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-21-00-090Z-144cb6f1",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 671
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-21-03-093Z-f603a5bd",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 726
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-22-00-156Z-f3b2e75f",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 712
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-22-03-158Z-01af81bd",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 690
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-23-00-216Z-dcfda770",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 636
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-23-03-221Z-4c5e0936",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 716
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-24-00-289Z-258e1125",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 599
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-24-03-293Z-ff78d76a",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 713
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-25-00-363Z-8897ebd8",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 662
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-25-03-367Z-d00e0fa3",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 4057
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-26-00-430Z-219b8712",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 606
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-26-03-434Z-36da0bac",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 678
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-27-00-502Z-9c17a884",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 654
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-27-03-505Z-946c5c11",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 684
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-28-00-569Z-a15f582d",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 595
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-28-03-572Z-3ccac67e",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 756
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-29-00-626Z-0601e3de",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 610
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-29-03-628Z-822731c4",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 657
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-30-00-698Z-3993e8e3",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 731
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-30-03-702Z-a44a6b7e",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 4289
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-31-00-776Z-eb14bc8b",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 633
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-31-03-779Z-f551f721",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 678
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-32-00-847Z-3f615984",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 602
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-32-03-850Z-1c532851",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 670
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-33-00-921Z-60ebfcae",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 621
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-33-03-925Z-cc060fee",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 658
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-34-00-000Z-e7db7874",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 715
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-34-03-002Z-c877cb00",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 784
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-35-00-062Z-a501d0de",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 629
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-35-03-062Z-6b4cd6cb",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 4024
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-36-00-130Z-13818688",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 663
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-36-03-133Z-454aa78b",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 854
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-37-00-196Z-15f37d3e",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 826
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-37-03-199Z-2f760aca",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 710
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-38-00-273Z-5ce85c61",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 718
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-38-03-276Z-3e1b631d",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 756
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-39-00-342Z-6fd60567",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 601
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-39-03-345Z-a67fd43e",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 689
+      },
+      {
+        "run_id": "team-internal-2026-10-28T02-40-00-408Z-f52e0047",
+        "job": "team-internal",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 675
+      },
+      {
+        "run_id": "monitor-2026-10-28T02-40-03-411Z-24fd7ca4",
+        "job": "monitor",
+        "status": "succeeded",
+        "exit": "0",
+        "signal": "none",
+        "duration_ms": 4252
+      }
+    ],
+    "monitor_ended_count": 65,
+    "monitor_p95_ms": 4289,
+    "limitation": null
+  },
+  "customer_notice_ledger": [
+    {
+      "delivery_id": "db7459f9-f737-5b48-9f41-c18d067239ba",
+      "delivery_key": "premarket-a3-status:2026-10-28",
+      "kind": "PREMARKET_A3_STATUS",
+      "source_id": "premarket:2026-10-28",
+      "status": "SENT",
+      "title": "A股盘前计划未就绪｜2026-10-28",
+      "last_reason_code": null,
+      "created_at": "2026-10-28T08:30:01.301546+08:00",
+      "sent_at": "2026-10-28T08:30:01.715275+08:00",
+      "payload_sha256": "53c3cf481f1e21ca952e175d3dfc38b6bb8ee79f59b3e2d8b333aa902622a689",
+      "business_summary": {
+        "business_at": "2026-10-28T08:30:00+08:00",
+        "card_evidence_path": "/media/qy/120aebe1-8c98-412b-a490-3797cae5656b/Agu/liangjian-funnel-workflow/state/lark_cards/2026-10-28/3f2f55db85957b00cbf7853847ce5f34bb33359d59984221fc501abd72a099ec-e54b33aea3e11ade.json",
+        "plan_count": 0,
+        "reason_code": "PREVIOUS_CLOSE_RESEARCH_FAILED",
+        "sanitized_card_sha256": "e54b33aea3e11adee7081a800ef67134541de76c89e5606ea251703b8aac3eb8",
+        "trade_date": "2026-10-28"
+      },
+      "card_evidence_status": "HASH_VERIFIED",
+      "card_archive_sha256": "c7749843613eb2fd5ef03ea396e82b46585d9ac0a0afa54bba46a4e47ead4aed",
+      "card_sha256": "e54b33aea3e11adee7081a800ef67134541de76c89e5606ea251703b8aac3eb8",
+      "card": {
+        "card": {
+          "elements": [
+            {
+              "tag": "div",
+              "text": {
+                "content": "**今日有效 A3 计划：0 只**\n• 原因：盘前计划尚未就绪，需核对研究与发布记录。\n• A4 不启用过期计划，不补发早盘交易信号。\n• 本消息仅说明任务状态，不构成买入信号。",
+                "tag": "lark_md"
+              }
+            }
+          ],
+          "header": {
+            "template": "green",
+            "title": {
+              "content": "A股盘前计划未就绪｜2026-10-28",
+              "tag": "plain_text"
+            }
+          }
+        },
+        "msg_type": "interactive"
+      }
+    },
+    {
+      "delivery_id": "feaa152c-58a0-5976-95f9-ba9e8fe8191a",
+      "delivery_key": "a4-scope:2026-10-28:empty",
+      "kind": "A4_PLAN_SCOPE",
+      "source_id": "a4-scope:2026-10-28:empty",
+      "status": "SENT",
+      "title": "A4执行池为空｜2026-10-28",
+      "last_reason_code": null,
+      "created_at": "2026-10-28T09:32:04.289570+08:00",
+      "sent_at": "2026-10-28T09:32:04.637378+08:00",
+      "payload_sha256": "9b303b02c6b7fc7f71ead92addcac703f8c897b2492ad2a43167c5de59fcffde",
+      "business_summary": {
+        "active_count": 0,
+        "business_at": "2026-10-28T09:32:00+08:00",
+        "card_evidence_path": "/media/qy/120aebe1-8c98-412b-a490-3797cae5656b/Agu/liangjian-funnel-workflow/state/lark_cards/2026-10-28/871d072804d3e839bbec2bcf16667007e2b91c33fb8071a0ce399209d08ddcdd-1115fa3105b67d9c.json",
+        "sanitized_card_sha256": "1115fa3105b67d9cc0e3140114dc6e991964e1340d1bf06a816f48ec5a735a5d",
+        "state": "empty",
+        "trade_date": "2026-10-28"
+      },
+      "card_evidence_status": "HASH_VERIFIED",
+      "card_archive_sha256": "e271fe6152cf9112a1914b01b2f33447caaad94d122062af52c0e0b9340f952f",
+      "card_sha256": "1115fa3105b67d9cc0e3140114dc6e991964e1340d1bf06a816f48ec5a735a5d",
+      "card": {
+        "card": {
+          "elements": [
+            {
+              "tag": "div",
+              "text": {
+                "content": "• 当前有效执行计划：0只。\n• 无有效计划不等于策略逐股检查后没有买点；请核查A3发布、目标交易日和晨审。\n• 本消息是运行状态提醒，不是买入信号；已有持仓保护独立执行。",
+                "tag": "lark_md"
+              }
+            }
+          ],
+          "header": {
+            "template": "yellow",
+            "title": {
+              "content": "A4执行池为空｜2026-10-28",
+              "tag": "plain_text"
+            }
+          }
+        },
+        "msg_type": "interactive"
+      }
+    }
+  ],
+  "production_writes": 0
+}

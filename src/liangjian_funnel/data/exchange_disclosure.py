@@ -6,6 +6,7 @@ retain provenance, and fail closed when the observed shape changes.
 """
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import bounded_data_sleep,configure_source_client
 
 import hashlib
 import html
@@ -134,14 +135,14 @@ class _BaseClient:
     ) -> None:
         if timeout_seconds <= 0 or not 0 <= min_request_interval_seconds <= 10:
             raise ValueError("invalid exchange disclosure client bounds")
-        self._sleep = sleep
+        self._sleep = bounded_data_sleep(sleep)
         self._monotonic = monotonic
         self._now = now or (lambda: datetime.now(SHANGHAI))
         self._interval = min_request_interval_seconds
         self._last_request: float | None = None
         self._lock = Lock()
         self._owns_client = http_client is None
-        self._client = http_client or httpx.Client(
+        self._client = http_client or configure_source_client(httpx.Client(
             timeout=timeout_seconds,
             transport=transport,
             trust_env=False,
@@ -151,7 +152,8 @@ class _BaseClient:
                 "Referer": self.referer,
                 "Accept": "application/json, text/javascript, */*; q=0.01",
             },
-        )
+        ))
+        configure_source_client(self._client)
 
     def __enter__(self):
         return self

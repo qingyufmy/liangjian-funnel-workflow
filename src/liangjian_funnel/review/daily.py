@@ -1,6 +1,7 @@
 """Twice-daily, read-only review of the A2 -> A3 -> A4 decision chain."""
 
 from __future__ import annotations
+from ..research_slots import research_slot, require_research_slot
 
 import hashlib
 import json
@@ -1482,7 +1483,7 @@ def build_a5_fact_snapshot(
             str(row.get("run_id"))
             for row in store.list_workflow_runs(limit=200)
             if str(row.get("lane_id") or "") == lane_id
-            and str(row.get("slot") or "").lower() == "close"
+            and research_slot(row.get("slot")) == "close"
             and str(row.get("trade_date") or "") < trade_date.isoformat()
             and str(row.get("run_id") or "")
         ][:1]
@@ -1633,6 +1634,8 @@ def build_a5_fact_snapshot(
     metrics['a4_technical_opportunity_count']=technical_opportunities([
         {**row,'closed_5m_end':(row.get('entry_geometry') or {}).get('closed_5m_end')}
         for row in events])['count']
+    from ..runtime.a6_effective_review import read_capacity_summary
+    metrics['a6_capacity_summary']=read_capacity_summary(store.path,day=trade_date.isoformat(),cutoff=cutoff)
     snapshot = {
         "schema_version": "a5-review-facts/1.0.0",
         "trade_date": trade_date.isoformat(),
@@ -1918,6 +1921,9 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
         "- 核验边界：价格字段一致不代表开高低、成交量或全部技术指标一致；次日可卖也不代表必定成交。",
         "", "## 总结", "", report.executive_summary, "",
     ]
+    capacity=metrics.get('a6_capacity_summary') or {}
+    if capacity.get('status')=='AVAILABLE':
+        lines.append(f"- 晨审候选 {capacity['candidate_count']} / 可执行 {capacity['candidate_eligible_count']} / 容量截取 {capacity['capacity_trimmed_count']}；可执行为A6资格，非PM分配或成交。")
     if report.fact_reconciliation:
         lines.extend(["## 事实审校", "", *[f"- {note}" for note in report.fact_reconciliation], ""])
     lines.extend(replay_markdown(snapshot.get("a3_plan_replay")))

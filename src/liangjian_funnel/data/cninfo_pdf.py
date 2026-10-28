@@ -1,6 +1,7 @@
 """Bounded, auditable PDF evidence extraction for public CNINFO filings."""
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import bounded_data_sleep,configure_source_client
 
 import hashlib
 import json
@@ -163,15 +164,16 @@ class CninfoPdfClient:
         self.timeout_seconds = timeout_seconds
         self.max_attempts = max_attempts
         self.max_bytes = max_bytes
-        self._sleep = sleep
+        self._sleep = bounded_data_sleep(sleep)
         self._now = now or (lambda: datetime.now(SHANGHAI))
         self._monotonic = monotonic
         self._owns_client = client is None
-        self._client = client or httpx.Client(
+        self._client = client or configure_source_client(httpx.Client(
             timeout=timeout_seconds,
             follow_redirects=False,
             trust_env=False,
-        )
+        ))
+        configure_source_client(self._client)
 
     def __enter__(self) -> "CninfoPdfClient":
         return self

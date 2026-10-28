@@ -9,6 +9,7 @@ failure objects.
 """
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import bounded_data_sleep,configure_source_client
 
 import hashlib
 import math
@@ -166,20 +167,21 @@ class HithinkClient:
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.settings = settings
-        self._sleep = sleep
+        self._sleep = bounded_data_sleep(sleep)
         self._last_request = 0.0
         self._owns_client = http_client is None
         if http_client is not None:
             self._client = http_client
         else:
             key = settings.hithink_api_key.get_secret_value() if settings.hithink_api_key else ""
-            self._client = httpx.Client(
+            self._client = configure_source_client(httpx.Client(
                 base_url=settings.hithink_base_url,
                 timeout=settings.timeout_seconds,
                 transport=transport,
                 trust_env=False,
                 headers={"X-api-key": key, "Accept": "application/json"},
-            )
+            ))
+        configure_source_client(self._client)
 
     def __enter__(self) -> "HithinkClient":
         return self
@@ -1077,6 +1079,12 @@ class HithinkClient:
         """
 
         for attempt in range(1, _MAX_REQUEST_ATTEMPTS + 1):
+            from ..runtime.close_stage_budget import current_budget
+            shared=current_budget()
+            if shared is not None and shared.remaining('DATA')<=0:
+                shared.mark_exhausted('DATA')
+                return _TransportOutcome(response=None,reason_code='DATA_STAGE_BUDGET_EXHAUSTED',
+                    http_status=None,metadata={'attempts':attempt-1,'registered_before_transport':True})
             self._throttle()
             try:
                 response = self._client.get(endpoint, params=dict(params))

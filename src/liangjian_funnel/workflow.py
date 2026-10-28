@@ -1,6 +1,7 @@
 """End-to-end orchestration for the standalone shadow/simulation workflow."""
 
 from __future__ import annotations
+from .research_slots import research_slot, require_research_slot
 
 import hashlib
 import inspect
@@ -596,10 +597,13 @@ class _CloseResourceObservation:
 def _observe_close_research_resources(function):
     @wraps(function)
     def observed(self, slot, *args, **kwargs):
-        if (str(slot).lower() != "close" or kwargs.get("historical_replay")
+        if (research_slot(slot) != "close" or kwargs.get("historical_replay")
                 or kwargs.get("comparison_run") or kwargs.get("auction_refresh")
                 or kwargs.get("frozen_a2_stock_news") is not None):
             return function(self, slot, *args, **kwargs)
+        from .runtime.close_stage_budget import CloseStageBudget,budget_scope
+        budget=CloseStageBudget.from_parent(getattr(self.settings,'research_close_deadline_seconds',5400),
+            parent_deadline_ms=os.environ.get('LIANGJIAN_PARENT_CLOSE_DEADLINE_MS'))
         observer = None
         try:
             if getattr(self.settings, "close_resource_sampling_enabled", True):
@@ -608,15 +612,36 @@ def _observe_close_research_resources(function):
         except Exception:
             logging.getLogger(__name__).warning("CLOSE_RESOURCE_OBSERVER_START_FAILED")
         result, failed, reference = None, True, None
+        def phase_notice(phase,receipt):
+            from .runtime.provider_health import queue_internal
+            queue_internal(self.settings,kind='CLOSE_STAGE_BUDGET_EXHAUSTED',
+                source_id='close-stage:'+str(budget.started)+':'+phase,
+                text='收盘阶段预算到界：阶段='+phase+
+                    '；已耗='+str(round(receipt['elapsed_seconds'],3))+
+                    '；剩余='+str(round(receipt['remaining_seconds'],3))+
+                    '；当前symbol='+str(budget.current_symbol or 'UNAVAILABLE'),now=datetime.now(SHANGHAI))
+        budget.on_exhausted=phase_notice
         try:
-            result = function(self, slot, *args, **kwargs)
+            with budget_scope(budget):
+                result = function(self, slot, *args, **kwargs)
+                if budget.finalize_started is not None:budget.check("FINALIZE")
             failed = False
         finally:
-            if observer is not None:
-                try:
-                    reference = observer.stop(result, failed)
-                except Exception:
-                    logging.getLogger(__name__).warning("CLOSE_RESOURCE_OBSERVER_STOP_FAILED")
+            try:
+                budget_receipt=budget.receipt()
+                budget_path=self.settings.workflow_output_dir/'close_stage_budgets'/(
+                    datetime.now(SHANGHAI).strftime('%Y%m%dT%H%M%S%f')+'.json')
+                try:atomic_write_json(budget_path,budget_receipt)
+                except OSError:
+                    if not failed:raise
+                    logging.getLogger(__name__).error('CLOSE_STAGE_BUDGET_RECEIPT_WRITE_FAILED')
+            finally:
+                if observer is not None:
+                    try:reference = observer.stop(result, failed)
+                    except Exception:logging.getLogger(__name__).warning('CLOSE_RESOURCE_OBSERVER_STOP_FAILED')
+        if isinstance(result,dict):
+            result={**result,'close_stage_budget':dict(path=str(budget_path),
+                receipt=budget_receipt,notice_status='FAILED' if budget.notice_failures else 'NO_PERSISTENCE_FAILURE')}
         if isinstance(result, dict) and reference is not None:
             return {**result, "resource_sampling": reference}
         return result
@@ -812,6 +837,9 @@ class WorkflowApplication:
         deadline, deadline_policy = collection_deadline(
             self.settings.research_close_deadline_seconds, elapsed_seconds=elapsed,
             parent_remaining_seconds=parent_remaining)
+        from .runtime.close_stage_budget import current_budget
+        close_budget=current_budget()
+        if close_budget is not None:deadline=min(deadline,close_budget.data_deadline)
         status = 'FAILED'
         failure_code = None
         def start(symbols):
@@ -837,12 +865,36 @@ class WorkflowApplication:
                 with warm_lock:
                     if not warmed:
                         self._warm_cninfo_org_catalog(cninfo, list(symbols))
+                        from .runtime.close_stage_budget import current_budget
+                        if current_budget() is not None:
+                            self._prime_current_disclosures(router,list(symbols),
+                                query_start=(current.date()-timedelta(days=10)).isoformat(),
+                                query_end=current.date().isoformat())
                         warmed = True
                 return self._fetch_cninfo_candidate_queries(router, symbol,
                     (current.date()-timedelta(days=10)).isoformat(), current.date().isoformat(),
                     (current.date()-timedelta(days=450)).isoformat())
+            def unavailable(symbol):
+                close_budget.mark_exhausted('DATA')
+                # No new request is possible after the deadline hooks. Preserve
+                # a cache hit with its true timestamp; failures are not empty success.
+                def cached(start_date,semantic_key,ttl):
+                    try:
+                        result,hit=self._cached_cninfo_result(router,symbol=symbol,
+                            start_date=start_date,end_date=current.date().isoformat(),
+                            semantic_key=semantic_key,ttl=ttl)
+                        if result.ok and result.complete:return result,hit
+                    except Exception:pass
+                    return CninfoFetchResult(symbol=symbol,start_date=start_date,
+                        end_date=current.date().isoformat(),ok=False,complete=False,
+                        reason_code='DATA_STAGE_BUDGET_EXHAUSTED',announcements=(),
+                        fetched_at=datetime.now(SHANGHAI)),False
+                recent,rhit=cached((current.date()-timedelta(days=10)).isoformat(),'RECENT_10D',timedelta(hours=6))
+                history,hhit=cached((current.date()-timedelta(days=450)).isoformat(),'ANNUAL_REPORT_450D',timedelta(days=7))
+                return symbol,recent,rhit,history,hhit
             pipeline = DisclosurePipeline(fetch, workers=self.settings.cninfo_workers,
-                deadline=deadline, close_resources=resources.close)
+                deadline=deadline, close_resources=resources.close,
+                **({'unavailable_factory':unavailable} if close_budget is not None else {}))
             pipeline.query_date = current.date()
             pipeline.__enter__()
             return pipeline
@@ -963,52 +1015,6 @@ class WorkflowApplication:
                 if isinstance(row, Mapping) and row.get("symbol")
             }
             auction_quotes = collect_fresh_quotes(quote_scope, as_of=current)
-        from .data.hithink_board_reference import configured_rotation_memberships, rotation_snapshot_directory
-        from .data.board_reference import ReferenceError
-        try:
-            reference_memberships = configured_rotation_memberships(self.settings, as_of=current, trade_date=observation_date)
-        except ReferenceError as exc:
-            raise WorkflowError(str(exc)) from exc
-        selected_board = collect_rotation_theme_snapshot(
-            # Use wall-clock research time for archive selection while the
-            # explicit expected_trade_date remains the market identity.  On a
-            # weekend/holiday prep this makes the collector load the sealed
-            # prior-session snapshot instead of attempting to recreate an
-            # older 15:10 capture and colliding with its immutable day view.
-            # During a live trading-day run current == market_current, so the
-            # normal same-session collection path is unchanged.
-            as_of=current,
-            expected_trade_date=observation_date,
-            registry_path=self.settings.rotation_theme_registry_path,
-            snapshot_dir=rotation_snapshot_directory(self.settings),
-            rotation_theme_count=rotation_theme_count,
-            membership_refresh_days=self.settings.rotation_membership_refresh_days,
-            warn_age_days=self.settings.rotation_membership_warn_age_days,
-            max_age_days=self.settings.rotation_membership_max_age_days,
-            fund_coverage_minimum=self.settings.rotation_fund_coverage_minimum,
-            price_coverage_minimum=self.settings.rotation_price_coverage_minimum,
-            workers=self.settings.rotation_collection_workers,
-            reference_memberships=reference_memberships,
-        )
-        try:
-            self.lark_publisher.publish_rotation_theme_health(
-                selected_board,
-                now=market_current,
-            )
-        except Exception:
-            # Notification delivery is observable through its own durable
-            # ledger and must never rewrite the frozen market evidence.
-            pass
-        if auction_refresh and (
-            selected_board.get("available") is not True
-            or str(selected_board.get("trade_date")) != current.date().isoformat()
-        ):
-            raise WorkflowError("AUCTION_CURRENT_ROTATION_UNAVAILABLE")
-        hot100_symbols = {
-            str(item.get("symbol") or "").strip().upper()
-            for item in eastmoney_hot100.get("records", ())
-            if isinstance(item, Mapping) and str(item.get("symbol") or "").strip()
-        }
         source_failures: dict[str, list[str]] = {}
         disclosure_pipeline = None
         preflight_market_results = None
@@ -1053,6 +1059,62 @@ class WorkflowApplication:
             # securities remain research-only after passing the same quality
             # gate; execution permission is enforced at plan publication.
             all_research_records = _research_universe_records(universe)
+            from .runtime.close_stage_budget import current_budget
+            close_budget=current_budget()
+            if close_budget is not None and market_current.hour>=15:
+                if progress is not None:progress.set_phase('LATEST_CLOSED_DAILY_PRIORITY')
+                latest_receipt=self.fact_synchronizer.prime_latest_closed_days(client,
+                    [r.symbol for r in all_research_records],as_of=market_current,
+                    deadline=close_budget.data_deadline)
+                latest_receipt['receipt_hash']=_hash_json(latest_receipt)
+                atomic_write_json(self.settings.research_checkpoint_dir/'scope_receipts'/
+                    ('latest-closed-daily-'+latest_receipt['receipt_hash']+'.json'),latest_receipt)
+            from .data.hithink_board_reference import configured_rotation_memberships, rotation_snapshot_directory
+            from .data.board_reference import ReferenceError
+            try:
+                reference_memberships = configured_rotation_memberships(self.settings, as_of=current, trade_date=observation_date)
+            except ReferenceError as exc:
+                raise WorkflowError(str(exc)) from exc
+            selected_board = collect_rotation_theme_snapshot(
+                # Use wall-clock research time for archive selection while the
+                # explicit expected_trade_date remains the market identity.  On a
+                # weekend/holiday prep this makes the collector load the sealed
+                # prior-session snapshot instead of attempting to recreate an
+                # older 15:10 capture and colliding with its immutable day view.
+                # During a live trading-day run current == market_current, so the
+                # normal same-session collection path is unchanged.
+                as_of=current,
+                expected_trade_date=observation_date,
+                registry_path=self.settings.rotation_theme_registry_path,
+                snapshot_dir=rotation_snapshot_directory(self.settings),
+                rotation_theme_count=rotation_theme_count,
+                membership_refresh_days=self.settings.rotation_membership_refresh_days,
+                warn_age_days=self.settings.rotation_membership_warn_age_days,
+                max_age_days=self.settings.rotation_membership_max_age_days,
+                fund_coverage_minimum=self.settings.rotation_fund_coverage_minimum,
+                price_coverage_minimum=self.settings.rotation_price_coverage_minimum,
+                workers=self.settings.rotation_collection_workers,
+                reference_memberships=reference_memberships,
+            )
+            try:
+                self.lark_publisher.publish_rotation_theme_health(
+                    selected_board,
+                    now=market_current,
+                )
+            except Exception:
+                # Notification delivery is observable through its own durable
+                # ledger and must never rewrite the frozen market evidence.
+                pass
+            if auction_refresh and (
+                selected_board.get("available") is not True
+                or str(selected_board.get("trade_date")) != current.date().isoformat()
+            ):
+                raise WorkflowError("AUCTION_CURRENT_ROTATION_UNAVAILABLE")
+            hot100_symbols = {
+                str(item.get("symbol") or "").strip().upper()
+                for item in eastmoney_hot100.get("records", ())
+                if isinstance(item, Mapping) and str(item.get("symbol") or "").strip()
+            }
             # Persist and freeze the taxonomy graph for the complete market
             # identity universe before any A1 quality or strategy filter is
             # applied.  The collectors cache the complete provider edge list,
@@ -1379,6 +1441,9 @@ class WorkflowApplication:
             )
             current = max(current, hithink_manifest.as_of)
             def sync_progress(event: Mapping[str, Any]) -> None:
+                from .runtime.close_stage_budget import current_budget
+                close_budget=current_budget()
+                if close_budget is not None:close_budget.current_symbol=event.get('current_symbol')
                 if progress is None:
                     return
                 progress.set_phase("COMPANY_FACT_SYNC")
@@ -1406,6 +1471,7 @@ class WorkflowApplication:
                 collect_early_discovery=True,
                 fundamental_projector=_compact_fundamental_rows,
                 progress=sync_progress,
+                **({'deadline':close_budget.data_deadline} if close_budget is not None else {}),
             )
             for symbol, reasons in sync_result.failures.items():
                 source_failures.setdefault(symbol, []).extend(reasons)
@@ -1546,6 +1612,9 @@ class WorkflowApplication:
                 # This is not a disclosure completeness gate; missing catalogue
                 # entries keep the original per-security search/fallback contract.
                 self._warm_cninfo_org_catalog(cninfo, [candidate.symbol for candidate in selected])
+                if current_budget() is not None:
+                    self._prime_current_disclosures(disclosure_router,[c.symbol for c in selected],
+                        query_start=query_start,query_end=query_end)
                 # Each candidate is one independent unit containing the recent and
                 # business-history queries.  The shared client owns the global
                 # request throttle, so workers hide network latency without
@@ -2351,6 +2420,17 @@ class WorkflowApplication:
                     expires_at=result.fetched_at + ttl,
                 )
         return result, False
+
+    def _prime_current_disclosures(self,client,symbols,*,query_start,query_end):
+        from .runtime.close_stage_budget import current_budget
+        budget=current_budget()
+        for symbol in dict.fromkeys(symbols):
+            if budget is not None:
+                budget.current_symbol=symbol
+                if budget.remaining('DATA')<=0:
+                    budget.mark_exhausted('DATA');break
+            self._cached_cninfo_result(client,symbol=symbol,start_date=query_start,end_date=query_end,
+                semantic_key='RECENT_10D',ttl=timedelta(hours=6))
 
     def _fetch_cninfo_candidate_queries(
         self,
@@ -3644,6 +3724,9 @@ class WorkflowApplication:
             )
             _progress_stdout(progress.snapshot())
             raise
+        from .runtime.close_stage_budget import current_budget
+        close_budget=current_budget()
+        if close_budget is not None:close_budget.enter_research()
         run_id = run_id_override or f"{current.date()}-{normalized_slot}-{prepared.snapshot.snapshot_hash[:12]}"
         stage_enricher = self._stage_snapshot_enricher
         if frozen_a2_stock_news is not None:
@@ -4298,6 +4381,7 @@ class WorkflowApplication:
         )
 
     def _research_resume_marker_path(self, slot: str, trade_date: str) -> Path:
+        slot=require_research_slot(slot)
         return self.settings.research_checkpoint_dir / "active_runs" / f"{trade_date}-{slot}.json"
 
     def _write_research_resume_marker(
@@ -4339,7 +4423,7 @@ class WorkflowApplication:
         if (
             not isinstance(marker, Mapping)
             or marker.get("schema_version") != _RESEARCH_RESUME_SCHEMA
-            or marker.get("slot") != slot
+            or research_slot(marker.get("slot")) != require_research_slot(slot)
             or marker.get("trade_date") != trade_date
             or marker.get("status") not in ({"ACTIVE", "RETRYABLE", "COMPLETED"} if allow_completed else {"ACTIVE", "RETRYABLE"})
         ):
@@ -7353,7 +7437,10 @@ class WorkflowApplication:
         source_trade_date: date | None = None,
         regeneration=None,
     ) -> dict[str, Any]:
-        slot=str(slot).lower()
+        slot=require_research_slot(slot)
+        from .runtime.close_stage_budget import current_budget
+        close_budget=current_budget()
+        if close_budget is not None:close_budget.enter_finalize()
         batch: list[dict[str, Any]] = []
         # Metadata is captured before normalization/authority injection. It is
         # not execution eligibility and never goes back into an A2/A3 prompt.
@@ -7736,6 +7823,7 @@ class WorkflowApplication:
             # The manifest's explicit candidate mode preserves that distinction.
             published=batch
         else:
+            if close_budget is not None:close_budget.check("FINALIZE")
             published = self.store.publish_plan_batch(
             batch,
             expire_active_lanes=ready_lanes if formal_close and regeneration is None else (),
@@ -7774,12 +7862,14 @@ class WorkflowApplication:
             from .runtime.reviewed_batch_natural import stage_natural_candidate
             target_day = minimum_trade_date or self.trading_calendar.next_trading_day(now.date())
             source_day = source_trade_date or _latest_closed_market_trade_date(now,self.trading_calendar)
+            if close_budget is not None:close_budget.check("FINALIZE")
             artifact_proof=(prepare_candidate_artifacts(batch,
                 workflow_output_dir=self.settings.workflow_output_dir,run_id=result.run_id,status=result.status,
                 market_trade_date=source_day,projection_manifests=projection_manifests,
                 pattern_preparation=pattern_preparation,
                 minute_cache_path=self.settings.minute_cache_dir/'minute_bars.sqlite3',observed_at=now,
                 calendar=self.trading_calendar,research_summary=result.as_dict()) if batch else None)
+            if close_budget is not None:close_budget.check("FINALIZE")
             if not natural_candidate:
                 published=self.store.publish_plan_batch(batch,
                     expire_active_lanes=ready_lanes if formal_close and regeneration is None else (),
@@ -10177,7 +10267,7 @@ def _plan_expiry(
     *,
     minimum_trade_date: date | None = None,
 ) -> datetime:
-    slot=str(slot).lower()
+    slot=require_research_slot(slot)
     current = _aware(now)
     if minimum_trade_date is not None and (
         isinstance(minimum_trade_date, datetime) or not isinstance(minimum_trade_date, date)
@@ -10563,7 +10653,7 @@ def _at_time(value: datetime, hour: int, minute: int) -> datetime:
 
 
 def _slot(value: str) -> str:
-    normalized = str(value).strip().lower()
+    normalized = research_slot(value)
     if normalized not in {"morning", "close"}:
         raise WorkflowError("SLOT_INVALID")
     return normalized

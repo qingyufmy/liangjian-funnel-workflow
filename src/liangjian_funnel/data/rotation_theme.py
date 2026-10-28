@@ -13,6 +13,7 @@ list as a complete observation.
 """
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import source_get
 
 import hashlib
 import inspect
@@ -814,7 +815,7 @@ def _default_eastmoney_page_fetch(kind: str, value: str, page: int, page_size: i
         fs = "m:90+t:2,m:90+t:3"
     else:
         fs = "m:90+t:2,m:90+t:3"
-    response = requests.get(
+    response = source_get(
         EASTMONEY_BOARD_URL,
         params={
             "pn": str(page),

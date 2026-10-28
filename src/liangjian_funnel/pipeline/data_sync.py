@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, time as datetime_time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
+import time
 
 from .data_source import HithinkClient, HithinkFetchResult
 from .local_fact_cache import LocalFactCache
@@ -88,7 +89,19 @@ class HithinkIncrementalSynchronizer:
         include_financial: bool = True,
         daily_reset_reasons: Mapping[str, str] | None = None,
         daily_batch_callback: Callable[[Mapping[str, Any], Mapping[str, Any]], None] | None = None,
+        deadline: float | None = None,
     ) -> SyncResult:
+        from ..runtime.close_stage_budget import current_budget
+        shared=current_budget()
+        clock=shared.monotonic if shared is not None else time.monotonic
+        if shared is not None:
+            deadline=min(deadline,shared.data_deadline) if deadline is not None else shared.data_deadline
+        def fetch_daily(symbol, **options):
+            if deadline is not None and clock()>=deadline:
+                if shared is not None:shared.mark_exhausted('DATA')
+                return HithinkFetchResult(endpoint='HITHINK_DAILY_1D',ok=False,complete=False,
+                    reason_code='DATA_STAGE_BUDGET_EXHAUSTED',fetch_time=as_of)
+            return client.history_1d(symbol,**options)
         current = _aware(as_of)
         ordered = tuple(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols))
         failures: dict[str, list[str]] = {}
@@ -127,6 +140,7 @@ class HithinkIncrementalSynchronizer:
         ) if include_financial else (set(), set())
 
         for index, symbol in enumerate(ordered, start=1):
+            if shared is not None:shared.current_symbol=symbol
             symbol_hit = True
             symbol_updated = False
             state = self.cache.get_sync_state('HITHINK_DAILY_1D', symbol)
@@ -177,7 +191,7 @@ class HithinkIncrementalSynchronizer:
                 daily_requests[symbol] = {'mode': mode, 'reason_code': reason, 'adjust': 'none',
                     'start_ms': request_start_ms, 'end_ms': int(closed_daily_end.timestamp()*1000),
                     'factor_detection': 'EXPLICIT_RESET_EVIDENCE' if symbol in reset_reasons else 'NOT_PROVIDED_BY_ENDPOINT'}
-                result = client.history_1d(
+                result = fetch_daily(
                     symbol,
                     start=request_start_ms,
                     end=int(closed_daily_end.timestamp() * 1000),
@@ -223,7 +237,7 @@ class HithinkIncrementalSynchronizer:
                         request_start_ms = int(start.timestamp()*1000)
                         daily_requests[symbol].update(mode='FULL_REFRESH',
                             reason_code=reset_reasons[symbol], start_ms=request_start_ms)
-                        result = client.history_1d(symbol, start=request_start_ms,
+                        result = fetch_daily(symbol, start=request_start_ms,
                             end=int(closed_daily_end.timestamp()*1000), adjust='none', limit=1000, max_pages=1)
                         closed_items = tuple(row for row in result.items
                             if request_start_ms <= int(_row_time(row.model_dump(mode='python')).timestamp()*1000)
@@ -332,7 +346,9 @@ class HithinkIncrementalSynchronizer:
                 )
                 if should_refresh:
                     symbol_hit = False
-                    result = _fetch_financial(client, dataset, symbol)
+                    result = (_fetch_financial(client, dataset, symbol) if deadline is None or clock()<deadline else
+                        HithinkFetchResult(endpoint=endpoint,ok=False,complete=False,
+                            reason_code='DATA_STAGE_BUDGET_EXHAUSTED',fetch_time=current))
                     if result.ok and result.complete and result.items:
                         cache_rows = []
                         for row in result.items:
@@ -424,7 +440,7 @@ class HithinkIncrementalSynchronizer:
         # is still being published. After the full pass, retry at most ten
         # symbols once; never turn a successful HTTP response into freshness.
         for symbol in stale_daily[:10]:
-            result = client.history_1d(
+            result = fetch_daily(
                 symbol, start=int(required_latest_daily.timestamp() * 1000),
                 end=int(closed_daily_end.timestamp() * 1000), adjust="none", limit=1000, max_pages=1,
             )
@@ -481,6 +497,66 @@ class HithinkIncrementalSynchronizer:
             early_discovery=merge_discovery_parts(list(discovery_parts.values()), as_of=current) if collect_early_discovery else {},
             daily_requests=daily_requests,
         )
+
+    def prime_latest_closed_days(self, client, symbols, *, as_of, deadline):
+        """Persist latest-session deltas before optional historical/financial work.
+
+        This never labels a short history READY. Existing overlap revisions
+        remain blocked until the normal explicit history/revision path handles
+        them; the priority receipt is a separate endpoint record.
+        """
+        required,end=_closed_daily_window(_aware(as_of),self.trading_calendar)
+        records=[]
+        if required is None:return dict(status='NOT_DUE',records=[])
+        from ..runtime.close_stage_budget import current_budget
+        shared=current_budget()
+        clock=shared.monotonic if shared is not None else time.monotonic
+        for symbol in dict.fromkeys(symbols):
+            if shared is not None:shared.current_symbol=symbol
+            if clock()>=deadline:
+                if shared is not None:shared.mark_exhausted('DATA')
+                records.append(dict(symbol=symbol,status='NOT_AVAILABLE',reason_code='DATA_STAGE_BUDGET_EXHAUSTED'))
+                continue
+            state=self.cache.get_sync_state('HITHINK_DAILY_1D',symbol)
+            if state and isinstance(state.get('cursor'),Mapping) and state['cursor'].get('pending_reset_reason'):
+                records.append(dict(symbol=symbol,status='NOT_AVAILABLE',reason_code='PENDING_RESET_REQUIRES_ORIGINAL_HISTORY_PATH'))
+                continue
+            old=self.cache.query_daily_bars(symbol,adjust='none',end=end,limit=3,descending=True)
+            latest=_aware(datetime.fromisoformat(str(old[0]['timestamp']))) if old else None
+            if latest is not None and latest>=required:
+                records.append(dict(symbol=symbol,status='CACHE_LATEST_PRESENT',history_readiness_unchanged=True))
+                continue
+            start=max(required-timedelta(days=7),
+                _aware(datetime.fromisoformat(str(old[-1]['timestamp']))) if old else required-timedelta(days=7))
+            result=client.history_1d(symbol,start=int(start.timestamp()*1000),
+                end=int(end.timestamp()*1000),adjust='none',limit=1000,max_pages=1)
+            in_range=[r for r in result.items if start<=_row_time(r.model_dump(mode='python'))<end]
+            returned={_row_time(r.model_dump(mode='python')):r.model_dump(mode='json') for r in in_range}
+            overlap={_aware(datetime.fromisoformat(str(r['timestamp']))):r['payload'] for r in old
+                if _aware(datetime.fromisoformat(str(r['timestamp'])))>=start}
+            verified=(result.ok and result.complete and any(at.date()==required.date() for at in returned)
+                and len(returned)==len(in_range)
+                and overlap.keys()<=returned.keys()
+                and all(_daily_value_hash(row)==_daily_value_hash(returned[at]) for at,row in overlap.items()))
+            if verified:
+                self.cache.upsert_daily_bars((dict(symbol=symbol,timestamp=at,adjust='none',
+                    fetched_at=result.fetch_time,payload=row) for at,row in returned.items()),batch_size=self.batch_size)
+                # A multi-session hole cannot become READY merely because a
+                # recent-only response now contains the newest bar.
+                if latest is not None and self.trading_calendar.next_trading_day(latest.date())!=required.date():
+                    self.cache.update_sync_state('HITHINK_DAILY_1D',symbol,status='FAILED',
+                        reason='LATEST_PRIORITY_HISTORY_BACKFILL_REQUIRED')
+            reason='LATEST_CLOSED_DAY_DELTA_PERSISTED' if verified else (
+                result.reason_code if not result.ok or not result.complete else 'LATEST_PRIORITY_OVERLAP_OR_DAY_UNPROVEN')
+            receipt=dict(symbol=symbol,status='AVAILABLE_LATEST_ONLY' if verified else 'NOT_AVAILABLE',
+                reason_code=reason,source_ok=result.ok,source_complete=result.complete,
+                source_fetched_at=result.fetch_time.isoformat(),source_rows_sha256=content_hash(list(returned.values())),
+                source_start=start.isoformat(),source_end=end.isoformat(),history_readiness_unchanged=True)
+            self.cache.update_sync_state('HITHINK_DAILY_LATEST_PRIORITY',symbol,
+                last_success=result.fetch_time if verified else None,cursor=receipt,
+                status=receipt['status'],reason=None if verified else reason)
+            records.append(receipt)
+        return dict(status='LATEST_FIRST_NOT_HISTORY_ACCEPTANCE',records=records)
 
     def _daily_ready(
         self,

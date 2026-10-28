@@ -3,6 +3,7 @@
 This validates original publication objects before an inert candidate becomes
 visible. It does not rebuild facts from a plan or a runtime seed fallback.
 """
+from ..research_slots import research_slot, require_research_slot
 from collections.abc import Mapping
 from datetime import date, datetime
 import hashlib
@@ -67,7 +68,7 @@ def verify_candidate_artifacts(batch, *, run_id, proof, calendar=None, verify_or
     summary = _json_file(root/'runs'/f'{run_id}.json', limit=2_000_000)
     binding = summary_binding(summary)
     if (object_hash(binding) != proof.get('summary_binding_sha256')
-            or binding['run_id'] != run_id or str(binding['slot']).lower() != 'close'
+            or binding['run_id'] != run_id or research_slot(binding['slot']) != 'close'
             or summary.get('status') not in {'READY', 'READY_DEGRADED', 'PUBLISHED'}):
         raise ValueError('CANDIDATE_SUMMARY_BINDING_CONFLICT')
     try:

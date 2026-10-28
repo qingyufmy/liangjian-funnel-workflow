@@ -4,6 +4,18 @@ from pathlib import Path
 
 ROOT=Path(__file__).parents[1]
 
+def test_all_languages_reads_writers_sql_cli_and_domain_separation_are_registered():
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('slot_census',ROOT/'scripts/research_slot_census_lj098.py')
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    actual=module.census(ROOT)
+    assert not actual['sensitive_sql_filters']
+    expected=json.loads((ROOT/module.DEST).read_bytes())
+    assert actual==expected
+    assert any(r['domain']=='SQL_ORIGINAL_FIELD_OR_SEMANTIC_FILTER' for r in actual['sites'])
+    assert any(r['path'].startswith('server/') for r in actual['sites'])
+    assert any(r['path']=='config/runtime.yaml' for r in actual['sites'])
+
 def test_whole_source_slot_comparison_inventory_is_complete_and_reviewed():
     inventory=json.loads((ROOT/'docs/SLOT_CASE_COMPARISON_INVENTORY_LJ098_20261028.json').read_bytes())
     assert not inventory['unreviewed']
@@ -19,8 +31,8 @@ def test_whole_source_slot_comparison_inventory_is_complete_and_reviewed():
     assert actual==expected
     for row in inventory['comparisons']:
         assert row['contract']!='REQUIRES_REVIEW'
-        if row['contract']=='HELPER_NORMALIZES_AT_ENTRY':
+        if row['contract']=='CENTRAL_RESEARCH_SLOT_AT_ENTRY':
             tree=ast.parse((ROOT/row['path']).read_bytes())
             function=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name==row['function'])
             assert any(isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='slot' for t in n.targets)
-                and ast.unparse(n.value)=='str(slot).lower()' for n in function.body)
+                and ast.unparse(n.value)=='require_research_slot(slot)' for n in function.body)

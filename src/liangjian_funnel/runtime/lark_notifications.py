@@ -1009,6 +1009,10 @@ class WorkflowLarkPublisher:
     ) -> list[dict[str, Any]]:
         if not plans:
             return []
+        from .a6_effective_review import read_capacity_summary
+        capacity_summary=read_capacity_summary(self.store.path,day=reviewed_at.date().isoformat(),cutoff=reviewed_at)
+        capacity_available=capacity_summary.get('status')=='AVAILABLE'
+        trimmed_ids=set(capacity_summary.get('trimmed_plan_ids',[])) if capacity_available else set()
         ordered = sorted(plans, key=lambda row: (str(row.get("lane_id") or ""), str(row.get("symbol") or "")))
         plan_ids = [str(row.get("plan_id") or "") for row in ordered]
         batch_hash = hashlib.sha256("|".join(plan_ids).encode("utf-8")).hexdigest()[:16]
@@ -1034,6 +1038,8 @@ class WorkflowLarkPublisher:
                 f"• {reviewed_at.strftime('%m月%d日 %H:%M')} 完成复核，{len(ordered)} 只计划进入盘中监测。",
                 f"• 适用策略：{'、'.join(strategies) if strategies else '按个股计划执行'}。",
             ]
+            if capacity_available:
+                lines.insert(2,f"• 候选 {capacity_summary['candidate_count']} / 可执行 {capacity_summary['candidate_eligible_count']} / 容量截取 {capacity_summary['capacity_trimmed_count']}；仅表示A6资格，不代表已成交。")
             if themes:
                 lines.insert(2,f"• 重点方向：{'、'.join(themes[:5])}。")
             symbols: list[str] = []
@@ -1059,6 +1065,8 @@ class WorkflowLarkPublisher:
                 conditions = _display_items(confirmation or payload.get('a4_required_entry_rules') or payload.get('confirmation_conditions'), limit=3)
                 actual_status={'ACTIVE_TODAY':'已激活，仍待盘中条件确认','PENDING_MORNING_REVIEW':'等待自然晨会审核',
                     'PENDING':'待激活','INVALIDATED':'已失效，停止新入场'}.get(str(row.get('status')),'状态尚未核实')
+                if str(row.get('plan_id')) in trimmed_ids:
+                    actual_status='容量截取，仅观察，禁止新入场'
                 auction = evidence.get(symbol_raw) or evidence.get(symbol) or {}
                 auction_price = auction.get("price") if isinstance(auction, Mapping) else None
                 lines.extend(
@@ -1128,14 +1136,21 @@ class WorkflowLarkPublisher:
             now=analyzed_at,
         )
 
-    def publish_batch_switch_status(self,*,trade_date,scope_id,plan_count,body_sha256,observed_at):
+    def publish_batch_switch_status(self,*,trade_date,scope_id,plan_count,body_sha256,observed_at,capacity_review=None):
+        if capacity_review is not None and (not isinstance(capacity_review,Mapping)
+                or any(type(capacity_review.get(k)) is not int or capacity_review[k]<0 for k in
+                    ('candidate_count','candidate_eligible_count','capacity_trimmed_count'))
+                or capacity_review['candidate_count']!=plan_count
+                or capacity_review['candidate_eligible_count']+capacity_review['capacity_trimmed_count']>plan_count):
+            raise ValueError('CAPACITY_NOTICE_COUNTS_UNPROVEN')
         return self._send(delivery_key=f'reviewed-batch-ready:{trade_date}:{scope_id}',
             kind='PREMARKET_BATCH_READY',source_id=scope_id,
             title=f'晨会计划已就绪｜{trade_date}',lines=[
-                f'自然批次切换已完成：{plan_count}只计划。',f'• 批次：{scope_id}',
+                (f"候选 {plan_count} / 可执行 {capacity_review['candidate_eligible_count']} / 容量截取 {capacity_review['capacity_trimmed_count']}；可执行为A6资格，不代表PM已分配或已成交。"
+                 if capacity_review else f'自然批次切换已完成：{plan_count}只计划。'),f'• 批次：{scope_id}',
                 '• 计划等待09:26自然激活；待激活不代表计划缺失，也不代表已成交。'],
             summary=dict(trade_date=trade_date,scope_id=scope_id,plan_count=plan_count,
-                candidate_body_sha256=body_sha256,availability='READY_PENDING_ACTIVATION'),now=observed_at)
+                candidate_body_sha256=body_sha256,capacity_review=capacity_review,availability='READY_PENDING_ACTIVATION'),now=observed_at)
 
     def publish_a3_premarket_analysis(
         self,
@@ -1524,6 +1539,7 @@ class WorkflowLarkPublisher:
                 title=f'A5工程复盘｜{trade_date}',lines=lines,
                 summary=dict(trade_date=trade_date,review_kind=review_kind),now=now))
             counts=(facts.get('key_count_reconciliation') or {}).get('actual') or {}
+            capacity_summary=(facts.get('metrics') or {}).get('a6_capacity_summary')
             def number(value):
                 return str(value) if type(value) is int else '不可用'
             from ..review.fact_guard import execution_blocker_counts
@@ -1532,7 +1548,10 @@ class WorkflowLarkPublisher:
                 if blockers.get('JUDGE_TIMEOUT') else
                 'A2审计数据不可用，未将其写成零候选。' if metrics.get('a2_availability')=='NOT_AVAILABLE' else
                 '尚无足够已成交样本检验收益，信号不代表成交。')
-            lines=[f'• 今日计划：{number(metrics.get("a3_plan_count"))}只。',
+            capacity_line=(f"• 候选 {capacity_summary['candidate_count']} / 可执行 {capacity_summary['candidate_eligible_count']} / 容量截取 {capacity_summary['capacity_trimmed_count']}（A6资格，非PM分配或成交）。"
+                if isinstance(capacity_summary,dict) and capacity_summary.get('status')=='AVAILABLE'
+                else f'• 今日计划：{number(metrics.get("a3_plan_count"))}只。')
+            lines=[capacity_line,
                 f'• 技术买入机会：{number(counts.get("technical_opportunities"))}次（按股票和原闭合5分钟节拍去重）；已发布交易信号：{number(counts.get("signals"))}条。',
                 f'• 成交记录：{number(counts.get("fills"))}笔；以成交账本为准。',
                 '• 主要风险：'+risk,

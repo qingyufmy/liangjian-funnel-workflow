@@ -1,8 +1,8 @@
 """Build a reviewed-batch only from bound, captured isolated review originals.
 
 No Store construction, provider calls, writes or green-status inputs. A6 raw
-schema failures repaired by quota normalization are deliberately not accepted:
-their effective READY result is not an originally validated model answer.
+remains immutable; the narrowly approved LJ-099 projection is independently
+recomputed and bound separately from original model validation.
 """
 from collections.abc import Mapping
 from contextlib import closing
@@ -57,7 +57,7 @@ def _ro(path, *, root, marker, version):
     return db
 
 
-def _original_call(db, *, call_id, role, session, day, source_day, rowset_sha, risk_sha):
+def _original_call(db, *, call_id, role, session, day, source_day, rowset_sha, risk_sha, allow_effective_a6=False):
     row = db.execute('SELECT * FROM model_calls WHERE call_id=?', (call_id,)).fetchone()
     _require(row is not None, 'MODEL_CAPTURE_MISSING')
     row = dict(row)
@@ -65,7 +65,11 @@ def _original_call(db, *, call_id, role, session, day, source_day, rowset_sha, r
     _require(captured_at.utcoffset() is not None and captured_at <= datetime.now().astimezone(), 'MODEL_CAPTURE_TIME_INVALID')
     _require(row['role'] == role and row['session'] == session
         and row['execution_trade_date'] == day and row['source_trade_date'] == source_day, 'MODEL_SCOPE_MISMATCH')
-    _require(row['validated'] == 1 and json.loads(row['issues_json']) == [], 'MODEL_RAW_NOT_VALIDATED')
+    from ..pipeline.team_v2_effective_risk import repairable_issue
+    captured_issues=json.loads(row['issues_json'])
+    _require((row['validated'] == 1 and captured_issues == [])
+        or (allow_effective_a6 and role == 'A6' and session == 'PREMARKET'
+            and row['validated']==0 and captured_issues and all(repairable_issue(x) for x in captured_issues)), 'MODEL_RAW_NOT_VALIDATED')
     raw = _json(row['output_json'])
     _require(_text_hash(row['output_json']) == row['output_hash'], 'MODEL_RAW_HASH_CONFLICT')
     envelope = raw.get('envelope', {})
@@ -77,7 +81,7 @@ def _original_call(db, *, call_id, role, session, day, source_day, rowset_sha, r
     judgments = []
     for ordinal, item in enumerate(db.execute('SELECT * FROM model_judgments WHERE call_id=? ORDER BY ordinal', (call_id,))):
         value = _json(item['judgment_json'])
-        _require(item['ordinal'] == ordinal and item['validated'] == 1
+        _require(item['ordinal'] == ordinal and item['validated'] == row['validated']
             and _text_hash(item['judgment_json']) == item['judgment_sha256']
             and item['decision_id'] == _sha([call_id, ordinal, item['judgment_path']])
             and value.get('path') == item['judgment_path']
@@ -131,8 +135,12 @@ def _a6(team, models, *, meeting_id, scope_id, account_id, day, engine):
         and Decimal(str(inputs.get('engine_utilization_cap'))) == Decimal(str(engine['engine_utilization_cap'])), 'A6_ENGINE_INPUT_CONFLICT')
     source = engine['source']
     captured, raw, catalog = _original_call(models, call_id=row['source_call_id'], role='A6', session='PREMARKET',
-        day=day, source_day=source['source_trade_date'], rowset_sha=source['plan_rowset_sha256'], risk_sha=engine['risk_limits_sha256'])
-    _require(inputs['output'] == raw, 'A6_RAW_MEETING_OUTPUT_CONFLICT')
+        day=day, source_day=source['source_trade_date'], rowset_sha=source['plan_rowset_sha256'], risk_sha=engine['risk_limits_sha256'], allow_effective_a6=team.execute(
+            "SELECT 1 FROM control_minute_context WHERE decision_id=?",('a6-effective-review:'+meeting_id,)).fetchone() is not None)
+    from .a6_effective_review import rebuild_effective_review
+    effective, effective_proof = rebuild_effective_review(team, meeting_id=meeting_id,
+        captured=captured, raw=raw, catalog=catalog, engine=engine)
+    _require(inputs['output'] == effective, 'A6_RAW_MEETING_OUTPUT_CONFLICT')
     _catalog_plans(catalog, source['plan_rows'], complete=True)
     projection = team.execute('SELECT source_sha256,body_json FROM control_minute_context WHERE decision_id=?',
         ('a6-input-projection:' + meeting_id,)).fetchone()
@@ -140,7 +148,7 @@ def _a6(team, models, *, meeting_id, scope_id, account_id, day, engine):
         and _json(projection['body_json']).get('projected_input_hash') == captured['input_hash'], 'A6_MODEL_INPUT_BINDING_CONFLICT')
     from .team_v2_morning import _envelopes
     from .team_v2_risk_meeting import apply_premarket_review
-    actual = apply_premarket_review(_envelopes(inputs['envelopes']), raw,
+    actual = apply_premarket_review(_envelopes(inputs['envelopes']), effective,
         engine_utilization_cap=Decimal(str(inputs['engine_utilization_cap'])), validated=True, previous_failures=0)
     _require(result.get('status') == 'READY' and result.get('consecutive_failures') == 0
         and json.loads(canonical(asdict(actual))) == result, 'A6_RESULT_RECOMPUTATION_CONFLICT')
@@ -151,6 +159,7 @@ def _a6(team, models, *, meeting_id, scope_id, account_id, day, engine):
         plan_rowset_sha256=source['plan_rowset_sha256'], binding_sha256=row['binding_sha256'],
         model_input_sha256=captured['input_hash'], meeting_record=dict(meeting_id=meeting_id,
             source_call_id=row['source_call_id'], input_sha256=claim['input_sha256'], result_sha256=result_sha))
+    if effective_proof is not None:evidence['effective_review'] = effective_proof
     return result, evidence, captured['run_id']
 
 

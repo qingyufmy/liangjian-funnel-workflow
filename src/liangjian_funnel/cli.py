@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .research_slots import require_research_slot
 
 import argparse
 import json
@@ -443,7 +444,7 @@ def build_parser() -> argparse.ArgumentParser:
             update.add_argument('--revalidation-receipt')
             update.add_argument('--revalidation-receipt-sha256')
     research = sub.add_parser("run-research", help="run three isolated A1-A2-A3 model lanes")
-    research.add_argument("--slot", choices=("morning", "close"), required=True)
+    research.add_argument("--slot", type=require_research_slot, choices=("morning", "close"), required=True)
     research.add_argument(
         "--as-of",
         default=None,

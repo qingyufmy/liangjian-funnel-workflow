@@ -66,3 +66,19 @@ def test_actual_premarket_cas_activation_and_daily_reader_are_separate_stages():
     assert monitor['B_daily_found']==14
     assert monitor['second_entrypoint']['result']['activated']==[]
     assert 'no second fresh activation/source decision' in monitor['second_entrypoint']['limitation']
+
+
+def test_actual1028_segment_stays_unpublished_and_latch_reset_is_not_a_model_call(tmp_path):
+    segment=json.loads((F/'today_20261028_segment_1040.json').read_bytes())
+    assert segment['observed_until']=='2026-10-28T10:40:24.968282+08:00'
+    assert segment['plans']==[] and segment['recent_trader_sessions']==[]
+    assert len(segment['source_gap_originals'])==7
+    assert segment['workflow_run']==[dict(run_id='recovery-close-20261027-6eaaf75-0910-r12b',trade_date='2026-10-27',slot='CLOSE',status='READY_TO_PUBLISH')]
+    assert segment['body_sha256']=='dde2f7074d99fce028d55625b964ef04ea808ad138e53da92b90410b0b6436ec'
+    latch=ReviewDayLatch(TeamMeetingStore(tmp_path/'today.db'))
+    assert latch.read('local-paper','2026-10-28')==segment['daily_latch_effective']['state']
+    assert segment['daily_latch_effective']['actual_validated_model_call_proven'] is False
+    assert segment['monitor_window']['monitor_ended_count']==65
+    assert all(x['exit']=='0' for x in segment['monitor_window']['ended'])
+    assert len(segment['customer_notice_ledger'])==2
+    assert all(x['card_evidence_status']=='HASH_VERIFIED' for x in segment['customer_notice_ledger'])

@@ -5,6 +5,7 @@ Only an explicit cold local SQLite input is accepted. Byte pins bind evidence;
 they do not authenticate the acquisition timestamp or restore past row states.
 """
 from __future__ import annotations
+from ..research_slots import research_slot, require_research_slot
 
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
@@ -282,7 +283,7 @@ class ReadOnlyPublicationReader:
                     "SELECT * FROM execution_plans WHERE lane_id=? ORDER BY plan_id", (ref.lane_id,))]
                 candidates = [dict(row) for row in connection.execute(
                     "SELECT run_id,lane_id,trade_date,slot,status,created_at FROM workflow_runs "
-                    "WHERE lane_id=? AND slot='CLOSE' AND trade_date=? AND status='PUBLISHED' ORDER BY run_id",
+                    "WHERE lane_id=? AND LOWER(TRIM(slot))='close' AND trade_date=? AND status='PUBLISHED' ORDER BY run_id",
                     (ref.lane_id, previous.isoformat()))]
                 rows_for_hash["publication_candidates"].append(candidates)
                 rows_for_hash["lane_plan_scans"].append(source_rows)
@@ -620,7 +621,7 @@ class ReadOnlyPublicationReader:
         if (any(not isinstance(summary.get(key), str) for key in ("run_id", "slot", "status", "run_role"))
                 or not isinstance(summary.get("primary_lane_ids"), list)):
             raise ExportError("PUBLICATION_SUMMARY_INVALID")
-        if (summary.get("run_id") != ref.run_id or str(summary.get("slot")).lower() != "close"
+        if (summary.get("run_id") != ref.run_id or research_slot(summary.get("slot")) != "close"
                 or summary.get("status") not in {"READY", "READY_DEGRADED"}
                 or summary.get("run_role") not in {"primary", "full"}
                 or summary.get("auction_refresh") is True
@@ -633,7 +634,7 @@ class ReadOnlyPublicationReader:
                 or len(set(publication["created"])) != len(publication["created"])
                 or publication.get("activated") != [] or not isinstance(snapshot, dict)):
             raise ExportError("PUBLICATION_SUMMARY_INVALID")
-        if not run or run["status"] != "PUBLISHED" or str(run["slot"]).lower() != "close":
+        if not run or run["status"] != "PUBLISHED" or research_slot(run["slot"]) != "close":
             raise ExportError("RUN_NOT_PUBLISHED_CLOSE")
         if not stage or stage["status"] not in PUBLISHABLE_A3_STATUSES:
             raise ExportError("A3_NOT_VALIDATED")

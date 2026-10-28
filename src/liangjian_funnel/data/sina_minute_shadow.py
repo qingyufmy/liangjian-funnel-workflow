@@ -3,6 +3,7 @@
 Observed vendor aggregation differs from Tencent; callers must report the
 differences, not merge prices/volumes or claim independent confirmation.
 """
+from ..runtime.close_stage_budget import configure_source_client
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -54,7 +55,7 @@ def fetch_sina_5m_shadow(symbol, *, count=320, fetch=None, clock=None):
     params = {"symbol": mapping.exchange.lower() + mapping.code, "scale": "5", "ma": "no", "datalen": str(count)}
     started = now()
     if fetch is None:
-        with httpx.Client(timeout=8, follow_redirects=False) as client:
+        with configure_source_client(httpx.Client(timeout=8, follow_redirects=False)) as client:
             response = client.get(URL, params=params)
             response.raise_for_status()
             rows = response.json()

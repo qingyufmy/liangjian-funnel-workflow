@@ -7,6 +7,7 @@ never stores a response body in an exception or a failed fetch result.
 """
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import bounded_data_sleep,configure_source_client
 
 import hashlib
 import html
@@ -423,7 +424,7 @@ class CninfoClient:
         if not 0 <= min_request_interval_seconds <= 10:
             raise ValueError("CNINFO request interval is invalid")
         self._owns_client = http_client is None and client is None
-        self._sleep = sleep
+        self._sleep = bounded_data_sleep(sleep)
         self._monotonic = monotonic
         # A single client is shared by all announcement workers.  The lock
         # reserves each request start globally, so concurrent callers cannot
@@ -445,12 +446,12 @@ class CninfoClient:
         self._now_fn = now or (lambda: datetime.now(SHANGHAI))
         self._client = http_client or client
         if self._client is None:
-            self._client = httpx.Client(
+            self._client = configure_source_client(httpx.Client(
                 timeout=timeout_seconds,
                 transport=transport,
                 trust_env=False,
                 headers=self._headers(),
-            )
+            ))
         else:
             # An injected httpx client may not have been configured with the
             # browser-like headers required by the public endpoint.  Updating
@@ -461,6 +462,7 @@ class CninfoClient:
                     headers.update(self._headers())
                 except Exception:
                     pass
+        configure_source_client(self._client)
 
     @staticmethod
     def _headers() -> dict[str, str]:

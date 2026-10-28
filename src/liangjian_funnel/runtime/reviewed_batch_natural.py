@@ -3,6 +3,7 @@
 Unreviewed rows never enter execution_plans. Account/lot/T+1 storage is not
 opened here. Natural morning's ordinary engine owns its actual account capture.
 """
+from ..research_slots import research_slot, require_research_slot
 from contextlib import closing
 from copy import deepcopy
 from datetime import datetime
@@ -101,7 +102,7 @@ def stage_natural_candidate(store, batch, *, run_id, observed_at, regeneration=N
     scope='bd_'+sha([run_id,day,lane])[:28]
     def operation(db):
         record=db.execute('SELECT trade_date,slot FROM workflow_runs WHERE run_id=? AND lane_id=?',(run_id,lane)).fetchone()
-        if not record or str(record['slot']).lower()!='close' or record['trade_date']!=artifact_check['source_trade_date']:
+        if not record or research_slot(record['slot'])!='close' or record['trade_date']!=artifact_check['source_trade_date']:
             raise ValueError('CANDIDATE_WORKFLOW_SOURCE_CONFLICT')
         if source_scope is not None:
             from .close_regeneration import require_regeneration_candidate_scope
@@ -161,7 +162,7 @@ def read_natural_candidate(settings, *, day):
             checked=verify_candidate_artifacts(plans,run_id=body['run_id'],proof=proof,verify_original_files=False)
             record=db.execute('SELECT trade_date,slot FROM workflow_runs WHERE run_id=? AND lane_id=?',
                 (body['run_id'],body['lane_id'])).fetchone()
-            if not record or record['trade_date']!=checked['source_trade_date'] or str(record['slot']).lower()!='close':
+            if not record or record['trade_date']!=checked['source_trade_date'] or research_slot(record['slot'])!='close':
                 raise ValueError('CANDIDATE_WORKFLOW_SOURCE_CONFLICT')
         return dict(body=body,scope_id=row['scope_id'],body_sha256=row['body_sha256'],revision=row['revision'],state=row['state'])
 
@@ -210,6 +211,7 @@ def finish_natural_candidate(settings, candidate, *, calendar,observed_at=None):
     try:
         notification=publisher.publish_batch_switch_status(trade_date=body['trade_date'],scope_id=scope,
             plan_count=len(body['plan_rows']),body_sha256=candidate['body_sha256'],
+            capacity_review=bundle['evidence']['a6'].get('effective_review'),
             observed_at=observed_at or datetime.now(ZoneInfo('Asia/Shanghai')))
     except Exception as exc:
         notification=dict(status='FAILED',reason_code='MORNING_FINAL_NOTIFICATION_FAILED',

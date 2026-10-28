@@ -3,6 +3,7 @@
 Observed stability is not exchange finality. The late probe horizon is a
 versioned conservative acquisition policy, not an OHLCV tolerance or buy gate.
 """
+from ..runtime.close_stage_budget import bounded_data_sleep
 from datetime import datetime
 import hashlib
 import json
@@ -127,7 +128,7 @@ def confirm_publications(initial, fetch, *, at, deadline, clock=time.monotonic,
             if target >= deadline:
                 break
             if clock() < target:
-                sleep(target - clock())
+                bounded_data_sleep(sleep)(target - clock())
             if clock() >= deadline:
                 break
             for symbol, pack in sweep(retryable):
@@ -156,7 +157,7 @@ def confirm_publications(initial, fetch, *, at, deadline, clock=time.monotonic,
         if clock() + delay >= deadline:
             break
         if delay:
-            sleep(delay)
+            bounded_data_sleep(sleep)(delay)
         if not eligible or clock() >= deadline:
             break
         for symbol, pack in sweep(eligible):

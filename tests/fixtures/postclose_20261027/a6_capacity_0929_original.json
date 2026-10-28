@@ -1,0 +1,1539 @@
+{
+  "origin": "0929 actual A6 reply 2026-10-28T09:03:59",
+  "request_archive_sha256": "9b31cfde7229d22069d95ec7d44b989ab31b137e8e916b1af93c0975bc78faef",
+  "raw": {
+    "capacity_for_tomorrow": {
+      "cluster_quota": {
+        "CONSUMER_SERVICES": 2,
+        "FINANCIAL_HIGH_DIVIDEND": 2
+      },
+      "notes": [
+        "市场状态RISK_OFF_RETREAT仅允许PROBE，所有计划信封已为PROBE",
+        "引擎簇配额CONSUMER_SERVICES=2、FINANCIAL_HIGH_DIVIDEND=2，引用服务端值不扩容",
+        "plans_acceptable=6不超过引擎slots=6且不超过各簇上限之和4，但受簇配额约束实际可承接4"
+      ],
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "ACCOUNT",
+        "MARKET"
+      ],
+      "plans_acceptable": 6,
+      "response_to_pm": "NO_PM_REQUEST",
+      "risk_unit": "PROBE",
+      "supporting_refs": [
+        "MORNING:MARKET",
+        "MORNING:ACCOUNT"
+      ]
+    },
+    "envelope": {
+      "as_of": "2026-10-28T08:33:04.289132+08:00",
+      "config_hash": "411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73",
+      "config_version": "team-v2/1",
+      "execution_trade_date": "2026-10-28",
+      "input_snapshot_ids": [
+        "3c2bdf00ad84a0bfedf48b54cb70b60ed6087239562f8481b7d1c2addb3ad6a9"
+      ],
+      "knowledge_cutoff": "2026-10-28T08:33:04.289132+08:00",
+      "market_regime": "RISK_OFF_RETREAT",
+      "model_name": "deepseek/deepseek-v4-pro",
+      "prompt_version": "agent-6-risk/1.0.9",
+      "reason_codes": [],
+      "run_id": "bd_3380d3b574acae75e3044f0f8c28:review:2026-10-28",
+      "schema_version": "team-envelope/1",
+      "source_trade_date": "2026-10-27",
+      "stage_id": "A6",
+      "status": "FROZEN"
+    },
+    "envelope_adjustments": [
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:f76efc4235a49b7b",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:f76efc4235a49b7b",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE导致无法确认审计来源类上限，则SUSPEND",
+          "若日线收盘跌破73.38失效位，则撤销该计划"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:2f42f0194ec29838",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:2f42f0194ec29838",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE导致无法确认审计来源类上限，则SUSPEND",
+          "若日线MA5下穿MA20形成死叉，则撤销该计划"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:82b50889ae04a79f",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:82b50889ae04a79f",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE导致无法确认审计来源类上限，则SUSPEND",
+          "若月线BEAR_STACK背景下日线继续走弱，则撤销该计划"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:4de277b24ad5718e",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:4de277b24ad5718e",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE导致无法确认审计来源类上限，则SUSPEND",
+          "若月线BEAR_STACK背景下日线继续走弱，则撤销该计划"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE导致无法确认审计来源类上限，则SUSPEND",
+          "若月线BEAR_STACK背景下日线继续走弱，则撤销该计划"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:c4ed7a2ecded0cf6",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:c4ed7a2ecded0cf6",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE导致无法确认审计来源类上限，则SUSPEND",
+          "若次日市场广度继续恶化且资金流向数据仍缺失，则下调优先级"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:ACCOUNT"
+        ],
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:68d00fca447a53d1",
+        "reason_code": "DATA_LIMITED_REVIEWED",
+        "supporting_refs": [
+          "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:68d00fca447a53d1",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE导致无法确认审计来源类上限，则SUSPEND",
+          "若主题CONSUMER_SERVICES从RETREAT转为CONFIRMATION/ACCELERATION，可重新评估"
+        ]
+      }
+    ],
+    "exception_actions": [],
+    "handoff_notes": {
+      "to_a3": [
+        "今日市场状态RISK_OFF_RETREAT仅允许PROBE，所有计划信封已为PROBE",
+        "簇配额CONSUMER_SERVICES=2、FINANCIAL_HIGH_DIVIDEND=2，plans_acceptable=6但受簇配额约束实际可承接4",
+        "所有计划存在DATA_LIMITED，需A4确认入场条件后再执行"
+      ],
+      "to_a4": [
+        "所有计划信封为PROBE，禁止追价，必须等待价格进入回踩区且15分钟卖压减弱后再确认",
+        "DATA_LIMITED计划需严格按a4_required_entry_rules执行，不得放宽"
+      ],
+      "to_a5": [
+        "本次PREMARKET对7个DATA_LIMITED计划均KEEP，理由为OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE已审查",
+        "utilization_cap保持引擎上限20，未收紧"
+      ]
+    },
+    "overnight_reviews": [],
+    "risk_event_attribution": [],
+    "schema_version": "a6-risk/1.0.0",
+    "session": "PREMARKET",
+    "unresolved_questions": [],
+    "utilization_cap": {
+      "basis": "引擎上限engine_utilization_cap=20，市场状态RISK_OFF_RETREAT仅允许PROBE，不收紧",
+      "cap_pct": 20,
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "ACCOUNT",
+        "MARKET"
+      ],
+      "supporting_refs": [
+        "MORNING:MARKET",
+        "MORNING:ACCOUNT"
+      ]
+    },
+    "what_would_change_my_mind": [
+      "若市场状态从RISK_OFF_RETREAT转为ICE_POINT，则所有计划SUSPEND且capacity_for_tomorrow.risk_unit=NONE",
+      "若外围风险偏好显著收缩（纳指/A50大幅下跌、VIX跳升），则收紧utilization_cap并下调plans_acceptable"
+    ]
+  },
+  "raw_sha256": "d1c845edb24f93c8b4eb4dad4b568d9376172d5492349394ccab103449dfe1d2",
+  "issues": [
+    "A6_CAPACITY_INVALID",
+    "A6_CAPACITY_DETAIL:plans_acceptable:MAX_4"
+  ],
+  "fields": {
+    "RISK_LIMITS": {
+      "engine_upper_bounds": {
+        "account_id": "local-paper",
+        "call_id": "bd_3380d3b574acae75e3044f0f8c28:A6:retry0924",
+        "capacity_slots": 6,
+        "cluster_caps": {
+          "CONSUMER_SERVICES": 2,
+          "FINANCIAL_HIGH_DIVIDEND": 2
+        },
+        "engine_utilization_cap": "20",
+        "max_output_tokens": 8192,
+        "server_cluster_capacity": {
+          "cluster_caps": {
+            "CONSUMER_SERVICES": 2,
+            "FINANCIAL_HIGH_DIVIDEND": 2
+          },
+          "cluster_plan_counts": {
+            "CONSUMER_SERVICES": 4,
+            "FINANCIAL_HIGH_DIVIDEND": 3
+          },
+          "cluster_priority_order": [
+            "CONSUMER_SERVICES",
+            "FINANCIAL_HIGH_DIVIDEND"
+          ],
+          "cluster_upper_bounds": {
+            "CONSUMER_SERVICES": 2,
+            "FINANCIAL_HIGH_DIVIDEND": 2
+          },
+          "engine_cluster_quota": {
+            "CONSUMER_SERVICES": 2,
+            "FINANCIAL_HIGH_DIVIDEND": 2
+          },
+          "engine_slots": 6,
+          "plan_clusters": {
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:2f42f0194ec29838": "FINANCIAL_HIGH_DIVIDEND",
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d": "FINANCIAL_HIGH_DIVIDEND",
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:4de277b24ad5718e": "CONSUMER_SERVICES",
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:68d00fca447a53d1": "CONSUMER_SERVICES",
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:82b50889ae04a79f": "CONSUMER_SERVICES",
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:c4ed7a2ecded0cf6": "FINANCIAL_HIGH_DIVIDEND",
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:f76efc4235a49b7b": "CONSUMER_SERVICES"
+          },
+          "plan_priority_order": [
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:68d00fca447a53d1",
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:c4ed7a2ecded0cf6",
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:2f42f0194ec29838",
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:f76efc4235a49b7b",
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:4de277b24ad5718e",
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d",
+            "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:82b50889ae04a79f"
+          ],
+          "schema_version": "a6-server-cluster-capacity/1"
+        },
+        "timeout_seconds": 106,
+        "unready_plan_ids": []
+      },
+      "policy": {
+        "daily_loss_halt_pct": "0.02",
+        "drawdown_half_pct": "0.08",
+        "drawdown_halt_pct": "0.15",
+        "initial_capital": "1000000",
+        "max_cluster_pct": "0.40",
+        "max_cluster_signals": 2,
+        "max_new_entries": 3,
+        "max_position_pct": "0.20",
+        "max_positions": 6,
+        "max_risk_pct": "0.05",
+        "min_cash_reserve_pct": "0.10",
+        "no_new_entry_after": "14:30",
+        "probe_multiplier": "0.5",
+        "standard_risk_pct": "0.03"
+      },
+      "primary_cluster_cap": 2,
+      "server_cluster_capacity": {
+        "cluster_caps": {
+          "CONSUMER_SERVICES": 2,
+          "FINANCIAL_HIGH_DIVIDEND": 2
+        },
+        "cluster_plan_counts": {
+          "CONSUMER_SERVICES": 4,
+          "FINANCIAL_HIGH_DIVIDEND": 3
+        },
+        "cluster_priority_order": [
+          "CONSUMER_SERVICES",
+          "FINANCIAL_HIGH_DIVIDEND"
+        ],
+        "cluster_upper_bounds": {
+          "CONSUMER_SERVICES": 2,
+          "FINANCIAL_HIGH_DIVIDEND": 2
+        },
+        "engine_cluster_quota": {
+          "CONSUMER_SERVICES": 2,
+          "FINANCIAL_HIGH_DIVIDEND": 2
+        },
+        "engine_slots": 6,
+        "plan_clusters": {
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:2f42f0194ec29838": "FINANCIAL_HIGH_DIVIDEND",
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d": "FINANCIAL_HIGH_DIVIDEND",
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:4de277b24ad5718e": "CONSUMER_SERVICES",
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:68d00fca447a53d1": "CONSUMER_SERVICES",
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:82b50889ae04a79f": "CONSUMER_SERVICES",
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:c4ed7a2ecded0cf6": "FINANCIAL_HIGH_DIVIDEND",
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:f76efc4235a49b7b": "CONSUMER_SERVICES"
+        },
+        "plan_priority_order": [
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:68d00fca447a53d1",
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:c4ed7a2ecded0cf6",
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:2f42f0194ec29838",
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:f76efc4235a49b7b",
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:4de277b24ad5718e",
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d",
+          "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:82b50889ae04a79f"
+        ],
+        "schema_version": "a6-server-cluster-capacity/1"
+      },
+      "session_binding_sha256": "89efad98a9bf88aac7f87d957184694dd524822d835d6fc74e2c2260a9e68194"
+    },
+    "ENGINE_ENVELOPES": [
+      {
+        "a6_tightened": false,
+        "binding_limits": [
+          "PROBE_NOTIONAL_CAP"
+        ],
+        "blocked_reasons": [],
+        "degradation_tags": [
+          "DATA_LIMITED"
+        ],
+        "eligible": true,
+        "high_conviction": false,
+        "max_batches": 1,
+        "max_shares_cap": 1300,
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:f76efc4235a49b7b",
+        "plan_risk_unit": "PROBE",
+        "purpose": "PLANNING",
+        "quantity_audit": {
+          "binding_limits": [
+            "PROBE_NOTIONAL_CAP"
+          ],
+          "cap20_qty": 2600,
+          "daily_atr14": null,
+          "final_qty": 1300,
+          "nav": "999243.250",
+          "other_caps": {
+            "CASH_RESERVE": 11900,
+            "CLUSTER_CAP": 5300
+          },
+          "position_pct": "0.20",
+          "price": "75.38",
+          "probe10_qty": 1300,
+          "raw_risk_qty": "7494.324375",
+          "review_flags": [],
+          "risk_budget": "14988.648750",
+          "risk_round_lot_qty": 7400,
+          "risk_unit": "PROBE",
+          "stop_distance_atr": null,
+          "stop_price": "73.38",
+          "symbol_value": "0"
+        },
+        "risk_budget": "14988.648750",
+        "risk_cap_audit": [],
+        "risk_unit": "PROBE",
+        "symbol": "000858.SZ",
+        "trade_date": "2026-10-28"
+      },
+      {
+        "a6_tightened": false,
+        "binding_limits": [
+          "PROBE_NOTIONAL_CAP"
+        ],
+        "blocked_reasons": [],
+        "degradation_tags": [
+          "DATA_LIMITED"
+        ],
+        "eligible": true,
+        "high_conviction": false,
+        "max_batches": 1,
+        "max_shares_cap": 10500,
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:2f42f0194ec29838",
+        "plan_risk_unit": "PROBE",
+        "purpose": "PLANNING",
+        "quantity_audit": {
+          "binding_limits": [
+            "PROBE_NOTIONAL_CAP"
+          ],
+          "cap20_qty": 21000,
+          "daily_atr14": null,
+          "final_qty": 10500,
+          "nav": "999243.250",
+          "other_caps": {
+            "CASH_RESERVE": 94800,
+            "CLUSTER_CAP": 42100
+          },
+          "position_pct": "0.20",
+          "price": "9.48",
+          "probe10_qty": 10500,
+          "raw_risk_qty": "44084.26102941176470588235294",
+          "review_flags": [],
+          "risk_budget": "14988.648750",
+          "risk_round_lot_qty": 44000,
+          "risk_unit": "PROBE",
+          "stop_distance_atr": null,
+          "stop_price": "9.14",
+          "symbol_value": "0"
+        },
+        "risk_budget": "14988.648750",
+        "risk_cap_audit": [],
+        "risk_unit": "PROBE",
+        "symbol": "002966.SZ",
+        "trade_date": "2026-10-28"
+      },
+      {
+        "a6_tightened": false,
+        "binding_limits": [
+          "PROBE_NOTIONAL_CAP"
+        ],
+        "blocked_reasons": [],
+        "degradation_tags": [
+          "DATA_LIMITED"
+        ],
+        "eligible": true,
+        "high_conviction": false,
+        "max_batches": 1,
+        "max_shares_cap": 15300,
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:82b50889ae04a79f",
+        "plan_risk_unit": "PROBE",
+        "purpose": "PLANNING",
+        "quantity_audit": {
+          "binding_limits": [
+            "PROBE_NOTIONAL_CAP"
+          ],
+          "cap20_qty": 30700,
+          "daily_atr14": null,
+          "final_qty": 15300,
+          "nav": "999243.250",
+          "other_caps": {
+            "CASH_RESERVE": 138300,
+            "CLUSTER_CAP": 61400
+          },
+          "position_pct": "0.20",
+          "price": "6.5",
+          "probe10_qty": 15300,
+          "raw_risk_qty": "124905.40625",
+          "review_flags": [],
+          "risk_budget": "14988.648750",
+          "risk_round_lot_qty": 124900,
+          "risk_unit": "PROBE",
+          "stop_distance_atr": null,
+          "stop_price": "6.38",
+          "symbol_value": "0"
+        },
+        "risk_budget": "14988.648750",
+        "risk_cap_audit": [],
+        "risk_unit": "PROBE",
+        "symbol": "600628.SH",
+        "trade_date": "2026-10-28"
+      },
+      {
+        "a6_tightened": false,
+        "binding_limits": [
+          "PROBE_NOTIONAL_CAP"
+        ],
+        "blocked_reasons": [],
+        "degradation_tags": [
+          "DATA_LIMITED"
+        ],
+        "eligible": true,
+        "high_conviction": false,
+        "max_batches": 1,
+        "max_shares_cap": 6500,
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:4de277b24ad5718e",
+        "plan_risk_unit": "PROBE",
+        "purpose": "PLANNING",
+        "quantity_audit": {
+          "binding_limits": [
+            "PROBE_NOTIONAL_CAP"
+          ],
+          "cap20_qty": 13100,
+          "daily_atr14": null,
+          "final_qty": 6500,
+          "nav": "999243.250",
+          "other_caps": {
+            "CASH_RESERVE": 59300,
+            "CLUSTER_CAP": 26300
+          },
+          "position_pct": "0.20",
+          "price": "15.15",
+          "probe10_qty": 6500,
+          "raw_risk_qty": "27756.75694444444444444444444",
+          "review_flags": [],
+          "risk_budget": "14988.648750",
+          "risk_round_lot_qty": 27700,
+          "risk_unit": "PROBE",
+          "stop_distance_atr": null,
+          "stop_price": "14.61",
+          "symbol_value": "0"
+        },
+        "risk_budget": "14988.648750",
+        "risk_cap_audit": [],
+        "risk_unit": "PROBE",
+        "symbol": "600694.SH",
+        "trade_date": "2026-10-28"
+      },
+      {
+        "a6_tightened": false,
+        "binding_limits": [
+          "PROBE_NOTIONAL_CAP"
+        ],
+        "blocked_reasons": [],
+        "degradation_tags": [],
+        "eligible": true,
+        "high_conviction": false,
+        "max_batches": 1,
+        "max_shares_cap": 13700,
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d",
+        "plan_risk_unit": "PROBE",
+        "purpose": "PLANNING",
+        "quantity_audit": {
+          "binding_limits": [
+            "PROBE_NOTIONAL_CAP"
+          ],
+          "cap20_qty": 27500,
+          "daily_atr14": null,
+          "final_qty": 13700,
+          "nav": "999243.250",
+          "other_caps": {
+            "CASH_RESERVE": 124000,
+            "CLUSTER_CAP": 55100
+          },
+          "position_pct": "0.20",
+          "price": "7.25",
+          "probe10_qty": 13700,
+          "raw_risk_qty": "78887.6250",
+          "review_flags": [],
+          "risk_budget": "14988.648750",
+          "risk_round_lot_qty": 78800,
+          "risk_unit": "PROBE",
+          "stop_distance_atr": null,
+          "stop_price": "7.06",
+          "symbol_value": "0"
+        },
+        "risk_budget": "14988.648750",
+        "risk_cap_audit": [],
+        "risk_unit": "PROBE",
+        "symbol": "601077.SH",
+        "trade_date": "2026-10-28"
+      },
+      {
+        "a6_tightened": false,
+        "binding_limits": [
+          "PROBE_NOTIONAL_CAP"
+        ],
+        "blocked_reasons": [],
+        "degradation_tags": [
+          "DATA_LIMITED"
+        ],
+        "eligible": true,
+        "high_conviction": false,
+        "max_batches": 1,
+        "max_shares_cap": 10900,
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:c4ed7a2ecded0cf6",
+        "plan_risk_unit": "PROBE",
+        "purpose": "PLANNING",
+        "quantity_audit": {
+          "binding_limits": [
+            "PROBE_NOTIONAL_CAP"
+          ],
+          "cap20_qty": 21800,
+          "daily_atr14": null,
+          "final_qty": 10900,
+          "nav": "999243.250",
+          "other_caps": {
+            "CASH_RESERVE": 98500,
+            "CLUSTER_CAP": 43700
+          },
+          "position_pct": "0.20",
+          "price": "9.13",
+          "probe10_qty": 10900,
+          "raw_risk_qty": "27252.08863636363636363636364",
+          "review_flags": [],
+          "risk_budget": "14988.648750",
+          "risk_round_lot_qty": 27200,
+          "risk_unit": "PROBE",
+          "stop_distance_atr": null,
+          "stop_price": "8.58",
+          "symbol_value": "0"
+        },
+        "risk_budget": "14988.648750",
+        "risk_cap_audit": [],
+        "risk_unit": "PROBE",
+        "symbol": "601825.SH",
+        "trade_date": "2026-10-28"
+      },
+      {
+        "a6_tightened": false,
+        "binding_limits": [
+          "PROBE_NOTIONAL_CAP"
+        ],
+        "blocked_reasons": [],
+        "degradation_tags": [
+          "DATA_LIMITED"
+        ],
+        "eligible": true,
+        "high_conviction": false,
+        "max_batches": 1,
+        "max_shares_cap": 11600,
+        "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:68d00fca447a53d1",
+        "plan_risk_unit": "PROBE",
+        "purpose": "PLANNING",
+        "quantity_audit": {
+          "binding_limits": [
+            "PROBE_NOTIONAL_CAP"
+          ],
+          "cap20_qty": 23200,
+          "daily_atr14": null,
+          "final_qty": 11600,
+          "nav": "999243.250",
+          "other_caps": {
+            "CASH_RESERVE": 104600,
+            "CLUSTER_CAP": 46500
+          },
+          "position_pct": "0.20",
+          "price": "8.59",
+          "probe10_qty": 11600,
+          "raw_risk_qty": "26295.8750",
+          "review_flags": [],
+          "risk_budget": "14988.648750",
+          "risk_round_lot_qty": 26200,
+          "risk_unit": "PROBE",
+          "stop_distance_atr": null,
+          "stop_price": "8.02",
+          "symbol_value": "0"
+        },
+        "risk_budget": "14988.648750",
+        "risk_cap_audit": [],
+        "risk_unit": "PROBE",
+        "symbol": "603101.SH",
+        "trade_date": "2026-10-28"
+      }
+    ],
+    "EVIDENCE_CATALOG": {
+      "categories": [
+        "ACCOUNT",
+        "MARKET",
+        "PLAN"
+      ],
+      "items": [
+        {
+          "category": "ACCOUNT",
+          "id": "MORNING:ACCOUNT",
+          "value": {
+            "account": {
+              "cash": "999243.250",
+              "frozen": "0",
+              "nav": "999243.250",
+              "pnl_realized": "-756.750",
+              "pnl_unrealized": "0",
+              "positions_value": "0"
+            },
+            "entry_risk_references": {},
+            "global_halt": "",
+            "open_orders": [],
+            "peak_nav": "1001133.180",
+            "positions": [],
+            "risk_day": {
+              "day_open_nav": "999243.250",
+              "halt_reason_codes": [],
+              "opened_at": "2026-10-28T08:33:00.857149+08:00",
+              "source_sha256": "45fd177c49c8499d6939c2d5ca2e803f8fc5d505ae0eef4da09d7b90e4e87fe1",
+              "trade_date": "2026-10-28"
+            }
+          }
+        },
+        {
+          "category": "MARKET",
+          "id": "MORNING:MARKET",
+          "value": {
+            "external_adjustment": {
+              "available_observations": {},
+              "cache_issues": [
+                "EXTERNAL_CACHE_INVALID",
+                "EXTERNAL_CACHE_INVALID"
+              ],
+              "cache_sha256": null,
+              "missing_or_stale": [
+                "EXTERNAL_SNAPSHOT_MISSING"
+              ],
+              "reason_code": "EXTERNAL_SNAPSHOT_MISSING",
+              "source_contract": "A1_GLOBAL_MACRO_SNAPSHOT",
+              "source_requests_started": 0,
+              "status": "CONSERVATIVE_FALLBACK",
+              "unavailable_values_are_not_zero": true,
+              "value_pp": -10
+            },
+            "market_regime": "RISK_OFF_RETREAT"
+          }
+        },
+        {
+          "category": "PLAN",
+          "id": "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:f76efc4235a49b7b",
+          "value": {
+            "cluster": "CONSUMER_SERVICES",
+            "cluster_basis": "theme_id",
+            "expires_at": "2026-10-28T15:00:00+08:00",
+            "lane_id": "lane_1",
+            "missing_fields": [
+              "handoff_notes"
+            ],
+            "original_payload_sha256": "0b874cdbaf5888c4dbb3d433e981c9f1a8d8b88cf590db49c4c879c0d848f136",
+            "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:f76efc4235a49b7b",
+            "publication_facts": {
+              "A2_REVIEW_DEGRADED": false,
+              "DATA_LIMITED": true,
+              "a4_deferred_conditions": [
+                "A3_REWARD_RISK_BELOW_MINIMUM"
+              ],
+              "a4_exit_rules": [
+                "放量跌破A3日线MA5参考位且连续15分钟不能收回",
+                "反抽MA5失败后再次回落，或A3日线收盘确认趋势失效",
+                "硬止损、市场冲击或板块主线结束；亏损不得加仓"
+              ],
+              "a4_required_entry_rules": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "company_name": "五粮液",
+              "confirmation_conditions": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "daily_invalidation": 73.38,
+              "degradation_tags": [
+                "DATA_LIMITED"
+              ],
+              "entry_reference_zone": {
+                "high": 74.17,
+                "low": 73.72
+              },
+              "expected_holding_sessions": {
+                "max": 10,
+                "min": 3
+              },
+              "first_resistance": 75.75,
+              "invalidation_level": 73.38,
+              "market_environment": "BEAR_RISK",
+              "market_regime": "RISK_OFF_RETREAT",
+              "name": "五粮液",
+              "no_chase": 75.75,
+              "no_chase_price": 75.75,
+              "opposing_refs": [
+                "A3:MARKET"
+              ],
+              "plan_expiry": "2026-10-28T15:00:00+08:00",
+              "plan_premises": [
+                "日线主升趋势成立，沿日线MA5观察回踩",
+                "创新高时使用入场区间与失效位定义R，不虚构历史压力位",
+                "顺势加仓且必须已有浮盈，禁止亏损摊平"
+              ],
+              "plan_priority": "P3",
+              "plan_priority_rank": 14,
+              "pressure_reduce_price": 75.75,
+              "primary_theme": "CONSUMER_SERVICES",
+              "priority_reasons": [
+                "QUALIFIED_PROBE",
+                "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+              ],
+              "reference_price": 75.38,
+              "reference_price_as_of": "2026-10-27T15:00:00+08:00",
+              "risk_unit": "PROBE",
+              "setup_pattern": "MAIN_RISE",
+              "setup_type": "TREND_MA5",
+              "source_data_limits": {
+                "a6_explicit_review_required": true,
+                "authority": "0589_A1_SOURCE_GAPS",
+                "maximum_risk_unit": "PROBE",
+                "reason_codes": [
+                  "OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE"
+                ],
+                "source_as_of": "2026-10-27T23:07:31.383371+08:00",
+                "source_failures_sha256": "ac4e336039fbf07cd5e3b36ef6fdee4a65183d50806dfb167fd61ee581d3375a",
+                "status": "DATA_LIMITED",
+                "symbol": "000858.SZ"
+              },
+              "source_run_id": "recovery-close-20261027-6eaaf75-0910-r12b",
+              "stop_level": 73.38,
+              "strategy_profile": "TREND_MA5",
+              "strategy_version": "a3-a4-three-strategy/1.5.0",
+              "supporting_refs": [
+                "A3:TECH:000858.SZ",
+                "A3:MARKET"
+              ],
+              "theme_id": "CONSUMER_SERVICES",
+              "time_stop_sessions": 7,
+              "trade_brief": {
+                "confirm_cadence": "15m",
+                "key_levels_note": "入场参考区73.72-74.4572，禁止追价线75.75，日线失效位73.38；月线BEAR_STACK、周线ENTANGLED、日线BULL_PARTIAL",
+                "likely_failure_path": "日线BULL_PARTIAL状态下MA5回踩区73.72-74.4572失守后跌破73.38失效位，或MA5支撑失效",
+                "note_to_trader": "月线BEAR_STACK为背景风险，存在A3_REWARD_RISK_BELOW_MINIMUM待确认条件，仅PROBE"
+              },
+              "trigger_high": 74.17,
+              "trigger_low": 73.72,
+              "trigger_zone": {
+                "high": 74.17,
+                "low": 73.72
+              },
+              "what_would_change_my_mind": [
+                "若日线收盘跌破73.38失效位，则撤销该计划",
+                "若月线BEAR_STACK背景下日线继续走弱，则撤销该计划"
+              ]
+            },
+            "source_row_sha256": "060d809927a9ba1bee3436657a2121bfac7fdca62c9d8abb576f2515e8f71da2",
+            "status": "PENDING_MORNING_REVIEW",
+            "symbol": "000858.SZ",
+            "valid_from": null
+          }
+        },
+        {
+          "category": "PLAN",
+          "id": "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:2f42f0194ec29838",
+          "value": {
+            "cluster": "FINANCIAL_HIGH_DIVIDEND",
+            "cluster_basis": "theme_id",
+            "expires_at": "2026-10-28T15:00:00+08:00",
+            "lane_id": "lane_1",
+            "missing_fields": [
+              "handoff_notes"
+            ],
+            "original_payload_sha256": "0e7cb04ec3272efb79135a28866fb72181a74303df20adddf62d71ca0dcae1a2",
+            "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:2f42f0194ec29838",
+            "publication_facts": {
+              "A2_REVIEW_DEGRADED": false,
+              "DATA_LIMITED": true,
+              "a4_deferred_conditions": [
+                "A3_REWARD_RISK_BELOW_MINIMUM"
+              ],
+              "a4_exit_rules": [
+                "放量跌破A3日线MA5参考位且连续15分钟不能收回",
+                "反抽MA5失败后再次回落，或A3日线收盘确认趋势失效",
+                "硬止损、市场冲击或板块主线结束；亏损不得加仓"
+              ],
+              "a4_required_entry_rules": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "company_name": "苏州银行",
+              "confirmation_conditions": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "daily_invalidation": 9.14,
+              "degradation_tags": [
+                "DATA_LIMITED"
+              ],
+              "entry_reference_zone": {
+                "high": 9.3,
+                "low": 9.2585
+              },
+              "expected_holding_sessions": {
+                "max": 10,
+                "min": 3
+              },
+              "first_resistance": 9.62,
+              "invalidation_level": 9.14,
+              "market_environment": "BEAR_RISK",
+              "market_regime": "RISK_OFF_RETREAT",
+              "name": "苏州银行",
+              "no_chase": 9.62,
+              "no_chase_price": 9.62,
+              "opposing_refs": [
+                "A3:MARKET"
+              ],
+              "plan_expiry": "2026-10-28T15:00:00+08:00",
+              "plan_premises": [
+                "日线主升趋势成立，沿日线MA5观察回踩",
+                "创新高时使用入场区间与失效位定义R，不虚构历史压力位",
+                "顺势加仓且必须已有浮盈，禁止亏损摊平"
+              ],
+              "plan_priority": "P1",
+              "plan_priority_rank": 5,
+              "pressure_reduce_price": 9.62,
+              "primary_theme": "FINANCIAL_HIGH_DIVIDEND",
+              "priority_reasons": [
+                "QUALIFIED_STANDARD",
+                "STRONG_SETUP:MAIN_RISE",
+                "HIGHER_TIMEFRAME_ALIGNED"
+              ],
+              "reference_price": 9.48,
+              "reference_price_as_of": "2026-10-27T15:00:00+08:00",
+              "risk_unit": "PROBE",
+              "setup_pattern": "MAIN_RISE",
+              "setup_type": "TREND_MA5",
+              "source_data_limits": {
+                "a6_explicit_review_required": true,
+                "authority": "0589_A1_SOURCE_GAPS",
+                "maximum_risk_unit": "PROBE",
+                "reason_codes": [
+                  "OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE"
+                ],
+                "source_as_of": "2026-10-27T23:07:31.383371+08:00",
+                "source_failures_sha256": "ac4e336039fbf07cd5e3b36ef6fdee4a65183d50806dfb167fd61ee581d3375a",
+                "status": "DATA_LIMITED",
+                "symbol": "002966.SZ"
+              },
+              "source_run_id": "recovery-close-20261027-6eaaf75-0910-r12b",
+              "stop_level": 9.14,
+              "strategy_profile": "TREND_MA5",
+              "strategy_version": "a3-a4-three-strategy/1.5.0",
+              "supporting_refs": [
+                "A3:TECH:002966.SZ",
+                "A3:MARKET"
+              ],
+              "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+              "time_stop_sessions": 7,
+              "trade_brief": {
+                "confirm_cadence": "15m",
+                "key_levels_note": "入场参考区9.2585-9.3511，禁止追价线9.62，日线失效位9.14；月线BULL_STACK、周线BULL_STACK但日线ENTANGLED",
+                "likely_failure_path": "日线ENTANGLED状态下MA5回踩区9.2585-9.3511失守后跌破9.14失效位，或MA20支撑失效",
+                "note_to_trader": "日线状态ENTANGLED，higher_timeframe_risk为ALIGNED_OR_NEUTRAL，但存在A3_REWARD_RISK_BELOW_MINIMUM待确认条件，仅PROBE"
+              },
+              "trigger_high": 9.3,
+              "trigger_low": 9.2585,
+              "trigger_zone": {
+                "high": 9.3,
+                "low": 9.2585
+              },
+              "what_would_change_my_mind": [
+                "若日线收盘跌破9.14失效位，则撤销该计划",
+                "若日线MA5下穿MA20形成死叉，则撤销该计划"
+              ]
+            },
+            "source_row_sha256": "d525bb068a6897c38d56a68df5d3c1f0aea71e578c3c4d67518e2d7eb0e492c3",
+            "status": "PENDING_MORNING_REVIEW",
+            "symbol": "002966.SZ",
+            "valid_from": null
+          }
+        },
+        {
+          "category": "PLAN",
+          "id": "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:82b50889ae04a79f",
+          "value": {
+            "cluster": "CONSUMER_SERVICES",
+            "cluster_basis": "theme_id",
+            "expires_at": "2026-10-28T15:00:00+08:00",
+            "lane_id": "lane_1",
+            "missing_fields": [
+              "handoff_notes"
+            ],
+            "original_payload_sha256": "ac93dfcaf8609e4c5ecb3991e36c9432f7705c37382268c252f1f634f5693599",
+            "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:82b50889ae04a79f",
+            "publication_facts": {
+              "A2_REVIEW_DEGRADED": false,
+              "DATA_LIMITED": true,
+              "a4_deferred_conditions": [
+                "A3_REWARD_RISK_BELOW_MINIMUM"
+              ],
+              "a4_exit_rules": [
+                "放量跌破A3日线MA5参考位且连续15分钟不能收回",
+                "反抽MA5失败后再次回落，或A3日线收盘确认趋势失效",
+                "硬止损、市场冲击或板块主线结束；亏损不得加仓"
+              ],
+              "a4_required_entry_rules": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "company_name": "新世界",
+              "confirmation_conditions": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "daily_invalidation": 6.38,
+              "degradation_tags": [
+                "DATA_LIMITED"
+              ],
+              "entry_reference_zone": {
+                "high": 6.4366666666666665,
+                "low": 6.406
+              },
+              "expected_holding_sessions": {
+                "max": 10,
+                "min": 3
+              },
+              "first_resistance": 6.55,
+              "invalidation_level": 6.38,
+              "market_environment": "BEAR_RISK",
+              "market_regime": "RISK_OFF_RETREAT",
+              "name": "新世界",
+              "no_chase": 6.55,
+              "no_chase_price": 6.55,
+              "opposing_refs": [
+                "A3:MARKET"
+              ],
+              "plan_expiry": "2026-10-28T15:00:00+08:00",
+              "plan_premises": [
+                "日线主升趋势成立，沿日线MA5观察回踩",
+                "创新高时使用入场区间与失效位定义R，不虚构历史压力位",
+                "顺势加仓且必须已有浮盈，禁止亏损摊平"
+              ],
+              "plan_priority": "P3",
+              "plan_priority_rank": 19,
+              "pressure_reduce_price": 6.55,
+              "primary_theme": "CONSUMER_SERVICES",
+              "priority_reasons": [
+                "QUALIFIED_PROBE",
+                "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+              ],
+              "reference_price": 6.5,
+              "reference_price_as_of": "2026-10-27T15:00:00+08:00",
+              "risk_unit": "PROBE",
+              "setup_pattern": "MAIN_RISE",
+              "setup_type": "TREND_MA5",
+              "source_data_limits": {
+                "a6_explicit_review_required": true,
+                "authority": "0589_A1_SOURCE_GAPS",
+                "maximum_risk_unit": "PROBE",
+                "reason_codes": [
+                  "OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE"
+                ],
+                "source_as_of": "2026-10-27T23:07:31.383371+08:00",
+                "source_failures_sha256": "ac4e336039fbf07cd5e3b36ef6fdee4a65183d50806dfb167fd61ee581d3375a",
+                "status": "DATA_LIMITED",
+                "symbol": "600628.SH"
+              },
+              "source_run_id": "recovery-close-20261027-6eaaf75-0910-r12b",
+              "stop_level": 6.38,
+              "strategy_profile": "TREND_MA5",
+              "strategy_version": "a3-a4-three-strategy/1.5.0",
+              "supporting_refs": [
+                "A3:TECH:600628.SH",
+                "A3:MARKET"
+              ],
+              "theme_id": "CONSUMER_SERVICES",
+              "time_stop_sessions": 7,
+              "trade_brief": {
+                "confirm_cadence": "15m",
+                "key_levels_note": "入场参考区6.406-6.4701，禁止追价线6.55，日线失效位6.38；月线BEAR_STACK、周线BULL_STACK、日线BULL_PARTIAL",
+                "likely_failure_path": "日线BULL_PARTIAL状态下MA5回踩区6.406-6.4701失守后跌破6.38失效位，或MA5支撑失效",
+                "note_to_trader": "月线BEAR_STACK为背景风险，存在A3_REWARD_RISK_BELOW_MINIMUM待确认条件，仅PROBE"
+              },
+              "trigger_high": 6.4366666666666665,
+              "trigger_low": 6.406,
+              "trigger_zone": {
+                "high": 6.4366666666666665,
+                "low": 6.406
+              },
+              "what_would_change_my_mind": [
+                "若日线收盘跌破6.38失效位，则撤销该计划",
+                "若月线BEAR_STACK背景下日线继续走弱，则撤销该计划"
+              ]
+            },
+            "source_row_sha256": "2cfc7c4b2ffc6e05f7950999d57a400b445c50cd87c43c9d50aa42d0bcf7b4dc",
+            "status": "PENDING_MORNING_REVIEW",
+            "symbol": "600628.SH",
+            "valid_from": null
+          }
+        },
+        {
+          "category": "PLAN",
+          "id": "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:4de277b24ad5718e",
+          "value": {
+            "cluster": "CONSUMER_SERVICES",
+            "cluster_basis": "theme_id",
+            "expires_at": "2026-10-28T15:00:00+08:00",
+            "lane_id": "lane_1",
+            "missing_fields": [
+              "handoff_notes"
+            ],
+            "original_payload_sha256": "ac5e4574623e71814c365aaa60579c41ae742c532795bb5582db03ea3600ae2f",
+            "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:4de277b24ad5718e",
+            "publication_facts": {
+              "A2_REVIEW_DEGRADED": false,
+              "DATA_LIMITED": true,
+              "a4_deferred_conditions": [
+                "A3_REWARD_RISK_BELOW_MINIMUM"
+              ],
+              "a4_exit_rules": [
+                "放量跌破A3日线MA5参考位且连续15分钟不能收回",
+                "反抽MA5失败后再次回落，或A3日线收盘确认趋势失效",
+                "硬止损、市场冲击或板块主线结束；亏损不得加仓"
+              ],
+              "a4_required_entry_rules": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "company_name": "大商股份",
+              "confirmation_conditions": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "daily_invalidation": 14.61,
+              "degradation_tags": [
+                "DATA_LIMITED"
+              ],
+              "entry_reference_zone": {
+                "high": 14.8,
+                "low": 14.76
+              },
+              "expected_holding_sessions": {
+                "max": 10,
+                "min": 3
+              },
+              "first_resistance": 15.18,
+              "invalidation_level": 14.61,
+              "market_environment": "BEAR_RISK",
+              "market_regime": "RISK_OFF_RETREAT",
+              "name": "大商股份",
+              "no_chase": 15.18,
+              "no_chase_price": 15.18,
+              "opposing_refs": [
+                "A3:MARKET"
+              ],
+              "plan_expiry": "2026-10-28T15:00:00+08:00",
+              "plan_premises": [
+                "日线主升趋势成立，沿日线MA5观察回踩",
+                "创新高时使用入场区间与失效位定义R，不虚构历史压力位",
+                "顺势加仓且必须已有浮盈，禁止亏损摊平"
+              ],
+              "plan_priority": "P3",
+              "plan_priority_rank": 16,
+              "pressure_reduce_price": 15.18,
+              "primary_theme": "CONSUMER_SERVICES",
+              "priority_reasons": [
+                "QUALIFIED_PROBE",
+                "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+              ],
+              "reference_price": 15.15,
+              "reference_price_as_of": "2026-10-27T15:00:00+08:00",
+              "risk_unit": "PROBE",
+              "setup_pattern": "MAIN_RISE",
+              "setup_type": "TREND_MA5",
+              "source_data_limits": {
+                "a6_explicit_review_required": true,
+                "authority": "0589_A1_SOURCE_GAPS",
+                "maximum_risk_unit": "PROBE",
+                "reason_codes": [
+                  "OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE"
+                ],
+                "source_as_of": "2026-10-27T23:07:31.383371+08:00",
+                "source_failures_sha256": "ac4e336039fbf07cd5e3b36ef6fdee4a65183d50806dfb167fd61ee581d3375a",
+                "status": "DATA_LIMITED",
+                "symbol": "600694.SH"
+              },
+              "source_run_id": "recovery-close-20261027-6eaaf75-0910-r12b",
+              "stop_level": 14.61,
+              "strategy_profile": "TREND_MA5",
+              "strategy_version": "a3-a4-three-strategy/1.5.0",
+              "supporting_refs": [
+                "A3:TECH:600694.SH",
+                "A3:MARKET"
+              ],
+              "theme_id": "CONSUMER_SERVICES",
+              "time_stop_sessions": 7,
+              "trade_brief": {
+                "confirm_cadence": "15m",
+                "key_levels_note": "入场参考区14.76-14.9076，禁止追价线15.18，日线失效位14.61；月线BEAR_STACK、周线BULL_STACK、日线BULL_STACK",
+                "likely_failure_path": "日线BULL_STACK状态下MA5回踩区14.76-14.9076失守后跌破14.61失效位，或MA5支撑失效",
+                "note_to_trader": "月线BEAR_STACK为背景风险，存在A3_REWARD_RISK_BELOW_MINIMUM待确认条件，仅PROBE"
+              },
+              "trigger_high": 14.8,
+              "trigger_low": 14.76,
+              "trigger_zone": {
+                "high": 14.8,
+                "low": 14.76
+              },
+              "what_would_change_my_mind": [
+                "若日线收盘跌破14.61失效位，则撤销该计划",
+                "若月线BEAR_STACK背景下日线继续走弱，则撤销该计划"
+              ]
+            },
+            "source_row_sha256": "e4d5d192fc21a2c9d027bb666ab98025e1858082676529c0730a32c88c56257e",
+            "status": "PENDING_MORNING_REVIEW",
+            "symbol": "600694.SH",
+            "valid_from": null
+          }
+        },
+        {
+          "category": "PLAN",
+          "id": "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d",
+          "value": {
+            "cluster": "FINANCIAL_HIGH_DIVIDEND",
+            "cluster_basis": "theme_id",
+            "expires_at": "2026-10-28T15:00:00+08:00",
+            "lane_id": "lane_1",
+            "missing_fields": [
+              "handoff_notes"
+            ],
+            "original_payload_sha256": "3d321661d234153e63f72dfcab241356b99ccb4517f4c71658480bb74ea7c130",
+            "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:3a18fe6316478c1d",
+            "publication_facts": {
+              "A2_REVIEW_DEGRADED": false,
+              "a4_deferred_conditions": [
+                "A3_REWARD_RISK_BELOW_MINIMUM"
+              ],
+              "a4_exit_rules": [
+                "放量跌破A3日线MA5参考位且连续15分钟不能收回",
+                "反抽MA5失败后再次回落，或A3日线收盘确认趋势失效",
+                "硬止损、市场冲击或板块主线结束；亏损不得加仓"
+              ],
+              "a4_required_entry_rules": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "company_name": "渝农商行",
+              "confirmation_conditions": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "daily_invalidation": 7.06,
+              "entry_reference_zone": {
+                "high": 7.133333333333333,
+                "low": 7.128
+              },
+              "expected_holding_sessions": {
+                "max": 10,
+                "min": 3
+              },
+              "first_resistance": 7.28,
+              "invalidation_level": 7.06,
+              "market_environment": "BEAR_RISK",
+              "market_regime": "RISK_OFF_RETREAT",
+              "name": "渝农商行",
+              "no_chase": 7.28,
+              "no_chase_price": 7.28,
+              "opposing_refs": [
+                "A3:MARKET"
+              ],
+              "plan_expiry": "2026-10-28T15:00:00+08:00",
+              "plan_premises": [
+                "日线主升趋势成立，沿日线MA5观察回踩",
+                "创新高时使用入场区间与失效位定义R，不虚构历史压力位",
+                "顺势加仓且必须已有浮盈，禁止亏损摊平"
+              ],
+              "plan_priority": "P3",
+              "plan_priority_rank": 17,
+              "pressure_reduce_price": 7.28,
+              "primary_theme": "FINANCIAL_HIGH_DIVIDEND",
+              "priority_reasons": [
+                "QUALIFIED_PROBE",
+                "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+              ],
+              "reference_price": 7.25,
+              "reference_price_as_of": "2026-10-27T15:00:00+08:00",
+              "risk_unit": "PROBE",
+              "setup_pattern": "MAIN_RISE",
+              "setup_type": "TREND_MA5",
+              "source_run_id": "recovery-close-20261027-6eaaf75-0910-r12b",
+              "stop_level": 7.06,
+              "strategy_profile": "TREND_MA5",
+              "strategy_version": "a3-a4-three-strategy/1.5.0",
+              "supporting_refs": [
+                "A3:TECH:601077.SH",
+                "A3:MARKET"
+              ],
+              "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+              "time_stop_sessions": 7,
+              "trade_brief": {
+                "confirm_cadence": "15m",
+                "key_levels_note": "入场参考区7.128-7.1993，禁止追价线7.28，日线失效位7.06；月线BEAR_STACK、周线BULL_STACK、日线BULL_STACK",
+                "likely_failure_path": "日线BULL_STACK状态下MA5回踩区7.128-7.1993失守后跌破7.06失效位，或MA5支撑失效",
+                "note_to_trader": "月线BEAR_STACK为背景风险，存在A3_REWARD_RISK_BELOW_MINIMUM待确认条件，仅PROBE"
+              },
+              "trigger_high": 7.133333333333333,
+              "trigger_low": 7.128,
+              "trigger_zone": {
+                "high": 7.133333333333333,
+                "low": 7.128
+              },
+              "what_would_change_my_mind": [
+                "若日线收盘跌破7.06失效位，则撤销该计划",
+                "若月线BEAR_STACK背景下日线继续走弱，则撤销该计划"
+              ]
+            },
+            "source_row_sha256": "43b16567f6db6c2820c7ef45c3978e82ed4710827e81ac1109f1b5f56cc18bd0",
+            "status": "PENDING_MORNING_REVIEW",
+            "symbol": "601077.SH",
+            "valid_from": null
+          }
+        },
+        {
+          "category": "PLAN",
+          "id": "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:c4ed7a2ecded0cf6",
+          "value": {
+            "cluster": "FINANCIAL_HIGH_DIVIDEND",
+            "cluster_basis": "theme_id",
+            "expires_at": "2026-10-28T15:00:00+08:00",
+            "lane_id": "lane_1",
+            "missing_fields": [
+              "handoff_notes"
+            ],
+            "original_payload_sha256": "f9dd8e902923080d6b559e9e518fa0ffc39e65a0c8374002477d0d2633c0a39f",
+            "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:c4ed7a2ecded0cf6",
+            "publication_facts": {
+              "A2_REVIEW_DEGRADED": false,
+              "DATA_LIMITED": true,
+              "a4_deferred_conditions": [
+                "A3_REWARD_RISK_BELOW_MINIMUM"
+              ],
+              "a4_exit_rules": [
+                "放量跌破A3日线MA5参考位且连续15分钟不能收回",
+                "反抽MA5失败后再次回落，或A3日线收盘确认趋势失效",
+                "硬止损、市场冲击或板块主线结束；亏损不得加仓"
+              ],
+              "a4_required_entry_rules": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "company_name": "沪农商行",
+              "confirmation_conditions": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "daily_invalidation": 8.58,
+              "degradation_tags": [
+                "DATA_LIMITED"
+              ],
+              "entry_reference_zone": {
+                "high": 8.773333333333333,
+                "low": 8.738
+              },
+              "expected_holding_sessions": {
+                "max": 10,
+                "min": 3
+              },
+              "first_resistance": 9.16,
+              "invalidation_level": 8.58,
+              "market_environment": "BEAR_RISK",
+              "market_regime": "RISK_OFF_RETREAT",
+              "name": "沪农商行",
+              "no_chase": 9.16,
+              "no_chase_price": 9.16,
+              "opposing_refs": [
+                "A3:MARKET"
+              ],
+              "plan_expiry": "2026-10-28T15:00:00+08:00",
+              "plan_premises": [
+                "日线主升趋势成立，沿日线MA5观察回踩",
+                "创新高时使用入场区间与失效位定义R，不虚构历史压力位",
+                "顺势加仓且必须已有浮盈，禁止亏损摊平"
+              ],
+              "plan_priority": "P3",
+              "plan_priority_rank": 3,
+              "pressure_reduce_price": 9.16,
+              "primary_theme": "FINANCIAL_HIGH_DIVIDEND",
+              "priority_reasons": [
+                "QUALIFIED_PROBE",
+                "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+              ],
+              "reference_price": 9.13,
+              "reference_price_as_of": "2026-10-27T15:00:00+08:00",
+              "risk_unit": "PROBE",
+              "setup_pattern": "MAIN_RISE",
+              "setup_type": "TREND_MA5",
+              "source_data_limits": {
+                "a6_explicit_review_required": true,
+                "authority": "0589_A1_SOURCE_GAPS",
+                "maximum_risk_unit": "PROBE",
+                "reason_codes": [
+                  "OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE"
+                ],
+                "source_as_of": "2026-10-27T23:07:31.383371+08:00",
+                "source_failures_sha256": "ac4e336039fbf07cd5e3b36ef6fdee4a65183d50806dfb167fd61ee581d3375a",
+                "status": "DATA_LIMITED",
+                "symbol": "601825.SH"
+              },
+              "source_run_id": "recovery-close-20261027-6eaaf75-0910-r12b",
+              "stop_level": 8.58,
+              "strategy_profile": "TREND_MA5",
+              "strategy_version": "a3-a4-three-strategy/1.5.0",
+              "supporting_refs": [
+                "A3:TECH:601825.SH",
+                "A3:MARKET"
+              ],
+              "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+              "time_stop_sessions": 7,
+              "trade_brief": {
+                "confirm_cadence": "15m",
+                "key_levels_note": "入场参考区8.738-8.8254，禁止追价线9.16，日线失效位8.58；日线GOLDEN_CROSS_SHORT且MA520右侧确认，但周线仅BULL_PARTIAL",
+                "likely_failure_path": "MA5回踩区8.738-8.8254失守后跌破8.58失效位，或平台突破失败回落至MA20下方",
+                "note_to_trader": "存在A3_REWARD_RISK_BELOW_MINIMUM待确认条件，盈亏比1.36但需A4确认；情绪冰点期仅PROBE"
+              },
+              "trigger_high": 8.773333333333333,
+              "trigger_low": 8.738,
+              "trigger_zone": {
+                "high": 8.773333333333333,
+                "low": 8.738
+              },
+              "what_would_change_my_mind": [
+                "若日线收盘跌破8.58失效位，则撤销该计划",
+                "若次日市场广度继续恶化且资金流向数据仍缺失，则下调优先级"
+              ]
+            },
+            "source_row_sha256": "39269f72bcc50e0a9af15143094800714263e2f591781afc21ba51514dcff639",
+            "status": "PENDING_MORNING_REVIEW",
+            "symbol": "601825.SH",
+            "valid_from": null
+          }
+        },
+        {
+          "category": "PLAN",
+          "id": "MORNING:PLAN:recovery-close-20261027-6eaaf75-0910-r12b:lane_1:68d00fca447a53d1",
+          "value": {
+            "cluster": "CONSUMER_SERVICES",
+            "cluster_basis": "theme_id",
+            "expires_at": "2026-10-28T15:00:00+08:00",
+            "lane_id": "lane_1",
+            "missing_fields": [
+              "handoff_notes"
+            ],
+            "original_payload_sha256": "3b0e04c107ef8f714943bd16f70af037d3022ec28e55f9c976b771a0d66b6bbb",
+            "plan_id": "recovery-close-20261027-6eaaf75-0910-r12b:lane_1:68d00fca447a53d1",
+            "publication_facts": {
+              "A2_REVIEW_DEGRADED": false,
+              "DATA_LIMITED": true,
+              "a4_deferred_conditions": [],
+              "a4_exit_rules": [
+                "放量跌破A3日线MA5参考位且连续15分钟不能收回",
+                "反抽MA5失败后再次回落，或A3日线收盘确认趋势失效",
+                "硬止损、市场冲击或板块主线结束；亏损不得加仓"
+              ],
+              "a4_required_entry_rules": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "company_name": "汇嘉时代",
+              "confirmation_conditions": [
+                "价格进入A3日线MA5回踩区且未触发日线失效位",
+                "闭合15分钟卖压减弱，闭合5分钟形成止跌/更高低点",
+                "5分钟收回VWAP并有一根温和放量阳线确认"
+              ],
+              "daily_invalidation": 8.02,
+              "degradation_tags": [
+                "DATA_LIMITED"
+              ],
+              "entry_reference_zone": {
+                "high": 8.2719,
+                "low": 8.19
+              },
+              "expected_holding_sessions": {
+                "max": 10,
+                "min": 3
+              },
+              "first_resistance": 8.79,
+              "invalidation_level": 8.02,
+              "market_environment": "BEAR_RISK",
+              "market_regime": "RISK_OFF_RETREAT",
+              "name": "汇嘉时代",
+              "no_chase": 8.79,
+              "no_chase_price": 8.79,
+              "opposing_refs": [
+                "A3:MARKET"
+              ],
+              "plan_expiry": "2026-10-28T15:00:00+08:00",
+              "plan_premises": [
+                "日线主升趋势成立，沿日线MA5观察回踩",
+                "创新高时使用入场区间与失效位定义R，不虚构历史压力位",
+                "顺势加仓且必须已有浮盈，禁止亏损摊平"
+              ],
+              "plan_priority": "P3",
+              "plan_priority_rank": 2,
+              "pressure_reduce_price": 8.79,
+              "primary_theme": "CONSUMER_SERVICES",
+              "priority_reasons": [
+                "QUALIFIED_PROBE",
+                "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+              ],
+              "reference_price": 8.59,
+              "reference_price_as_of": "2026-10-27T15:00:00+08:00",
+              "risk_unit": "PROBE",
+              "setup_pattern": "MAIN_RISE",
+              "setup_type": "TREND_MA5",
+              "source_data_limits": {
+                "a6_explicit_review_required": true,
+                "authority": "0589_A1_SOURCE_GAPS",
+                "maximum_risk_unit": "PROBE",
+                "reason_codes": [
+                  "OFFICIAL_DISCLOSURE_RECENT:AUDITED_SOURCE_CLASS_CAP_UNAVAILABLE"
+                ],
+                "source_as_of": "2026-10-27T23:07:31.383371+08:00",
+                "source_failures_sha256": "ac4e336039fbf07cd5e3b36ef6fdee4a65183d50806dfb167fd61ee581d3375a",
+                "status": "DATA_LIMITED",
+                "symbol": "603101.SH"
+              },
+              "source_run_id": "recovery-close-20261027-6eaaf75-0910-r12b",
+              "stop_level": 8.02,
+              "strategy_profile": "TREND_MA5",
+              "strategy_version": "a3-a4-three-strategy/1.5.0",
+              "supporting_refs": [
+                "A3:TECH:603101.SH",
+                "A3:MARKET"
+              ],
+              "theme_id": "CONSUMER_SERVICES",
+              "time_stop_sessions": 7,
+              "trade_brief": {
+                "confirm_cadence": "15m",
+                "key_levels_note": "entry_reference_zone 8.19-8.2719，no_chase_price 8.79，daily_invalidation 8.02",
+                "likely_failure_path": "日线BULL_STACK但月线BEAR_STACK，若价格无法站稳MA5且放量跌破8.02日线失效位，趋势结构破坏",
+                "note_to_trader": "月线BEAR_STACK为CONDITIONAL_PROBE，仅允许PROBE仓位；必须等待价格进入回踩区且15分钟卖压减弱后再确认"
+              },
+              "trigger_high": 8.2719,
+              "trigger_low": 8.19,
+              "trigger_zone": {
+                "high": 8.2719,
+                "low": 8.19
+              },
+              "what_would_change_my_mind": [
+                "若月线状态从BEAR_STACK转为BULL_STACK或BULL_PARTIAL，可上调优先级",
+                "若主题CONSUMER_SERVICES从RETREAT转为CONFIRMATION/ACCELERATION，可重新评估"
+              ]
+            },
+            "source_row_sha256": "cf1c4ba96121fd637d39363954df37b539246c1791bd7fe7cf0b346ba8218706",
+            "status": "PENDING_MORNING_REVIEW",
+            "symbol": "603101.SH",
+            "valid_from": null
+          }
+        }
+      ]
+    }
+  }
+}

@@ -7,6 +7,7 @@ replaced with turnover, return, attention, or ordinary OHLCV data.
 """
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import configure_source_session
 
 import hashlib
 import json
@@ -1309,7 +1310,7 @@ def _eastmoney_board_flow_fetcher(board_type: str, period: str) -> dict[str, Any
         status_forcelist=(429, 500, 502, 503, 504),
         allowed_methods=frozenset({"GET"}),
     )
-    session = requests.Session()
+    session = configure_source_session(requests.Session())
     session.mount("https://", HTTPAdapter(max_retries=retry))
     rows: list[dict[str, Any]] = []
     page = 1
@@ -1454,7 +1455,7 @@ def _eastmoney_rank_fetcher(indicator: str) -> list[dict[str, Any]]:
         status_forcelist=(429, 500, 502, 503, 504),
         allowed_methods=frozenset({"GET"}),
     )
-    session = requests.Session()
+    session = configure_source_session(requests.Session())
     session.mount("https://", HTTPAdapter(max_retries=retry))
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; LiangjianResearch/2.0)",
@@ -1574,7 +1575,7 @@ def _tencent_http_session() -> Any:
         allowed_methods=frozenset({"GET"}),
         raise_on_status=False,
     )
-    session = requests.Session()
+    session = configure_source_session(requests.Session())
     session.mount("https://", HTTPAdapter(max_retries=retry, pool_connections=1, pool_maxsize=1))
     _TENCENT_THREAD_LOCAL.session = session
     return session

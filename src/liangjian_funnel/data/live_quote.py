@@ -3,6 +3,7 @@
 Sina is opt-in for execution and otherwise exposed only to explicit shadow
 probes. Existing minute/position/fill contracts and freshness gates stay intact.
 """
+from ..runtime.close_stage_budget import source_get
 from copy import copy
 from datetime import datetime
 import re
@@ -72,7 +73,7 @@ class SinaQuoteAdapter:
                 raw = self.text_fetcher(url, {}, self.timeout_seconds)
             else:
                 import requests
-                response = requests.get(url, timeout=(self.timeout_seconds, self.timeout_seconds),
+                response = source_get(url, timeout=(self.timeout_seconds, self.timeout_seconds),
                     headers={'Referer': 'https://finance.sina.com.cn/', 'User-Agent': 'Mozilla/5.0'})
                 response.raise_for_status()
                 response.encoding = 'gbk'

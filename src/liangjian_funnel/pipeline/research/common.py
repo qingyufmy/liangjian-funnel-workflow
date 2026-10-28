@@ -2723,6 +2723,10 @@ class ResearchPipeline:
         )
 
     def _deadline_exceeded(self) -> bool:
+        from ...runtime.close_stage_budget import current_budget
+        shared=current_budget()
+        if shared is not None and shared.remaining('RESEARCH')<=0:
+            shared.mark_exhausted('RESEARCH');return True
         started = self._deadline_started_monotonic
         if started is None:
             return False

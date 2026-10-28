@@ -166,6 +166,12 @@ class OpenAICompatibleModelClient:
         self.thinking_variants = PRODUCTION_THINKING_VARIANTS if self.thinking_enabled else NO_THINKING_VARIANTS
 
     def complete(self, model: str, messages: Sequence[Mapping[str, Any]], **metadata) -> ModelCallResult:
+        from ..runtime.close_stage_budget import current_budget,CloseStageBudgetExceeded
+        close_budget=current_budget()
+        if close_budget is not None:
+            try:remaining=close_budget.check('RESEARCH')
+            except CloseStageBudgetExceeded as exc:raise ModelClientError('RESEARCH_STAGE_BUDGET_EXHAUSTED',attempts=0) from exc
+            metadata['timeout_seconds']=min(float(metadata.get('timeout_seconds') or self.settings.model_timeout_seconds),remaining)
         finpoints = urlsplit(self.settings.model_base_url).hostname == 'ai-api.finpoints.tech'
         metrics = None
         if finpoints:

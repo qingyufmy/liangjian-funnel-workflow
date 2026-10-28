@@ -5,6 +5,7 @@ not a provider update date. No quotes, money-flow estimates or execution gates
 are supplied by this module.
 """
 from __future__ import annotations
+from ..runtime.close_stage_budget import bounded_data_sleep,source_get
 
 import hashlib
 import base64
@@ -90,9 +91,9 @@ class BoardReferenceClient:
     def __init__(self, *, get=None, now=None, sleep=time.sleep, interval_seconds=0.25,
                  max_requests=1000, deadline_seconds=300, max_body_bytes=4_000_000,
                  max_evidence_bytes=20_000_000):
-        self.get = get or requests.get
+        self.get = get or source_get
         self.now = now or (lambda: datetime.now(TZ))
-        self.sleep = sleep
+        self.sleep = bounded_data_sleep(sleep)
         self.interval = max(0.0, float(interval_seconds))
         self.max_requests = int(max_requests)
         self.deadline = time.monotonic() + float(deadline_seconds)

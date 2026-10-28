@@ -7,6 +7,7 @@ cache as today's observation.
 """
 
 from __future__ import annotations
+from ..runtime.close_stage_budget import bounded_data_sleep,configure_source_client
 
 import hashlib
 import json
@@ -80,7 +81,7 @@ def collect_eastmoney_hot100(
         except (EastmoneyHot100Error, httpx.HTTPError, OSError, TypeError, ValueError) as exc:
             last_reason = str(exc) or "SOURCE_UNAVAILABLE"
             if attempt < max_attempts:
-                sleep(retry_wait_seconds * attempt)
+                bounded_data_sleep(sleep)(retry_wait_seconds * attempt)
             continue
         atomic_write_json(cache_path, normalized)
         return {**normalized, "cache_status": "MISS", "cache_path": str(cache_path)}
@@ -89,7 +90,7 @@ def collect_eastmoney_hot100(
 
 def _fetch_guba_ranks() -> Mapping[str, Any]:
     body = {"appId": "appId01", "globalId": "786e4c21-70dc-435a-93bb-38", "marketType": ""}
-    with httpx.Client(timeout=12.0) as client:
+    with configure_source_client(httpx.Client(timeout=12.0)) as client:
         response = client.post(GUBA_RANK_URL, json={**body, "pageNo": 1, "pageSize": 100})
         response.raise_for_status()
         payload = response.json()
@@ -261,7 +262,7 @@ def unavailable_eastmoney_hot100(as_of: datetime, reason_code: str) -> dict[str,
 
 
 def _fetch_payload(body: Mapping[str, Any]) -> Any:
-    with httpx.Client(timeout=12.0, follow_redirects=True) as client:
+    with configure_source_client(httpx.Client(timeout=12.0, follow_redirects=True)) as client:
         response = client.post(
             EASTMONEY_HOT100_URL,
             headers={

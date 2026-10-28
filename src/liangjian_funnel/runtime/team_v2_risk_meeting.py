@@ -85,7 +85,7 @@ def apply_premarket_review(envelopes: tuple[RiskEnvelope, ...], output: Any, *,
         if adjustment == "SUSPEND":
             changed = replace(original, eligible=False, risk_unit="NONE", risk_budget=Decimal(0),
                 max_batches=1, max_shares_cap=0, a6_tightened=True,
-                blocked_reasons=tuple(dict.fromkeys((*original.blocked_reasons, "A6_SUSPEND"))))
+                blocked_reasons=tuple(dict.fromkeys((*original.blocked_reasons, "A6_SUSPEND", *(("CAPACITY_TRIMMED",) if next(row for row in rows if row["plan_id"]==original.plan_id).get("reason_code")=="CAPACITY_TRIMMED" else ())))))
         elif adjustment == "TIGHTEN_TO_PROBE":
             changed = conservative_envelope(original, consecutive_failures=1)
         elif adjustment == "REDUCE_BATCHES":

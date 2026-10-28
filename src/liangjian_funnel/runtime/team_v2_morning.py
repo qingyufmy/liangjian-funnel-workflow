@@ -225,13 +225,9 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     if candidate is not None:
         if result is None or result.status!='READY':
             return dict(status='BLOCKED',reason_code='NATURAL_CANDIDATE_A6_NOT_ORIGINAL_READY',old_batch_preserved=True)
-        from contextlib import closing
-        import sqlite3
-        with closing(sqlite3.connect((directory/'model.db').as_uri()+'?mode=ro',uri=True)) as raw_db:
-            raw_db.execute('PRAGMA query_only=ON')
-            original=raw_db.execute('SELECT validated,issues_json FROM model_calls WHERE call_id=?',(risk_call,)).fetchone()
-        if (result is None or result.status!='READY' or original is None or original[0]!=1
-                or json.loads(original[1])!=[]):
+        from .a6_effective_review import verify_premarket_capture
+        if not verify_premarket_capture(directory,engine=frozen,meeting_id=risk_meeting,
+                scope_id=candidate['scope_id'],account_id=ACCOUNT,day=day):
             return dict(status='BLOCKED',reason_code='NATURAL_CANDIDATE_A6_NOT_ORIGINAL_READY',old_batch_preserved=True)
     if result is None:
         # No fabricated A6 response or success label. PM may allocate only the
