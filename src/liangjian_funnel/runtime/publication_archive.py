@@ -147,8 +147,8 @@ def write_publication_manifest(*, output_dir: Path, run_id: str, lane_id: str,
     """
     if not all(re.fullmatch(r"[A-Za-z0-9_.:-]+", value) for value in (run_id, lane_id)):
         raise ValueError("PUBLICATION_ID_INVALID")
-    from ..pipeline.team_v2_plan_geometry import PUBLICATION_CONTRACT,LEGACY_PUBLICATION_CONTRACT
-    if publication_contract not in {PUBLICATION_CONTRACT,LEGACY_PUBLICATION_CONTRACT}:
+    from ..pipeline.team_v2_plan_geometry import TEAM_PUBLICATION_CONTRACTS,SUPPORTED_PUBLICATION_CONTRACTS
+    if publication_contract not in SUPPORTED_PUBLICATION_CONTRACTS:
         raise ValueError('PUBLICATION_CONTRACT_INVALID')
     base_pin, audit_pin = _file(base_snapshot_path), _file(audit_path)
     base_snapshot_path = Path(base_snapshot_path).resolve(strict=True)
@@ -171,7 +171,7 @@ def write_publication_manifest(*, output_dir: Path, run_id: str, lane_id: str,
         a3 = audits.get(original.get("a3_audit_sha256"))
         if a3 is None or a3.get("stage") != "A3" or a3.get("lane") != lane_id:
             raise ValueError("ORIGINAL_AUDIT_CONFLICT")
-        if publication_contract==PUBLICATION_CONTRACT and a3.get('thinking_variant')!='team_v2':
+        if publication_contract in TEAM_PUBLICATION_CONTRACTS and a3.get('thinking_variant')!='team_v2':
             raise ValueError('TEAM_PLAN_GEOMETRY_SOURCE_INVALID')
         pool, index = original["raw_plan_location"]
         try:

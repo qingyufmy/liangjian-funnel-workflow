@@ -150,6 +150,7 @@ def meeting_plan_facts(rows):
     """
     fields=('source_run_id','strategy_profile','strategy_version','primary_theme','theme_id',
         'trigger_low','trigger_high','trigger_zone','entry_reference_zone','stop_level',
+        'reward_risk','stop_distance_pct','invalidation_distance_from_low_pct','team_plan_geometry',
         'invalidation_level','daily_invalidation','no_chase','no_chase_price','first_resistance',
         'pressure_reduce_price','reference_price','reference_price_as_of','plan_expiry',
         'market_regime','market_environment','risk_unit','max_batches','plan_priority',

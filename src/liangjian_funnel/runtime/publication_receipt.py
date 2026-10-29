@@ -160,9 +160,9 @@ class PublicationReceiptBuilder:
             return body
 
     def _build(self, inputs: PublicationInputs, *, calendar: ExchangeTradingCalendar) -> dict[str, Any]:
-        from ..pipeline.team_v2_plan_geometry import PUBLICATION_CONTRACT,LEGACY_PUBLICATION_CONTRACT
+        from ..pipeline.team_v2_plan_geometry import TEAM_PUBLICATION_CONTRACTS,SUPPORTED_PUBLICATION_CONTRACTS
         reasons: set[str] = set()
-        if inputs.publication_contract not in {PUBLICATION_CONTRACT,LEGACY_PUBLICATION_CONTRACT}:
+        if inputs.publication_contract not in SUPPORTED_PUBLICATION_CONTRACTS:
             reasons.add('PUBLICATION_CONTRACT_INVALID')
         for value in (inputs.a3_audit, inputs.raw_plan, inputs.normalized_payload, inputs.published_payload):
             self._bound(value, reasons)
@@ -251,8 +251,8 @@ class PublicationReceiptBuilder:
         if inputs.authority_snapshot_chain:
             body["authority_snapshot_chain"] = authority_chain
         body['publication_contract'] = inputs.publication_contract
-        body['plan_geometry_gate'] = ('VERIFIED' if not reasons else 'FAILED') if inputs.publication_contract == PUBLICATION_CONTRACT else 'LEGACY_NOT_EVALUATED'
-        body['plan_geometry_evidence_complete'] = inputs.publication_contract == PUBLICATION_CONTRACT and not reasons
+        body['plan_geometry_gate'] = ('VERIFIED' if not reasons else 'FAILED') if inputs.publication_contract in TEAM_PUBLICATION_CONTRACTS else 'LEGACY_NOT_EVALUATED'
+        body['plan_geometry_evidence_complete'] = inputs.publication_contract in TEAM_PUBLICATION_CONTRACTS and not reasons
         body["receipt_sha256"] = object_hash(body)
         return body
 
@@ -350,8 +350,9 @@ class PublicationReceiptBuilder:
                 expected.update(a2_execution_permission=authority.get("execution_permission"),
                     a2_research_only_reason=authority.get("research_only_reason"), execution_permission=scoped,
                     research_only_reason=None if scoped != "BLOCKED" else authority.get("research_only_reason"))
-        from ..pipeline.team_v2_plan_geometry import GEOMETRY_FIELD,project_team_plan_geometry,PUBLICATION_CONTRACT
-        if inputs.publication_contract == PUBLICATION_CONTRACT or GEOMETRY_FIELD in submitted:
+        from ..pipeline.team_v2_plan_geometry import (GEOMETRY_FIELD,project_team_plan_geometry,project_stop_rr_geometry,
+            STOP_PUBLICATION_CONTRACT,TEAM_PUBLICATION_CONTRACTS)
+        if inputs.publication_contract in TEAM_PUBLICATION_CONTRACTS or GEOMETRY_FIELD in submitted:
             if inputs.a3_audit.value.get('thinking_variant') != 'team_v2':
                 reasons.add('TEAM_PLAN_GEOMETRY_SOURCE_INVALID')
             else:
@@ -361,7 +362,9 @@ class PublicationReceiptBuilder:
                     for proof in reversed(inputs.snapshot_chain)
                     if isinstance(proof.snapshot.value.get('data'),Mapping)
                     and proof.snapshot.value['data'].get('MIN_REWARD_RISK') is not None),None)
-                geometry = project_team_plan_geometry(expected,minimum_reward_risk=threshold)
+                projector=(project_stop_rr_geometry if inputs.publication_contract==STOP_PUBLICATION_CONTRACT
+                           else project_team_plan_geometry)
+                geometry = projector(expected,minimum_reward_risk=threshold)
                 if geometry['status'] != 'PUBLISHABLE':
                     reasons.add('TEAM_PLAN_GEOMETRY_NOT_PUBLISHABLE')
                 else:

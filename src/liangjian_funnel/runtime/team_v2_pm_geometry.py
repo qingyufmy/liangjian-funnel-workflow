@@ -8,7 +8,7 @@ from collections.abc import Mapping
 import hashlib
 import json
 
-from ..pipeline.team_v2_plan_geometry import project_team_plan_geometry, GEOMETRY_FIELD
+from ..pipeline.team_v2_plan_geometry import project_team_plan_geometry, project_stop_rr_geometry, GEOMETRY_FIELD
 from .team_v2_store import canonical
 
 
@@ -30,11 +30,13 @@ def pm_geometry_domain(rows):
         threshold=None
         if existing is not None:
             if (not isinstance(existing,Mapping)
-                    or existing.get('schema_version')!='team-plan-geometry/1'):
+                    or existing.get('schema_version') not in {'team-plan-geometry/1','team-plan-geometry/2'}):
                 raise ValueError('PM_GEOMETRY_AUDIT_INVALID')
             threshold=existing.get('minimum_reward_risk')
         original=dict(payload);original.pop(GEOMETRY_FIELD,None)
-        result=project_team_plan_geometry(original,minimum_reward_risk=threshold)
+        projector=(project_stop_rr_geometry if isinstance(existing,Mapping) and existing.get('schema_version')=='team-plan-geometry/2'
+                   else project_team_plan_geometry)
+        result=projector(original,minimum_reward_risk=threshold)
         if result['status']=='PUBLISHABLE':eligible.append(row['plan_id'])
         audits.append(dict(plan_id=row['plan_id'],symbol=row['symbol'],
             source_row_sha256=hashlib.sha256(canonical(row).encode()).hexdigest(),
