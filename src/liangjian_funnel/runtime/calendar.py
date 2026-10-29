@@ -122,14 +122,9 @@ def latest_closed_research_session(now: datetime, calendar) -> ClosedResearchSes
         datetime.combine(source,time(15),tzinfo=current.tzinfo),deadline,current)
 
 
-def closed_research_session(now: datetime, calendar, *, authorization=None) -> ClosedResearchSession:
-    """Default06:30; one explicitly configured1195 closed capture window."""
-    from dataclasses import replace
-    from .closed_session_policy import authorized_deadline
+def closed_research_session(now: datetime, calendar) -> ClosedResearchSession:
+    """Keep the ordinary close/regeneration 06:30 publication gate."""
     session = latest_closed_research_session(now, calendar)
-    override = authorized_deadline(session, authorization=authorization)
-    if override is not None:
-        session = replace(session, publication_deadline=override)
     if session.wall_clock >= session.publication_deadline:
         raise ValueError('CLOSE_RESEARCH_PUBLICATION_DEADLINE_REACHED')
     return session
