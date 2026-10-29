@@ -149,7 +149,7 @@ def test_a3_selection_gap_audit_is_written_before_empty_geometry_rejects(tmp_pat
     audit=NS(stage='A3',thinking_variant='team_v2',output={},audit_path=None)
     lane=changed(result.lanes[0],stages=(audit,))
     result=changed(result,lanes=(lane,))
-    monkeypatch.setattr('liangjian_funnel.pipeline.team_v2_plan_geometry.project_team_plan_geometry',
+    monkeypatch.setattr('liangjian_funnel.pipeline.team_v2_plan_geometry.project_stop_rr_geometry',
         lambda *a,**k:dict(status='BLOCKED',audit={'reason_code':'INVALID_GEOMETRY'}))
     with pytest.raises(WorkflowError,match='REGEN_NO_GEOMETRY_VALID_PLANS_KEEP_OLD'):
         WorkflowApplication._publish_plans(app,result,now=AT,slot='close',snapshot_data=data,
