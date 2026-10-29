@@ -575,6 +575,19 @@ def _display_items(value: Any, *, limit: int = 4) -> list[str]:
     return [_display_text(item, limit=180) for item in _items(value, limit=limit)]
 
 
+def _premarket_condition_counts(payload):
+    """Frozen A3 facts only; absence never becomes a zero or live confirmation."""
+    for met_key,unmet_key in (('deterministic_met_conditions','deterministic_unmet_conditions'),
+            ('met_conditions','unmet_conditions')):
+        met=payload.get(met_key);unmet=payload.get(unmet_key)
+        if not isinstance(met,(list,tuple)) or not isinstance(unmet,(list,tuple)):continue
+        if not all(isinstance(v,str) and v for v in (*met,*unmet)):continue
+        if set(met)&set(unmet):
+            return '• 冻结计划条件计数：原件状态冲突，满足数/未满足数待核；不视为盘中确认。'
+        return f'• 冻结A3计划条件：满足{len(set(met))} / 未满足{len(set(unmet))}；依据{met_key}/{unmet_key}，不代表盘中确认或成交。'
+    return '• 冻结计划条件计数：满足数/未满足数待原件证明；不以待确认条件数填造已满足数。'
+
+
 def _condition_summary(value, *, key_limit=4):
     if value is None:
         return '不可用（该轮条件原件未留存）'
@@ -1055,6 +1068,11 @@ class WorkflowLarkPublisher:
                 strategy = _STRATEGY_LABELS.get(str(payload.get("strategy_profile") or ""), _display_text(payload.get("strategy_profile"), limit=40, fallback="按个股计划执行"))
                 reason_codes=_items(payload.get("selection_reasons") or payload.get("reason_codes"),limit=100)
                 risks=[];reasons=[]
+                if payload.get('NEWS_DATA_LIMITED') is True or not payload.get('news_source_health_checked'):
+                    detail=payload.get('source_data_limits') or {}
+                    unproven='STOCK_NEWS_SOURCE_HEALTH_UNPROVEN' in detail.get('reason_codes',()) or not payload.get('news_source_health_checked')
+                    risks.append(('个股新闻覆盖尚未核实' if unproven else '个股新闻来源受限')+
+                        '；仅试探仓，须风险官逐只明确复核，不能占主计划前两位')
                 for code in reason_codes:
                     rendered=_display_text(code,limit=180)
                     if any(token in str(code) for token in ('BELOW','MISSING','NOT_READY','RISK','REJECT','OVEREXTEND','CONFLICT','DEGRADED')) or any(token in rendered for token in ('低于','超出','缺失','风险','不足','超限','未通过','试探执行仍需')):
@@ -1075,6 +1093,7 @@ class WorkflowLarkPublisher:
                         f"• 入选依据：{'；'.join(reasons[:2]) if reasons else 'A3 日线计划通过'}",
                         f"• 风险提示：{'；'.join(risks[:3]) if risks else '仍需盘中确认，未触发不交易。'}",
                         f"• 计划状态：{actual_status}。",
+                        _premarket_condition_counts(payload),
                         f"• 价格计划：触发区 {_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}；止损 {_number(payload.get('stop_level'))}；禁止追价 {_number(payload.get('no_chase_price') or payload.get('max_chase_price'))}",
                         f"• 早盘价格：{_number(auction_price)}；入场确认：{'；'.join(conditions) if conditions else '原计划未留存具体盘中确认条件，待核验。'}",
                     ]
@@ -1565,6 +1584,8 @@ class WorkflowLarkPublisher:
                 f'• 成交记录：{number(counts.get("fills"))}笔；以成交账本为准。',
                 '• 主要风险：'+risk,
                 '• 接下来：系统按自然调度继续核验，复盘提案待审，不自动改变策略。']
+            from ..pipeline.team_v2_a5_budget import plan_fact_lines
+            lines.extend(plan_fact_lines(facts))
         return [
             *engineering,
             self._send(

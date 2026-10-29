@@ -13,7 +13,7 @@ from .risk_engine import RiskEnvelope, conservative_envelope, cap_risk_envelope
 
 _ADJUSTMENTS = frozenset({"KEEP", "TIGHTEN_TO_PROBE", "REDUCE_BATCHES", "SUSPEND"})
 _ADJUSTMENT_KEYS = frozenset({"plan_id", "adjustment", "reason_code", "supporting_refs",
-                            "opposing_refs", "opposing_search_scope", "what_would_change_my_mind"})
+                            "opposing_refs", "opposing_search_scope", "what_would_change_my_mind", "gap_review"})
 _STANCE = {"HOLD": 0, "REDUCE_TOMORROW": 1, "EXIT_TOMORROW": 2}
 
 
@@ -71,6 +71,8 @@ def apply_premarket_review(envelopes: tuple[RiskEnvelope, ...], output: Any, *,
                     or row["plan_id"] in adjustments or not isinstance(row.get("adjustment"), str)
                     or row["adjustment"] not in _ADJUSTMENTS):
                 raise ValueError("A6_ENVELOPE_DOMAIN_INVALID")
+            if 'gap_review' in row and (not isinstance(row['gap_review'],str) or row['gap_review'] not in {'KEEP_WITH_GAP','DOWNGRADE','REJECT'}):
+                raise ValueError('A6_GAP_REVIEW_INVALID')
             adjustments[row["plan_id"]] = row["adjustment"]
         if set(adjustments) != set(by_id): raise ValueError("A6_ENVELOPE_DOMAIN_INVALID")
     except ValueError:

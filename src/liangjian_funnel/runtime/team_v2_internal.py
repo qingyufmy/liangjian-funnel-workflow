@@ -267,9 +267,11 @@ class InternalOutbox:
                     (status, 'INTERNAL_' + outcome, event_id))
                 receipt=getattr(sender,'last_receipt',{})
                 allowed={'http_status','provider_code','provider_message_sha256','provider_message_bytes','message_class',
-                    'original_body_sha256','rendered_body_sha256','unmapped_code_counts'}
+                    'original_body_sha256','rendered_body_sha256','unmapped_code_counts','business_reason_class','reason_codes'}
                 safe={key:value for key,value in receipt.items() if key in allowed}
                 safe.update(wire_archive);safe.update(failure_receipt)
+                from .notification_presentation import delivery_evidence
+                safe['delivery_evidence']=delivery_evidence(safe)
                 db.execute('INSERT OR IGNORE INTO team_internal_delivery_receipts VALUES (?,?,?)',
                     (event_id,now.isoformat(),canonical(safe)))
             result['sent'] += outcome == 'SENT'

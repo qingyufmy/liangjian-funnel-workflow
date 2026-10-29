@@ -15,6 +15,7 @@ import hashlib
 import math
 import re
 import time
+from threading import Lock
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -169,6 +170,7 @@ class HithinkClient:
         self.settings = settings
         self._sleep = bounded_data_sleep(sleep)
         self._last_request = 0.0
+        self._throttle_lock = Lock()
         self._owns_client = http_client is None
         if http_client is not None:
             self._client = http_client
@@ -1198,12 +1200,15 @@ class HithinkClient:
         )
 
     def _throttle(self) -> None:
-        interval = float(self.settings.hithink_min_request_interval_seconds)
-        now = time.monotonic()
-        wait = interval - (now - self._last_request)
-        if self._last_request and wait > 0:
-            self._sleep(wait)
-        self._last_request = time.monotonic()
+        # Daily delta workers share one client. Reserve request starts under
+        # one lock so concurrency cannot multiply the configured send rate.
+        with self._throttle_lock:
+            interval = float(self.settings.hithink_min_request_interval_seconds)
+            now = time.monotonic()
+            wait = interval - (now - self._last_request)
+            if self._last_request and wait > 0:
+                self._sleep(wait)
+            self._last_request = time.monotonic()
 
     def _now(self) -> datetime:
         return datetime.now(ZoneInfo(self.settings.timezone)).astimezone(_SHANGHAI)

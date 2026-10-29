@@ -468,9 +468,9 @@ class ReadOnlyPublicationReader:
                 claimed = publication.get("projection_manifest")
             if (not isinstance(claimed, dict) or pin(claimed) != FilePin(Path(ref.projection_manifest.path).resolve(strict=True), ref.projection_manifest.sha256)):
                 raise ExportError("PROJECTION_SUMMARY_REFERENCE_CONFLICT")
-            from ..pipeline.team_v2_plan_geometry import PUBLICATION_CONTRACT,LEGACY_PUBLICATION_CONTRACT
+            from ..pipeline.team_v2_plan_geometry import SUPPORTED_PUBLICATION_CONTRACTS,LEGACY_PUBLICATION_CONTRACT
             contract=manifest.get('publication_contract',LEGACY_PUBLICATION_CONTRACT)
-            if (contract not in {PUBLICATION_CONTRACT,LEGACY_PUBLICATION_CONTRACT}
+            if (contract not in SUPPORTED_PUBLICATION_CONTRACTS
                     or claimed.get('publication_contract',LEGACY_PUBLICATION_CONTRACT)!=contract):
                 raise ExportError('PROJECTION_PUBLICATION_CONTRACT_CONFLICT')
             if pin(manifest.get("audit")) != FilePin(Path(ref.audit.path).resolve(strict=True), ref.audit.sha256):

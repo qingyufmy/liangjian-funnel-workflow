@@ -1077,6 +1077,20 @@ class WorkflowApplication:
             from .runtime.close_stage_budget import current_budget
             close_budget=current_budget()
             if close_budget is not None and market_current.hour>=15:
+                # Mandatory taxonomy must be frozen before either the large
+                # daily sweep or rotation's full-market capital-flow work.
+                # Reuse this same proof later; never fetch it twice in a run.
+                if progress is not None:progress.set_phase('MANDATORY_THS_INDUSTRY')
+                preloaded_industry = _bind_reference_fact_event_time(
+                    client.ths_index_catalog(tag='industry'), as_of=market_current)
+                preloaded_concept = _bind_reference_fact_event_time(
+                    client.ths_index_catalog(tag='cn_concept'), as_of=market_current)
+                preloaded_membership = collect_ths_industry_membership(
+                    client, preloaded_industry, tuple(row.symbol for row in universe.records),
+                    cache_dir=self.settings.fact_store_dir/'ths_industry', as_of=market_current,
+                    **({'cache_max_age_days': 7} if candidate_symbols is not None else {}))
+                if not preloaded_membership.ok or not preloaded_membership.complete:
+                    raise WorkflowError(f'THS_INDUSTRY_MEMBERSHIP_NOT_READY:{preloaded_membership.reason_code}')
                 if progress is not None:progress.set_phase('LATEST_CLOSED_DAILY_PRIORITY')
                 latest_receipt=self.fact_synchronizer.prime_latest_closed_days(client,
                     [r.symbol for r in all_research_records],as_of=market_current,
@@ -1166,9 +1180,9 @@ class WorkflowApplication:
                             except OSError:
                                 logging.getLogger(__name__).error('CLOSE_MARKET_FAILURE_RECEIPT_WRITE_FAILED')
                             raise WorkflowError('MARKET_EMOTION_FACTS_NOT_READY', diagnostics=diagnostics)
-                        preloaded_industry = _bind_reference_fact_event_time(client.ths_index_catalog(tag='industry'), as_of=market_current)
-                        preloaded_concept = _bind_reference_fact_event_time(client.ths_index_catalog(tag='cn_concept'), as_of=market_current)
-                        preloaded_membership = collect_ths_industry_membership(client, preloaded_industry,
+                        preloaded_industry = preloaded_industry or _bind_reference_fact_event_time(client.ths_index_catalog(tag='industry'), as_of=market_current)
+                        preloaded_concept = preloaded_concept or _bind_reference_fact_event_time(client.ths_index_catalog(tag='cn_concept'), as_of=market_current)
+                        preloaded_membership = preloaded_membership or collect_ths_industry_membership(client, preloaded_industry,
                             all_market_symbols, cache_dir=self.settings.fact_store_dir/'ths_industry',
                             as_of=market_current, cache_max_age_days=7)
                         if not preloaded_membership.ok or not preloaded_membership.complete:
@@ -4635,6 +4649,7 @@ class WorkflowApplication:
                 factor,
                 minimum_reward_risk=minimum_reward_risk,
                 max_stop_distance_pct=max_stop_distance,
+                minimum_stop_geometry=True,
             )
             value = {
                 **_compact_factor(factor.model_dump(mode="json")),
@@ -7541,6 +7556,9 @@ class WorkflowApplication:
                         **_plan_payload(raw),
                         "source_run_id": result.run_id,
                     }
+                    from .runtime.news_data_limits import publication_news_detail, merge_news_detail
+                    news_detail=publication_news_detail(getattr(lane,'stages',()),payload.get('symbol'))
+                    payload=merge_news_detail(payload,news_detail)
                     if str(raw.get("strategy_profile") or "").upper() == "TREND_MA5":
                         payload["trend_entry_rule_version"] = "trend-ma5/2"
                     symbol = payload.get("symbol")
@@ -7723,8 +7741,8 @@ class WorkflowApplication:
         for candidate in batch:
             payload = normalize_publication_expiry(candidate["payload"], candidate["expires_at"])
             if candidate['lane_id'] in team_geometry_lanes:
-                from .pipeline.team_v2_plan_geometry import project_team_plan_geometry
-                projection = project_team_plan_geometry(payload,
+                from .pipeline.team_v2_plan_geometry import project_stop_rr_geometry
+                projection = project_stop_rr_geometry(payload,
                     minimum_reward_risk=snapshot_data.get('MIN_REWARD_RISK'))
                 detail = dict(lane=candidate['lane_id'],plan_id=candidate['plan_id'],
                     symbol=candidate['symbol'],geometry=projection['audit'])
@@ -7866,7 +7884,9 @@ class WorkflowApplication:
                     audit_path=lane.audit_path, originals=original_plans, published=published,
                     published_at=datetime.now(SHANGHAI), research_as_of=now,
                     publication_mode="CANDIDATE_PENDING_REVIEW" if natural_candidate else "CLOSE" if slot == "close" else slot.upper(),
-                    publication_contract='team-publication/rr-geometry-1' if lane.lane in team_geometry_lanes else 'legacy-publication/1',
+                    publication_contract=('team-publication/stop-rr-geometry-2' if lane.lane in team_geometry_lanes else
+                        'legacy-publication/news-limits-2' if any(item.get('payload',{}).get('news_source_health_checked') is True
+                            for item in batch if item.get('lane_id')==lane.lane) else 'legacy-publication/1'),
                     minimum_trade_date=minimum_trade_date)})
             except Exception as exc:
                 # A proof gap is visible, never a reason to retire valid plans

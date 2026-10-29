@@ -105,6 +105,7 @@ def close_card(facts,*,review_status):
     """Server facts only; never copy model prose or provider exception text."""
     metrics=facts['metrics'].get('team_v2',{});settlement=facts['paper_broker'].get('settlement')
     def show(value):return '资料不足' if value is None else str(value)
+    from ..pipeline.team_v2_a5_budget import plan_fact_lines
     return dict(msg_type='text',content={'text': '\n'.join([
         '量见团队模拟盘'+('午间' if facts['review_kind']=='MIDDAY' else '收盘')+'｜'+facts['trade_date'],
         '复盘：'+('已完成' if review_status=='READY' else '未完成，事实仍保留'),
@@ -113,7 +114,9 @@ def close_card(facts,*,review_status):
         '结算：'+('缺少结算回执' if settlement is None else str(settlement.get('status','UNKNOWN'))),
         '模型判断调用数：'+show(metrics.get('model_calls')),
         '成交口径：同一模拟账户；供应商成交量加权价与估算成交分列，不能当作两套独立收益曲线。',
-        '严格收益与对照校准：未成熟或无证据时不评价。'])})
+        '严格收益与对照校准：未成熟或无证据时不评价。',
+        *(['输入超限，已产出事实降级材料；模型深度复盘未完成，不视为审核通过。']if 'TRUNCATED'in review_status else []),
+        *plan_fact_lines(facts)])})
 
 
 def run_team_review(*,repository,client,journal,store,review_id,call_id,account_id,run_id,model,
@@ -152,7 +155,22 @@ def run_team_review(*,repository,client,journal,store,review_id,call_id,account_
         signal_domain=signal_domain,counterexample_domain=counterexample_domain,
         confirmed_defect_symbols=confirmed_defect_symbols,metrics=facts['metrics'],numeric_domain=number_domain)
     from ..pipeline.team_v2_a5_projection import project_review_facts
-    model_facts,input_projection=project_review_facts(facts)
+    from ..pipeline.team_v2_a5_budget import priority_facts,deterministic_review
+    prioritized,priority_audit=priority_facts(facts)
+    model_facts,input_projection=project_review_facts(prioritized)
+    input_projection={**input_projection,'priority':priority_audit}
+    def degraded_context(diagnostics):
+        deterministic=deterministic_review(facts,diagnostics)
+        result=dict(status='A5_DEGRADED_TRUNCATED_FACTS_ONLY',source_call_id=call_id,
+            trade_date=trade_date,review_kind=review_kind,account_id=account_id,
+            fact_sha256=facts['input_hash'],report=None,deterministic_review=deterministic,
+            reason_codes=['A5_CONTEXT_TRUNCATED_NO_MODEL_REPORT'],input_projection=input_projection,
+            model_calls=0,model_reviewed=False,strategy_change_authorized=False,
+            numeric_claim_audit=dict(source_fact_sha256=facts['input_hash'],
+                domain_sha256=numeric_domain_hash(number_domain),source_paths=number_domain))
+        return runtime.record(review_id=review_id,input_sha256=binding,account_id=account_id,
+            trade_date=trade_date,review_kind=review_kind,source_call_id=call_id,result=result,
+            card=close_card(facts,review_status=result['status']))
     from ..pipeline.team_v2_prompts import estimate_a5_message_chars,with_runtime_contract
     contract=dict(session=session,
         schema='a5-daily-review/2.0.0',preserve_all_root_fields=True,
@@ -170,7 +188,8 @@ def run_team_review(*,repository,client,journal,store,review_id,call_id,account_
     estimate=dict(phase='PRE_CONSTRUCTION_CONTEXT_BUDGET',request_chars=estimated_chars,legacy_char_limit=250000,
         source_fact_sha256=facts['input_hash'],transport_projection=input_projection)
     store.freeze_control_context('a5-context-estimate:'+review_id,source_sha256=_hash(estimate),body=estimate)
-    if estimated_chars>250000:raise TeamA5ContextError(estimate)
+    if estimated_chars>250000:
+        return degraded_context(estimate)
     request=repository.prepare_messages('A5',values,required_envelope=required_envelope,session=session)
     request=with_runtime_contract(request,contract)
     # Keep the complete final rendered request even when it is rejected before
@@ -196,16 +215,19 @@ def run_team_review(*,repository,client,journal,store,review_id,call_id,account_
     too_large=chars>250000 or max_input_tokens is not None and estimated_tokens>max_input_tokens
     if too_large:
         store.freeze_control_context('a5-context-failure:'+review_id,source_sha256=_hash(diagnostics),body=diagnostics)
-        raise TeamA5ContextError(diagnostics)
+        return degraded_context(diagnostics)
     output,valid,issues=_response(request=request,client=client,journal=journal,call_id=call_id,
         run_id=run_id,model=model,source_trade_date=source_trade_date,trade_date=trade_date,
         timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens,
         validator=lambda raw:validate_daily_review(raw,catalog,**args),catalog=catalog,clock=clock,session=session)
     if review_kind=='MIDDAY' and clock().astimezone(ZoneInfo('Asia/Shanghai')).time().replace(tzinfo=None)>=time(12,50):
         valid=False;issues=tuple(dict.fromkeys((*issues,'A5_REVIEW_MIDDAY_DEADLINE')))
-    result=dict(status='READY' if valid else 'A5_DEGRADED_NO_APPROVED_REPORT',source_call_id=call_id,
+    result=dict(status=('A5_DEGRADED_TRUNCATED_REPORT' if valid and priority_audit['truncated'] else 'READY' if valid else 'A5_DEGRADED_NO_APPROVED_REPORT'),source_call_id=call_id,
         trade_date=trade_date,review_kind=review_kind,account_id=account_id,
-        fact_sha256=facts['input_hash'],report=output if valid else None,reason_codes=list(issues),
+        fact_sha256=facts['input_hash'],report=output if valid and not priority_audit['truncated'] else None,
+        partial_model_report=output if valid and priority_audit['truncated'] else None,
+        approved_report=bool(valid and not priority_audit['truncated']),
+        model_report_validated=bool(valid),reason_codes=list(issues),
         input_projection=input_projection,
         numeric_claim_audit=dict(source_fact_sha256=facts['input_hash'],
             domain_sha256=numeric_domain_hash(number_domain),source_paths=number_domain),

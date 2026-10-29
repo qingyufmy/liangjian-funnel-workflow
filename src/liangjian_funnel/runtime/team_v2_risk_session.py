@@ -69,9 +69,12 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
         request=with_runtime_contract(request,dict(authority='0498_REGENERATION_A1_SOURCE_GAPS',
             data_limited_plan_reviews=gap_requirements, maximum_risk_unit='PROBE',
             required_adjustment_reason_code='DATA_LIMITED_REVIEWED',
+            news_gap_treatment_field='gap_review',news_gap_treatments=['KEEP_WITH_GAP','DOWNGRADE','REJECT'],
             review_instruction='For EACH listed plan, explicitly review EACH exact reason_code in '
                 'what_would_change_my_mind and cite its plan_ref in supporting_refs. '
-                'Suspend if insufficient; missing reviews cannot use conservative fallback.'))
+                'For explicit_gap_treatment_required plans also emit gap_review: KEEP_WITH_GAP '
+                '(KEEP while remaining PROBE), DOWNGRADE (TIGHTEN_TO_PROBE or REDUCE_BATCHES), '
+                'or REJECT (SUSPEND). Suspend if insufficient; missing reviews cannot use conservative fallback.'))
     from .a6_effective_review import validate_review, effective_review
     def validate(raw):
         return validate_review(raw,values['EVIDENCE_CATALOG'],validator_args,gap_requirements)

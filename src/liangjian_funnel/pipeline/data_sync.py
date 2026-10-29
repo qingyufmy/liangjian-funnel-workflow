@@ -498,20 +498,48 @@ class HithinkIncrementalSynchronizer:
             daily_requests=daily_requests,
         )
 
-    def prime_latest_closed_days(self, client, symbols, *, as_of, deadline):
+    def prime_latest_closed_days(self, client, symbols, *, as_of, deadline, workers=8):
         """Persist latest-session deltas before optional historical/financial work.
 
         This never labels a short history READY. Existing overlap revisions
         remain blocked until the normal explicit history/revision path handles
         them; the priority receipt is a separate endpoint record.
         """
+        if type(workers) is not int or not 1<=workers<=8:
+            raise ValueError('LATEST_DAILY_WORKERS_INVALID')
+        ordered=list(dict.fromkeys(symbols))
+        if workers>1 and len(ordered)>1:
+            from concurrent.futures import ThreadPoolExecutor,wait,FIRST_COMPLETED
+            # Only <=8 submitted operations exist, so a budget failure cannot
+            # leave thousands of queued tasks repeatedly hitting a stop guard.
+            # Each completed delta commits before its future returns; failure
+            # never rolls back previously persisted cache/checkpoint records.
+            executor=ThreadPoolExecutor(max_workers=workers,thread_name_prefix='close-daily-delta')
+            pending={};done_rows={};cursor=0
+            try:
+                while cursor<len(ordered) or pending:
+                    while cursor<len(ordered) and len(pending)<workers:
+                        symbol=ordered[cursor];cursor+=1
+                        future=executor.submit(self.prime_latest_closed_days,client,[symbol],
+                            as_of=as_of,deadline=deadline,workers=1)
+                        pending[future]=symbol
+                    finished,_=wait(pending,return_when=FIRST_COMPLETED)
+                    for future in finished:
+                        symbol=pending.pop(future)
+                        result=future.result()
+                        done_rows[symbol]=result['records']
+                return dict(status='LATEST_FIRST_NOT_HISTORY_ACCEPTANCE',workers=workers,
+                    records=[row for symbol in ordered for row in done_rows[symbol]])
+            finally:
+                for future in pending:future.cancel()
+                executor.shutdown(wait=True,cancel_futures=True)
         required,end=_closed_daily_window(_aware(as_of),self.trading_calendar)
         records=[]
         if required is None:return dict(status='NOT_DUE',records=[])
         from ..runtime.close_stage_budget import current_budget
         shared=current_budget()
         clock=shared.monotonic if shared is not None else time.monotonic
-        for symbol in dict.fromkeys(symbols):
+        for symbol in ordered:
             if shared is not None:shared.current_symbol=symbol
             if clock()>=deadline:
                 if shared is not None:shared.mark_exhausted('DATA')
