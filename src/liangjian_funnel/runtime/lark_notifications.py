@@ -1068,6 +1068,11 @@ class WorkflowLarkPublisher:
                 strategy = _STRATEGY_LABELS.get(str(payload.get("strategy_profile") or ""), _display_text(payload.get("strategy_profile"), limit=40, fallback="按个股计划执行"))
                 reason_codes=_items(payload.get("selection_reasons") or payload.get("reason_codes"),limit=100)
                 risks=[];reasons=[]
+                if payload.get('NEWS_DATA_LIMITED') is True or not payload.get('news_source_health_checked'):
+                    detail=payload.get('source_data_limits') or {}
+                    unproven='STOCK_NEWS_SOURCE_HEALTH_UNPROVEN' in detail.get('reason_codes',()) or not payload.get('news_source_health_checked')
+                    risks.append(('个股新闻覆盖尚未核实' if unproven else '个股新闻来源受限')+
+                        '；仅试探仓，须风险官逐只明确复核，不能占主计划前两位')
                 for code in reason_codes:
                     rendered=_display_text(code,limit=180)
                     if any(token in str(code) for token in ('BELOW','MISSING','NOT_READY','RISK','REJECT','OVEREXTEND','CONFLICT','DEGRADED')) or any(token in rendered for token in ('低于','超出','缺失','风险','不足','超限','未通过','试探执行仍需')):

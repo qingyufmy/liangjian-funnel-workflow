@@ -13,9 +13,11 @@ import math
 GEOMETRY_FIELD = 'team_plan_geometry'
 PUBLICATION_CONTRACT = 'team-publication/rr-geometry-1'
 STOP_PUBLICATION_CONTRACT = 'team-publication/stop-rr-geometry-2'
-TEAM_PUBLICATION_CONTRACTS = frozenset((PUBLICATION_CONTRACT, STOP_PUBLICATION_CONTRACT))
+NEWS_STOP_PUBLICATION_CONTRACT = 'team-publication/stop-rr-news-3'
+TEAM_PUBLICATION_CONTRACTS = frozenset((PUBLICATION_CONTRACT, STOP_PUBLICATION_CONTRACT, NEWS_STOP_PUBLICATION_CONTRACT))
 LEGACY_PUBLICATION_CONTRACT = 'legacy-publication/1'
-SUPPORTED_PUBLICATION_CONTRACTS = TEAM_PUBLICATION_CONTRACTS|{LEGACY_PUBLICATION_CONTRACT}
+NEWS_PUBLICATION_CONTRACT = 'legacy-publication/news-limits-2'
+SUPPORTED_PUBLICATION_CONTRACTS = TEAM_PUBLICATION_CONTRACTS|{LEGACY_PUBLICATION_CONTRACT,NEWS_PUBLICATION_CONTRACT}
 GEOMETRY_FIELDS = frozenset((GEOMETRY_FIELD, 'trigger_high', 'trigger_zone',
     'entry_reference_zone', 'entry_zone', 'pullback_zone', 'stop_level',
     'invalidation_level', 'daily_invalidation', 'invalidation', 'risk',

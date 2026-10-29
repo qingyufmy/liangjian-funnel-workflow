@@ -88,6 +88,10 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
         hard_halt=bool(snapshot['global_halt'] or basis['halt_reason_codes']))
     envelopes=tuple(build_planning_envelope(p,view,tuple(positions),limits,now=now,regime=source['market_regime']) for p in plans)
     envelopes=tuple(probe_envelope(e,first_policy,now=now,probe_multiplier=limits.probe_multiplier) for e in envelopes)
+    from .news_data_limits import morning_news_facts,cap_news_envelopes
+    news_facts=morning_news_facts(meeting_plan_facts(source['plan_rows']))
+    news_ids={p['plan_id'] for p in news_facts if p['publication_facts'].get('NEWS_DATA_LIMITED') is True}
+    envelopes=cap_news_envelopes(envelopes,news_ids)
     from .history_freshness import inspect_plan_seeds
     seed_freshness=inspect_plan_seeds(source['plans'],path=settings.minute_cache_dir/'minute_bars.sqlite3',
         target_trade_date=now.date(),calendar=calendar,as_of=now)
@@ -121,6 +125,7 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
         external_adjustment=external,rule_preflight=rule_source,
         emotion_baseline={k:v for k,v in emotion_baseline.items() if k not in ('catalogue','previous_streaks','source_results')},
         seed_freshness=seed_freshness,
+        news_plan_facts=news_facts,
         authority='PLANNING_ONLY_NOT_EXECUTION_PERMISSION')
     return store.record_morning_engine(ACCOUNT,source['trade_date'],body)
 
@@ -166,7 +171,8 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     if frozen['risk_limits_sha256']!=hashlib.sha256((settings.root/'config/risk_limits.yaml').read_bytes()).hexdigest():
         return dict(status='BLOCKED',reason_code='MORNING_RISK_POLICY_CHANGED')
     envelopes=_envelopes(frozen['envelopes'])
-    meeting_plans=meeting_plan_facts(frozen['source']['plan_rows'])
+    from .news_data_limits import morning_news_facts
+    meeting_plans=frozen.get('news_plan_facts') or morning_news_facts(meeting_plan_facts(frozen['source']['plan_rows']))
     missing={r['plan_id']:r for r in frozen.get('seed_freshness',{}).get('plans',[]) if r['status']!='READY'}
     for fact in meeting_plans:
         if fact['plan_id'] not in missing:continue

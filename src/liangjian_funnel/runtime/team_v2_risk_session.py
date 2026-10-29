@@ -66,12 +66,35 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
     # 0995: retain the original 6ea prompt; capacity remains a server-owned
     # deterministic effective-review rule, not an extra model instruction.
     if gap_requirements:
+        no_gap_ids=sorted({e.plan_id for e in envelopes}-set(gap_requirements))
         request=with_runtime_contract(request,dict(authority='0498_REGENERATION_A1_SOURCE_GAPS',
+            source_gap_contract_version='source-gap-explicit-review/2',
+            required_root_fields=['envelope','schema_version','session','envelope_adjustments',
+                'utilization_cap','exception_actions','overnight_reviews','capacity_for_tomorrow',
+                'risk_event_attribution','handoff_notes','what_would_change_my_mind','unresolved_questions'],
+            inactive_session_fields={'exception_actions':[],'overnight_reviews':[],
+                'risk_event_attribution':[]},
+            root_instruction='Return every required_root_field exactly once. PREMARKET still requires '
+                'exception_actions, overnight_reviews and risk_event_attribution as literal empty '
+                'arrays []; never omit these inactive fields and never populate them. Do not add '
+                'other root fields. This preserves the existing a6-risk/1.0.0 schema.',
             data_limited_plan_reviews=gap_requirements, maximum_risk_unit='PROBE',
+            plans_without_declared_source_gaps=no_gap_ids,
             required_adjustment_reason_code='DATA_LIMITED_REVIEWED',
+            news_gap_treatment_field='gap_review',news_gap_treatments=['KEEP_WITH_GAP','DOWNGRADE','REJECT'],
             review_instruction='For EACH listed plan, explicitly review EACH exact reason_code in '
                 'what_would_change_my_mind and cite its plan_ref in supporting_refs. '
-                'Suspend if insufficient; missing reviews cannot use conservative fallback.'))
+                'For explicit_gap_treatment_required plans also emit gap_review: KEEP_WITH_GAP '
+                '(KEEP while remaining PROBE), DOWNGRADE (TIGHTEN_TO_PROBE or REDUCE_BATCHES), '
+                'or REJECT (SUSPEND). This is mandatory even when the plan is already rejected by '
+                'stop geometry or another independent rule: keep reason_code DATA_LIMITED_REVIEWED '
+                'and describe the other rejection reason in what_would_change_my_mind, together '
+                'with every declared source-gap code. Do not substitute another reason_code. '
+                'For plans_without_declared_source_gaps, omit gap_review and never use '
+                'DATA_LIMITED_REVIEWED or invent news/source gaps. Their other risk reasons remain '
+                'independent. The listed plan domain is exhaustive for declared gaps; no plan inherits '
+                'another stock gap. Suspend if insufficient; missing or nonexistent gap reviews '
+                'make the reply invalid and cannot use conservative fallback.'))
     from .a6_effective_review import validate_review, effective_review
     def validate(raw):
         return validate_review(raw,values['EVIDENCE_CATALOG'],validator_args,gap_requirements)

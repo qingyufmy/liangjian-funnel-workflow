@@ -154,9 +154,33 @@ def test_new_manifest_does_not_implicitly_relax_default_legacy_reader(tmp_path,m
     assert 'AUDIT_OVERLAY_BINDING_UNPROVEN' in result['reason_codes']
 
 
+def test_team_news_v3_actual_producer_publisher_and_offline_reader(tmp_path,monkeypatch):
+    db,ref,_=current_call(tmp_path,monkeypatch,team=True)
+    result=exported(db,ref)
+    assert result['scope_complete'],result['reason_codes']
+    receipt=result['plans'][0]['publication_projection_receipt']
+    assert receipt['evidence_complete']
+    assert receipt['publication_contract']=='team-publication/stop-rr-news-3'
+
+
+def test_team_news_contract_version_cannot_be_downgraded_by_deleting_stamp(tmp_path,monkeypatch):
+    from liangjian_funnel.runtime import news_data_limits
+    original=news_data_limits.merge_news_detail
+    def stripped(payload,detail):
+        result=original(payload,detail)
+        return {k:v for k,v in result.items()if k not in {'news_source_health_checked','news_source_health_evidence','NEWS_DATA_LIMITED','source_data_limits'}}
+    monkeypatch.setattr(news_data_limits,'merge_news_detail',stripped)
+    db,ref,_=current_call(tmp_path,monkeypatch,team=True)
+    # The recipe still mandates v3; deleting projected fields cannot select v2.
+    assert ref.projection_manifest.read()['publication_contract']=='team-publication/stop-rr-news-3'
+    monkeypatch.setattr(news_data_limits,'merge_news_detail',original)
+    result=exported(db,ref)
+    assert not result['scope_complete']
+
+
 def test_team_geometry_cluster_actual_publication_roundtrip(tmp_path,monkeypatch):
     db,ref,_=current_call(tmp_path,monkeypatch,team=True)
     result=exported(db,ref)
-    assert result["scope_complete"],result["reason_codes"]
-    receipt=result["plans"][0]["publication_projection_receipt"]
-    assert receipt["evidence_complete"] and receipt["plan_geometry_evidence_complete"]
+    assert result['scope_complete'],result['reason_codes']
+    receipt=result['plans'][0]['publication_projection_receipt']
+    assert receipt['evidence_complete'] and receipt['plan_geometry_evidence_complete']

@@ -25,11 +25,13 @@ SCHEMA = "publication-projection-inputs/1"
 
 def _changes(before, after, stage, *, authority=None, projection=None):
     from ..pipeline.team_v2_plan_geometry import GEOMETRY_FIELD,GEOMETRY_FIELDS
+    from .news_data_limits import NEWS_PUBLICATION_FIELDS,news_projection_hash
     result = []
     for field in sorted(set(before) | set(after)):
         if field in before and field in after and object_hash(before[field]) == object_hash(after[field]):
             continue
         basis = "SERVER_NORMALIZATION" if stage == "NORMALIZE" else (
+            'STOCK_NEWS_LIMITS' if field in NEWS_PUBLICATION_FIELDS and after.get('news_source_health_checked') is True else
             "TEAM_GEOMETRY_TIGHTENING" if field in GEOMETRY_FIELDS and GEOMETRY_FIELD in after else
             "SOURCE_RUN" if field == "source_run_id" else
             "TREND_RULE" if field == "trend_entry_rule_version" else
@@ -38,6 +40,7 @@ def _changes(before, after, stage, *, authority=None, projection=None):
             before.get(field), after.get(field), basis,
             authority.value.sha256 if authority and basis == "A2_AUTHORITY" else None,
             projection.sha256 if projection and basis == "SHADOW_PROJECTION" else
+            news_projection_hash(after) if basis=='STOCK_NEWS_LIMITS' else
             object_hash(after[GEOMETRY_FIELD]) if basis == 'TEAM_GEOMETRY_TIGHTENING' else None))
     return tuple(result)
 

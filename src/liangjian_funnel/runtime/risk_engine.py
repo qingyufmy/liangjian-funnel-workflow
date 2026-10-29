@@ -15,7 +15,7 @@ from collections.abc import Mapping
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 _ZERO = Decimal("0")
 PROBE_ONLY_TAGS = frozenset({'A2_UNAVAILABLE', 'A2_REVIEW_DEGRADED', 'PATTERN_B', 'SERVER_FALLBACK',
-                           'PM_UNAVAILABLE_SERVER_FALLBACK', 'DATA_LIMITED'})
+                           'PM_UNAVAILABLE_SERVER_FALLBACK', 'DATA_LIMITED', 'NEWS_DATA_LIMITED'})
 
 
 def _field(value, name, default=None):

@@ -7542,6 +7542,9 @@ class WorkflowApplication:
                         **_plan_payload(raw),
                         "source_run_id": result.run_id,
                     }
+                    from .runtime.news_data_limits import publication_news_detail, merge_news_detail
+                    news_detail=publication_news_detail(getattr(lane,'stages',()),payload.get('symbol'))
+                    payload=merge_news_detail(payload,news_detail)
                     if str(raw.get("strategy_profile") or "").upper() == "TREND_MA5":
                         payload["trend_entry_rule_version"] = "trend-ma5/2"
                     symbol = payload.get("symbol")
@@ -7850,6 +7853,7 @@ class WorkflowApplication:
             **({'supersede_pending_plan_ids':regeneration.old_plan_ids,
                 'supersession_run_id':regeneration.run_id} if regeneration is not None else {}),
             )
+        from .runtime.news_data_limits import news_publication_required
         projection_manifests = []
         for lane in result.lanes:
             if lane.lane not in ready_lanes:
@@ -7867,7 +7871,10 @@ class WorkflowApplication:
                     audit_path=lane.audit_path, originals=original_plans, published=published,
                     published_at=datetime.now(SHANGHAI), research_as_of=now,
                     publication_mode="CANDIDATE_PENDING_REVIEW" if natural_candidate else "CLOSE" if slot == "close" else slot.upper(),
-                    publication_contract='team-publication/stop-rr-geometry-2' if lane.lane in team_geometry_lanes else 'legacy-publication/1',
+                    publication_contract=('team-publication/stop-rr-news-3' if lane.lane in team_geometry_lanes and
+                        news_publication_required(getattr(lane,'stages',())) else
+                        'team-publication/stop-rr-geometry-2' if lane.lane in team_geometry_lanes else
+                        'legacy-publication/news-limits-2' if news_publication_required(getattr(lane,'stages',())) else 'legacy-publication/1'),
                     minimum_trade_date=minimum_trade_date)})
             except Exception as exc:
                 # A proof gap is visible, never a reason to retire valid plans

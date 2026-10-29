@@ -337,6 +337,19 @@ class PublicationReceiptBuilder:
         strategy = str(raw.get("strategy_profile") or "").upper()
         if strategy == "TREND_MA5":
             expected["trend_entry_rule_version"] = "trend-ma5/2"
+        # Old frozen publications have no optional coverage stamp. They retain
+        # their exact old reproduction; new stamps require the original recipe.
+        from ..pipeline.team_v2_plan_geometry import NEWS_PUBLICATION_CONTRACT,NEWS_STOP_PUBLICATION_CONTRACT
+        news_proofs=inputs.authority_snapshot_chain or inputs.snapshot_chain
+        required_news=inputs.publication_contract in {NEWS_PUBLICATION_CONTRACT,NEWS_STOP_PUBLICATION_CONTRACT}
+        if required_news or (submitted.get('news_source_health_checked') is True and any(
+                object_hash(submitted.get(k))!=object_hash(normalized.get(k))
+                for k in ('news_source_health_checked','news_source_health_evidence','source_data_limits'))):
+            from .news_data_limits import receipt_news_detail,merge_news_detail
+            try:
+                expected=merge_news_detail(expected,receipt_news_detail(
+                    news_proofs,expected.get('symbol')))
+            except (ValueError,TypeError,KeyError):reasons.add('NEWS_PUBLICATION_SOURCE_RECIPE_UNPROVEN')
         rewritten = any(key in submitted and (key not in normalized or object_hash(submitted[key]) != object_hash(normalized[key]))
                         for key in PERMISSION_FIELDS)
         if rewritten and authority is None:
@@ -348,7 +361,7 @@ class PublicationReceiptBuilder:
                     a2_research_only_reason=authority.get("research_only_reason"), execution_permission=scoped,
                     research_only_reason=None if scoped != "BLOCKED" else authority.get("research_only_reason"))
         from ..pipeline.team_v2_plan_geometry import (GEOMETRY_FIELD,project_team_plan_geometry,project_stop_rr_geometry,
-            STOP_PUBLICATION_CONTRACT,TEAM_PUBLICATION_CONTRACTS)
+            STOP_PUBLICATION_CONTRACT,NEWS_STOP_PUBLICATION_CONTRACT,TEAM_PUBLICATION_CONTRACTS)
         if inputs.publication_contract in TEAM_PUBLICATION_CONTRACTS or GEOMETRY_FIELD in submitted:
             if inputs.a3_audit.value.get('thinking_variant') != 'team_v2':
                 reasons.add('TEAM_PLAN_GEOMETRY_SOURCE_INVALID')
@@ -359,7 +372,7 @@ class PublicationReceiptBuilder:
                     for proof in reversed(inputs.snapshot_chain)
                     if isinstance(proof.snapshot.value.get('data'),Mapping)
                     and proof.snapshot.value['data'].get('MIN_REWARD_RISK') is not None),None)
-                projector=(project_stop_rr_geometry if inputs.publication_contract==STOP_PUBLICATION_CONTRACT
+                projector=(project_stop_rr_geometry if inputs.publication_contract in {STOP_PUBLICATION_CONTRACT,NEWS_STOP_PUBLICATION_CONTRACT}
                            else project_team_plan_geometry)
                 geometry = projector(expected,minimum_reward_risk=threshold)
                 if geometry['status'] != 'PUBLISHABLE':
@@ -389,6 +402,7 @@ class PublicationReceiptBuilder:
 
     def _changes(self, inputs, raw, normalized, submitted, reasons):
         from ..pipeline.team_v2_plan_geometry import GEOMETRY_FIELD,GEOMETRY_FIELDS
+        from .news_data_limits import NEWS_PUBLICATION_FIELDS,news_projection_hash
         diffs = {}
         for stage, before, after in (("NORMALIZE", raw, normalized), ("PUBLISH", normalized, submitted)):
             for field in set(before) | set(after):
@@ -405,7 +419,9 @@ class PublicationReceiptBuilder:
                                  and inputs.shadow_projection is not None)
             geometry_change = (change.stage == 'PUBLISH' and change.field in GEOMETRY_FIELDS
                 and GEOMETRY_FIELD in submitted and inputs.a3_audit.value.get('thinking_variant')=='team_v2')
-            allowed = projection_change or geometry_change or change.field in (NORMAL_FIELDS if change.stage == "NORMALIZE" else PUBLISH_FIELDS if change.stage == "PUBLISH" else ())
+            news_change=(change.stage=='PUBLISH' and change.field in NEWS_PUBLICATION_FIELDS
+                         and submitted.get('news_source_health_checked') is True)
+            allowed = projection_change or geometry_change or news_change or change.field in (NORMAL_FIELDS if change.stage == "NORMALIZE" else PUBLISH_FIELDS if change.stage == "PUBLISH" else ())
             if not allowed:
                 reasons.add("MODIFICATION_FIELD_UNSUPPORTED")
             actual = diffs.get((change.stage, change.field))
@@ -414,6 +430,7 @@ class PublicationReceiptBuilder:
                     or object_hash(actual[2]) != object_hash(change.old) or object_hash(actual[3]) != object_hash(change.new)):
                 reasons.add("MODIFICATION_VALUE_MISMATCH")
             expected_basis = "SERVER_NORMALIZATION" if change.stage == "NORMALIZE" else (
+                'STOCK_NEWS_LIMITS' if news_change else
                 'TEAM_GEOMETRY_TIGHTENING' if geometry_change else
                 "SOURCE_RUN" if change.field == "source_run_id" else "TREND_RULE" if change.field == "trend_entry_rule_version" else "SHADOW_PROJECTION" if projection_change else "A2_AUTHORITY")
             if change.basis != expected_basis:
@@ -421,6 +438,8 @@ class PublicationReceiptBuilder:
             if projection_change and change.projection_sha256 != inputs.shadow_projection.sha256:
                 reasons.add("MODIFICATION_PROJECTION_HASH_MISMATCH")
             if geometry_change and change.projection_sha256 != object_hash(submitted[GEOMETRY_FIELD]):
+                reasons.add('MODIFICATION_PROJECTION_HASH_MISMATCH')
+            if news_change and change.projection_sha256!=news_projection_hash(submitted):
                 reasons.add('MODIFICATION_PROJECTION_HASH_MISMATCH')
             if change.field in PERMISSION_FIELDS and change.stage == "PUBLISH":
                 if not inputs.authority:
