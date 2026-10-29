@@ -5,18 +5,6 @@ from zoneinfo import ZoneInfo
 
 
 EVENT_LABELS = {
-    'QUOTE_BACKPRESSURE':'报价请求槽拥堵，当前价格不可用',
-    'REALTIME_QUOTE_BACKPRESSURE':'实时报价请求槽拥堵，当前价格不可用',
-    'DEADLINE_EXCEEDED':'本轮截止已到，拒绝迟到结果',
-    'REALTIME_QUOTE_DEADLINE_EXCEEDED':'实时报价在本轮截止前未返回',
-    'SHARED_MARKET_UNAVAILABLE':'共享市场原件不可用，暂停新增仓',
-    'MINUTE_PROVIDER_TIMEOUT':'分钟源未在截止前返回，暂停受影响股票新增仓',
-    'A5_MODEL_CONTEXT_TOO_LARGE':'复盘输入超过本机上下文预算，保留事实并降级处理',
-    'DELIVERY_UNCONFIRMED':'投递结果未证实，不自动重发',
-    'INTERNAL_DELIVERY_UNCONFIRMED':'内部投递结果未证实，不自动重发',
-    'A4_LIVE_SYSTEMIC_SELL_OFF':'市场风险门禁止新增仓，属于原设计风控',
-    'A4_LIVE_MARKET_CAUTION':'市场风险门进入谨慎状态，仍须通过其他准入门',
-    'DATA':'数据阶段',
     'MODEL_REQUEST_FAILED':'模型请求失败',
     'AUDITED_SCOPE_OR_BUDGET_STOP':'审计范围或预算守卫停止',
     'OWNED_CHILD_NONZERO_EXIT':'自有研究子进程异常退出',
@@ -42,15 +30,6 @@ EVENT_LABELS = {
     'MODEL_PROVIDER_RECOVERED':'模型通道恢复',
     'NODE_IDENTITY_CHANGED':'主程序进程变化','ALERT':'系统告警',
 }
-
-
-def delivery_evidence(receipt):
-    """Describe actual acknowledgement without rewriting original status/code."""
-    if receipt.get('http_status') == 200 and type(receipt.get('provider_code')) is int and receipt['provider_code'] == 0:
-        return 'DELIVERY_CONFIRMED'
-    if receipt.get('http_status') is None or receipt.get('provider_code') is None:
-        return 'DELIVERY_UNCONFIRMED'
-    return 'DELIVERY_REJECTED_OR_HTTP_ERROR'
 
 
 def native_card(*,kind,body,observed_at,event_id,diagnostics=None,internal=True):
@@ -98,16 +77,7 @@ def native_card(*,kind,body,observed_at,event_id,diagnostics=None,internal=True)
         '保留本次原件与原因；系统按原调度和准入规则继续，运维核验异常。')
     if diagnostics is not None:
         diagnostics['unmapped_code_counts']={code:unmapped.count(code) for code in set(unmapped)}
-        diagnostics['business_reason_class']='UNKNOWN_REASON_PRESENT' if unmapped else 'KNOWN_REASON_PRESENTATION'
-        diagnostics['reason_codes']=sorted(set(codes))
     lines=[f'• 发生了什么：{text}']
-    if any(code in codes for code in ('QUOTE_BACKPRESSURE','REALTIME_QUOTE_BACKPRESSURE',
-            'DEADLINE_EXCEEDED','REALTIME_QUOTE_DEADLINE_EXCEEDED','MINUTE_PROVIDER_TIMEOUT',
-            'SHARED_MARKET_UNAVAILABLE')):
-        count=re.search(r'(?:影响|受影响|涉及)[：: ]*(\d+)\s*只',original)
-        session=re.search(r'(?:session|会话)[：: ]*([A-Za-z0-9_.:-]+)',original)
-        lines.append('• 影响范围：'+(count.group(1)+'只股票' if count else '股票数待原件证明')+
-            '；会话：'+(session.group(1) if session else '待原件证明')+'；缺数据不等于实际漏单。')
     if stock:
         lines.append('• 价格与条件：以下原件有值才引用；未留存的当时价格或条件数明确不可用，不以当前值补齐。')
     lines.extend(['• 接下来：'+next_action,

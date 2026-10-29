@@ -575,19 +575,6 @@ def _display_items(value: Any, *, limit: int = 4) -> list[str]:
     return [_display_text(item, limit=180) for item in _items(value, limit=limit)]
 
 
-def _premarket_condition_counts(payload):
-    """Frozen A3 facts only; absence never becomes a zero or live confirmation."""
-    for met_key,unmet_key in (('deterministic_met_conditions','deterministic_unmet_conditions'),
-            ('met_conditions','unmet_conditions')):
-        met=payload.get(met_key);unmet=payload.get(unmet_key)
-        if not isinstance(met,(list,tuple)) or not isinstance(unmet,(list,tuple)):continue
-        if not all(isinstance(v,str) and v for v in (*met,*unmet)):continue
-        if set(met)&set(unmet):
-            return '• 冻结计划条件计数：原件状态冲突，满足数/未满足数待核；不视为盘中确认。'
-        return f'• 冻结A3计划条件：满足{len(set(met))} / 未满足{len(set(unmet))}；依据{met_key}/{unmet_key}，不代表盘中确认或成交。'
-    return '• 冻结计划条件计数：满足数/未满足数待原件证明；不以待确认条件数填造已满足数。'
-
-
 def _condition_summary(value, *, key_limit=4):
     if value is None:
         return '不可用（该轮条件原件未留存）'
@@ -1088,7 +1075,6 @@ class WorkflowLarkPublisher:
                         f"• 入选依据：{'；'.join(reasons[:2]) if reasons else 'A3 日线计划通过'}",
                         f"• 风险提示：{'；'.join(risks[:3]) if risks else '仍需盘中确认，未触发不交易。'}",
                         f"• 计划状态：{actual_status}。",
-                        _premarket_condition_counts(payload),
                         f"• 价格计划：触发区 {_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}；止损 {_number(payload.get('stop_level'))}；禁止追价 {_number(payload.get('no_chase_price') or payload.get('max_chase_price'))}",
                         f"• 早盘价格：{_number(auction_price)}；入场确认：{'；'.join(conditions) if conditions else '原计划未留存具体盘中确认条件，待核验。'}",
                     ]
