@@ -22,18 +22,12 @@ def build_capture_proof(*, source_trade_date, started_at, captured_at, completed
             or initial.source_trade_date != session.source_trade_date
             or not session.market_close <= started <= captured <= completed):
         raise ValueError('CLOSED_SESSION_CAPTURE_BINDING_INVALID')
-    proof = dict(authority='0635', source_trade_date=source_trade_date,
+    return dict(authority='0635', source_trade_date=source_trade_date,
         target_trade_date=session.target_trade_date.isoformat(),
         source_market_close_at=session.market_close.isoformat(),
         capture_started_at=started.isoformat(), capture_as_of=captured.isoformat(),
         capture_completed_at=completed.isoformat(),
         publication_deadline=session.publication_deadline.isoformat())
-    if session.publication_deadline.hour==9 and session.publication_deadline.minute==15:
-        from .closed_session_policy import RECOVERY_AUTHORIZATION
-        proof.update(deadline_override=session.publication_deadline.isoformat(),
-            deadline_override_authority=RECOVERY_AUTHORIZATION['authority'],
-            deadline_override_reason=RECOVERY_AUTHORIZATION['reason'])
-    return proof
 
 
 def validate_capture_proof(proof, *, captured_at, calendar, now=None, source_trade_date=None):
