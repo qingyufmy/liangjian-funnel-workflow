@@ -15,7 +15,6 @@ DEFAULT_POLICY=dict(schema_version='team-pm-runtime/1',fallback_enabled=True,
     timeout_seconds=106,output_base_tokens=1024,output_per_plan_tokens=256)
 PLAN_FIELDS=frozenset(('strategy_profile','strategy_version','primary_theme','theme_id',
     'trigger_low','trigger_high','trigger_zone','entry_reference_zone','stop_level',
-    'reward_risk','stop_distance_pct','invalidation_distance_from_low_pct','team_plan_geometry',
     'no_chase_price','first_resistance','pressure_reduce_price','reference_price',
     'market_regime','market_environment','risk_unit','max_batches','plan_priority',
     'plan_priority_rank','expected_holding_sessions','time_stop_sessions','setup_type'))

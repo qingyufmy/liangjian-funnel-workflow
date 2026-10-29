@@ -4635,7 +4635,6 @@ class WorkflowApplication:
                 factor,
                 minimum_reward_risk=minimum_reward_risk,
                 max_stop_distance_pct=max_stop_distance,
-                minimum_stop_geometry=True,
             )
             value = {
                 **_compact_factor(factor.model_dump(mode="json")),
@@ -7724,8 +7723,8 @@ class WorkflowApplication:
         for candidate in batch:
             payload = normalize_publication_expiry(candidate["payload"], candidate["expires_at"])
             if candidate['lane_id'] in team_geometry_lanes:
-                from .pipeline.team_v2_plan_geometry import project_stop_rr_geometry
-                projection = project_stop_rr_geometry(payload,
+                from .pipeline.team_v2_plan_geometry import project_team_plan_geometry
+                projection = project_team_plan_geometry(payload,
                     minimum_reward_risk=snapshot_data.get('MIN_REWARD_RISK'))
                 detail = dict(lane=candidate['lane_id'],plan_id=candidate['plan_id'],
                     symbol=candidate['symbol'],geometry=projection['audit'])
@@ -7867,7 +7866,7 @@ class WorkflowApplication:
                     audit_path=lane.audit_path, originals=original_plans, published=published,
                     published_at=datetime.now(SHANGHAI), research_as_of=now,
                     publication_mode="CANDIDATE_PENDING_REVIEW" if natural_candidate else "CLOSE" if slot == "close" else slot.upper(),
-                    publication_contract='team-publication/stop-rr-geometry-2' if lane.lane in team_geometry_lanes else 'legacy-publication/1',
+                    publication_contract='team-publication/rr-geometry-1' if lane.lane in team_geometry_lanes else 'legacy-publication/1',
                     minimum_trade_date=minimum_trade_date)})
             except Exception as exc:
                 # A proof gap is visible, never a reason to retire valid plans

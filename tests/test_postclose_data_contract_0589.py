@@ -214,7 +214,7 @@ def test_natural_team_publication_preserves_a1_proof_when_history_gap_is_added(t
         research_primary_lane_id='lane_1', publish_comparison_lanes=False)
     data['snapshot_manifest']['source_failures'] = {PUB_SYMBOL: ['A1:PDF_MISSING']}
     before = deepcopy(data)
-    monkeypatch.setattr('liangjian_funnel.pipeline.team_v2_plan_geometry.project_stop_rr_geometry',
+    monkeypatch.setattr('liangjian_funnel.pipeline.team_v2_plan_geometry.project_team_plan_geometry',
         lambda payload, **kwargs: dict(status='PUBLISHABLE', payload=payload, audit={'reason_code': 'OK'}))
     app.minute_store = MinuteBarStore(tmp_path / 'minute')
     app.market_data = SimpleNamespace(fetch_bars=lambda *a, **kw: dict(complete=False, bars=[]))

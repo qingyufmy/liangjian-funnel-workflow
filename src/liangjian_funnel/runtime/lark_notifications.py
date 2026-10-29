@@ -1579,8 +1579,6 @@ class WorkflowLarkPublisher:
                 f'• 成交记录：{number(counts.get("fills"))}笔；以成交账本为准。',
                 '• 主要风险：'+risk,
                 '• 接下来：系统按自然调度继续核验，复盘提案待审，不自动改变策略。']
-            from ..pipeline.team_v2_a5_budget import plan_fact_lines
-            lines.extend(plan_fact_lines(facts))
         return [
             *engineering,
             self._send(

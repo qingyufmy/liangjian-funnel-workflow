@@ -28,16 +28,12 @@ SOURCE = datetime(2026, 10, 8, 15, 10, tzinfo=TZ)
 PUBLISHED = datetime(2026, 10, 8, 16, 10, tzinfo=TZ)
 
 
-def current_call(tmp_path, monkeypatch, *, strip_proof=False, before_publish=None, team=False):
+def current_call(tmp_path, monkeypatch, *, strip_proof=False, before_publish=None):
     db, old_ref = db_fixture(tmp_path, run_status='READY_TO_PUBLISH')
     raw = old_ref.audit.read()['final_output']['core_watch_pool'][0]
-    if team:
-        raw.update(first_resistance=20,minimum_reward_risk=2.5)
     data = {'TRADABILITY_FLAGS': {SYMBOL: {'tradable': True}},
         'FACTOR_SNAPSHOT': {SYMBOL: {'timeframes': {'daily': {}, 'weekly': {}, '5m': {}}}},
         'SELECTED_BOARD_SNAPSHOT': {'available': False, 'boards': []}}
-    if team:
-        data['snapshot_manifest']={'as_of':SOURCE.isoformat(),'source_failures':{}}
     base = research.FrozenInputSnapshot('actual-base-fixture', data, as_of=SOURCE)
     base_pin = save(tmp_path / 'base.json', {'snapshot_id':base.snapshot_id,
         'snapshot_hash':base.snapshot_hash, 'as_of':SOURCE.isoformat(), 'data':dict(base.data)})
@@ -70,7 +66,7 @@ def current_call(tmp_path, monkeypatch, *, strip_proof=False, before_publish=Non
     output = {'core_watch_pool':[raw],'secondary_watch_pool':[]}
     def stage(name, snapshot, value):
         return research.StageAudit('lane_1','fixture',name,'VALIDATED',snapshot.snapshot_id,
-            None,None,object_hash(value),0,1,'team_v2' if team and name=='A3' else None,(SYMBOL,),(),output=value,
+            None,None,object_hash(value),0,1,None,(SYMBOL,),(),output=value,
             snapshot_proof=None if strip_proof else research._snapshot_proof(snapshot))
     a1_stage = stage('A1',base,{})
     a2_stage = stage('A2',a2,{'focus_pool':[authority]})
@@ -152,11 +148,3 @@ def test_new_manifest_does_not_implicitly_relax_default_legacy_reader(tmp_path,m
     result=exported(db,replace(ref,projection_manifest=None))
     assert result['scope_complete'] is False
     assert 'AUDIT_OVERLAY_BINDING_UNPROVEN' in result['reason_codes']
-
-
-def test_team_geometry_cluster_actual_publication_roundtrip(tmp_path,monkeypatch):
-    db,ref,_=current_call(tmp_path,monkeypatch,team=True)
-    result=exported(db,ref)
-    assert result["scope_complete"],result["reason_codes"]
-    receipt=result["plans"][0]["publication_projection_receipt"]
-    assert receipt["evidence_complete"] and receipt["plan_geometry_evidence_complete"]

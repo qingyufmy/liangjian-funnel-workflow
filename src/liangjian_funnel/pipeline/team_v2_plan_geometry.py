@@ -12,54 +12,9 @@ import math
 
 GEOMETRY_FIELD = 'team_plan_geometry'
 PUBLICATION_CONTRACT = 'team-publication/rr-geometry-1'
-STOP_PUBLICATION_CONTRACT = 'team-publication/stop-rr-geometry-2'
-TEAM_PUBLICATION_CONTRACTS = frozenset((PUBLICATION_CONTRACT, STOP_PUBLICATION_CONTRACT))
 LEGACY_PUBLICATION_CONTRACT = 'legacy-publication/1'
-SUPPORTED_PUBLICATION_CONTRACTS = TEAM_PUBLICATION_CONTRACTS|{LEGACY_PUBLICATION_CONTRACT}
 GEOMETRY_FIELDS = frozenset((GEOMETRY_FIELD, 'trigger_high', 'trigger_zone',
-    'entry_reference_zone', 'entry_zone', 'pullback_zone', 'stop_level',
-    'invalidation_level', 'daily_invalidation', 'invalidation', 'risk',
-    'reward_risk', 'stop_distance_pct', 'invalidation_distance_from_low_pct'))
-
-
-def project_stop_rr_geometry(payload, *, minimum_reward_risk=None):
-    """Version 2 only. Preserve v1 reproduction, then enforce the new stop floor.
-
-    Widening the stop can invalidate a formerly valid RR. Such a row is rejected;
-    this policy does not widen the target or change the original model opinion.
-    """
-    from .plan_stop_geometry import minimum_stop, derived_geometry, POLICY
-    legacy=project_team_plan_geometry(payload,minimum_reward_risk=minimum_reward_risk)
-    audit=deepcopy(legacy['audit'])
-    audit.update(schema_version='team-plan-geometry/2',stop_geometry_policy=POLICY,
-                 minimum_low_distance='0.01',minimum_total_distance='0.02',
-                 total_distance_denominator='effective_trigger_high',
-                 original_reward_risk=deepcopy(payload.get('reward_risk')),
-                 original_stop=audit['stop'])
-    if legacy['status']!='PUBLISHABLE':return dict(status='OBSERVATION_ONLY',payload=None,audit=audit)
-    low,high,stop,target=(_decimal(audit[k]) for k in ('trigger_low','effective_trigger_high','stop','target'))
-    newstop=minimum_stop(low,high,stop)
-    derived=derived_geometry(low,high,newstop,target)
-    audit.update(stop=str(newstop),derived_geometry=derived)
-    if Decimal(str(target))-high < _decimal(audit['minimum_reward_risk'])*(high-Decimal(str(newstop))):
-        audit.update(classification='EMPTY',reason_code='PLAN_MINIMUM_STOP_RR_INFEASIBLE')
-        return dict(status='OBSERVATION_ONLY',payload=None,audit=audit)
-    result=legacy['payload']
-    for key in ('stop_level','invalidation_level','daily_invalidation','invalidation'):
-        if key in result:result[key]=newstop
-    # A4 consumes stop_level with first precedence; make the common source explicit.
-    result['stop_level']=newstop
-    if isinstance(result.get('risk'),Mapping):
-        risk=deepcopy(dict(result['risk']))
-        for key in ('stop_level','invalidation_level'):
-            if key in risk:risk[key]=newstop
-        for key in ('reward_risk','stop_distance_pct'):
-            if key in risk:risk[key]=derived[key]
-        result['risk']=risk
-    result.update(derived)
-    audit['reason_code']='PLAN_STOP_AND_RR_GEOMETRY_VERIFIED'
-    result[GEOMETRY_FIELD]=audit
-    return dict(status='PUBLISHABLE',payload=result,audit=audit)
+    'entry_reference_zone', 'entry_zone', 'pullback_zone'))
 
 
 def _hash(value):
