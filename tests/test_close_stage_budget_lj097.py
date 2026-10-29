@@ -122,12 +122,13 @@ def test_latest_day_for_all_symbols_precedes_full_history_and_financial_sync(tmp
     cache=LocalFactCache(tmp_path/'facts.sqlite3');sync=HithinkIncrementalSynchronizer(cache)
     client=FakeClient();symbols=['000001.SZ','000002.SZ']
     receipt=sync.prime_latest_closed_days(client,symbols,as_of=NOW,deadline=time.monotonic()+60)
-    assert client.calls==[('DAILY',s) for s in symbols]
+    assert sorted(client.calls)==[('DAILY',s) for s in symbols]
+    assert [r['symbol'] for r in receipt['records']]==symbols
     assert all(r['status']=='AVAILABLE_LATEST_ONLY' for r in receipt['records'])
     assert all(cache.get_sync_state('HITHINK_DAILY_1D',s) is None for s in symbols)
     assert all(cache.get_sync_state('HITHINK_DAILY_LATEST_PRIORITY',s)['status']=='AVAILABLE_LATEST_ONLY' for s in symbols)
     sync.sync(client,symbols,as_of=NOW)
-    assert client.calls[:2]==[('DAILY',s) for s in symbols]
+    assert sorted(client.calls[:2])==[('DAILY',s) for s in symbols]
     assert any(kind!='DAILY' for kind,symbol in client.calls[2:])
 
 
