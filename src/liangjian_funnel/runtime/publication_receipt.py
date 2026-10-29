@@ -207,9 +207,6 @@ class PublicationReceiptBuilder:
             originals.append(inputs.submitted_payload)
         if inputs.authority is not None:
             originals.extend((inputs.authority.value, inputs.authority.source))
-        from .plan_cluster_display import FIELD as CLUSTER_FIELD,project_cluster_display
-        if CLUSTER_FIELD in submitted:
-            expected = project_cluster_display(expected)
         if inputs.shadow_projection is not None:
             originals.append(inputs.shadow_projection)
         for proof in (*inputs.snapshot_chain, *inputs.authority_snapshot_chain):
@@ -369,6 +366,9 @@ class PublicationReceiptBuilder:
                     reasons.add('TEAM_PLAN_GEOMETRY_NOT_PUBLISHABLE')
                 else:
                     expected = geometry['payload']
+        from .plan_cluster_display import FIELD as CLUSTER_FIELD,project_cluster_display
+        if CLUSTER_FIELD in submitted:
+            expected = project_cluster_display(expected)
         if inputs.shadow_projection is not None:
             proof = inputs.shadow_projection
             PublicationReceiptBuilder._bound(proof, reasons)
