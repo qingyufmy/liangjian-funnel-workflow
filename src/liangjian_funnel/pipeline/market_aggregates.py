@@ -1716,8 +1716,6 @@ def build_news_heat_snapshot(
         "by_source": dict(sorted(by_source.items())),
         "source_health_count": len(news_health),
         "healthy_source_count": healthy_sources,
-        "stock_source_health": [dict(item) for item in news_health
-            if str(item.get('source_id') or '').startswith('open_news.eastmoney_stock.')],
         "future_items_dropped": dropped_future,
         "stale_items_dropped": dropped_stale,
         "sentiment_available": False,

@@ -22,8 +22,7 @@ def nonexistent_gap_ids(raw, requirements):
     if not isinstance(raw, dict) or not isinstance(raw.get('envelope_adjustments'), list):
         return set()
     return {r['plan_id'] for r in raw['envelope_adjustments'] if isinstance(r, dict)
-        and isinstance(r.get('plan_id'), str)
-        and (r.get('reason_code') == 'DATA_LIMITED_REVIEWED' or 'gap_review' in r)
+        and isinstance(r.get('plan_id'), str) and r.get('reason_code') == 'DATA_LIMITED_REVIEWED'
         and r['plan_id'] not in requirements}
 
 
@@ -48,11 +47,6 @@ def project_effective_risk(raw, *, quota_context, requirements, eligible_plan_id
         return None
     capacity_invalid=any(x=='A6_CAPACITY_INVALID' or x.startswith('A6_CAPACITY_DETAIL:') for x in original_issues)
     false_gaps = nonexistent_gap_ids(raw, requirements)
-    # The explicit NEWS contract requires actual per-stock model judgment.
-    # Never repair an invented gap into an accepted reply. Keep the legacy
-    # capacity-only projection for old inputs without this opt-in contract.
-    if false_gaps and any(r.get('explicit_gap_treatment_required') for r in requirements.values()):
-        return None
     # Claude0942: valid original eligibility and PM primary/backup are distinct
     # from simultaneous positions. Only arithmetic-invalid originals are trimmed.
     if not capacity_invalid and not false_gaps:return None

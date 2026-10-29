@@ -18,8 +18,7 @@ PLAN_FIELDS=frozenset(('strategy_profile','strategy_version','primary_theme','th
     'reward_risk','stop_distance_pct','invalidation_distance_from_low_pct','team_plan_geometry',
     'no_chase_price','first_resistance','pressure_reduce_price','reference_price',
     'market_regime','market_environment','risk_unit','max_batches','plan_priority',
-    'plan_priority_rank','expected_holding_sessions','time_stop_sessions','setup_type',
-    'DATA_LIMITED','source_data_limits','NEWS_DATA_LIMITED','news_source_health_checked','news_source_health_evidence','degradation_tags'))
+    'plan_priority_rank','expected_holding_sessions','time_stop_sessions','setup_type'))
 
 
 def load_pm_policy(root):
@@ -127,17 +126,13 @@ def derive_pm_fallback(*,envelopes,plan_clusters,priority,free_slots,max_new_ent
     if not (a6_validated or a6_degraded_conservative) or utilization_cap<=0:
         return dict(slot_plan=[],plan_allocations=[],reason_code='PM_FALLBACK_A6_UNAVAILABLE')
     counts=Counter();selected=[]
-    from .news_data_limits import main_position_allowed
-    main_order=([pid for pid in priority if main_position_allowed(by_id[pid],1)]
-        +[pid for pid in priority if not main_position_allowed(by_id[pid],1)])
-    for pid in main_order:
+    for pid in priority:
         e=by_id[pid];cluster=plan_clusters[pid]
         # Use the admission path's exact PROBE/round-lot projection before
         # consuming a scarce slot. A 100-share STANDARD cap may become zero.
         if e.risk_unit=='STANDARD':e=conservative_envelope(e,consecutive_failures=1)
         if (not e.eligible or e.risk_unit not in ('STANDARD','PROBE') or e.max_shares_cap<=0
                 or e.risk_budget<=0 or counts[cluster]>=cluster_cap):continue
-        if not main_position_allowed(e,len(selected)+1):continue
         if len(selected)>=min(free_slots,max_new_entries):break
         selected.append(pid);counts[cluster]+=1
     slots=[dict(slot=i,primary_plan_id=pid,backup_plan_id='',cluster=plan_clusters[pid],

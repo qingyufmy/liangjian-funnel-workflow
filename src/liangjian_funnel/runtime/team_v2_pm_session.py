@@ -70,9 +70,6 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
                                     'utilization_cap': str(utilization_cap), 'free_slots': free_slots,
                                     'primary_cluster_cap':PM_PRIMARY_CLUSTER_CAP,
                                     'max_positions':max_positions,'shortlist_limit':2*max_positions}
-    from .news_data_limits import news_limited_ids
-    values['DEPLOYMENT_BASELINE']['news_gap_main_rank_minimum']=3
-    values['DEPLOYMENT_BASELINE']['news_gap_top2_forbidden_plan_ids']=sorted(news_limited_ids(values['EVIDENCE_CATALOG']))
     original_values=dict(replacements)
     original_values.update(RISK_ENVELOPES=json.loads(canonical([asdict(row) for row in envelopes])),
         DEPLOYMENT_BASELINE=values['DEPLOYMENT_BASELINE'])
