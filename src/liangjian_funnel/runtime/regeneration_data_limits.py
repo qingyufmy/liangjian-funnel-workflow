@@ -52,10 +52,7 @@ def project_data_limited(payload, detail):
         return payload
     result = deepcopy(payload)
     result['DATA_LIMITED'] = True
-    previous=result.get('source_data_limits') or {}
-    if not isinstance(previous,Mapping):raise ValueError('EXISTING_SOURCE_GAP_DETAIL_INVALID')
-    result['source_data_limits'] = {**deepcopy(previous),**deepcopy(detail),
-        'reason_codes':list(dict.fromkeys([*previous.get('reason_codes',()),*detail.get('reason_codes',())]))}
+    result['source_data_limits'] = deepcopy(detail)
     result['degradation_tags'] = sorted(set(result.get('degradation_tags', ())) | {'DATA_LIMITED'})
     result['risk_unit'] = 'PROBE'
     return result
@@ -72,12 +69,10 @@ def a6_gap_requirements(catalog, envelopes):
         if not isinstance(value, Mapping) or value.get('plan_id') not in tagged:
             continue
         detail = (value.get('publication_facts') or {}).get('source_data_limits')
-        if (isinstance(detail, Mapping) and detail.get('authority') in {'0498_REGENERATION_A1_SOURCE_GAPS','0589_A1_SOURCE_GAPS','0589_PLAN_HISTORY_GAPS','LJ103_STOCK_NEWS_SOURCE_GAPS'}
+        if (isinstance(detail, Mapping) and detail.get('authority') in {'0498_REGENERATION_A1_SOURCE_GAPS','0589_A1_SOURCE_GAPS','0589_PLAN_HISTORY_GAPS'}
                 and isinstance(detail.get('reason_codes'), list) and detail['reason_codes']
                 and all(isinstance(v, str) and v for v in detail['reason_codes'])):
             result[value['plan_id']] = dict(plan_ref=item['id'], reason_codes=detail['reason_codes'])
-            if any(code.startswith('STOCK_NEWS_') for code in detail['reason_codes']):
-                result[value['plan_id']]['explicit_gap_treatment_required']=True
     # A corrupt/missing fact never silently disables the review gate.
     for pid in tagged - result.keys():
         result[pid] = dict(plan_ref=None, reason_codes=['SOURCE_GAP_DETAILS_MISSING'])
@@ -94,11 +89,6 @@ def gap_reviewed_ids(output, requirements, *, allow_capacity_trimmed=False):
         if len(candidates) != 1 or requirement['plan_ref'] is None:
             continue
         row = candidates[0]
-        if requirement.get('explicit_gap_treatment_required'):
-            treatment=row.get('gap_review');action=row.get('adjustment')
-            if not isinstance(treatment,str) or treatment not in {'KEEP_WITH_GAP','DOWNGRADE','REJECT'}:continue
-            if treatment=='REJECT' and action!='SUSPEND':continue
-            if treatment=='DOWNGRADE' and action not in {'TIGHTEN_TO_PROBE','REDUCE_BATCHES','SUSPEND'}:continue
         texts = row.get('what_would_change_my_mind')
         refs = row.get('supporting_refs')
         if ((row.get('reason_code') != 'DATA_LIMITED_REVIEWED' and not (allow_capacity_trimmed

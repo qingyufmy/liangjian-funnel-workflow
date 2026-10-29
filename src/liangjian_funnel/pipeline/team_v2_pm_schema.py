@@ -134,12 +134,8 @@ def project_pm_compact(output,catalog,*,plan_refs,**context):
             conviction='NORMAL',reason_code=row['reason_code'],source_link=ref))
     if len(seen)!=len(set(seen)) or set(seen)!=set(plan_refs):issues.append('PM_COMPACT_COVERAGE_INVALID')
     counts=Counter();primary=[]
-    from ..runtime.news_data_limits import main_position_allowed
-    main_order=([r for r in ranking if main_position_allowed(by_id[r['plan_id']],1)]
-        +[r for r in ranking if not main_position_allowed(by_id[r['plan_id']],1)])
-    for row in main_order:
-        if (len(primary)<context['free_slots'] and counts[row['cluster']]<PM_PRIMARY_CLUSTER_CAP
-                and main_position_allowed(by_id[row['plan_id']],len(primary)+1)):
+    for row in ranking:
+        if len(primary)<context['free_slots'] and counts[row['cluster']]<PM_PRIMARY_CLUSTER_CAP:
             primary.append(row);counts[row['cluster']]+=1
     primary_ids={r['plan_id'] for r in primary};backup=[r for r in ranking if r['plan_id'] not in primary_ids]
     slots=[dict(slot=i,primary_plan_id=r['plan_id'],backup_plan_id=backup[i-1]['plan_id'] if i<=len(backup) else '',
@@ -199,8 +195,6 @@ def validate_pm_slots(output: Any, catalog: Any, *, required_envelope: Mapping,
                 or not isinstance(backup, str) or (backup and backup not in eligible)):
             issues.append("PM_SLOT_DOMAIN_INVALID"); continue
         used.append(primary); primaries.append(primary)
-        from ..runtime.news_data_limits import main_position_allowed
-        if type(number) is int and not main_position_allowed(by_id[primary],number):issues.append('PM_NEWS_GAP_TOP2_FORBIDDEN')
         if backup: used.append(backup)
         if row["cluster"] != plan_clusters[primary]: issues.append("PM_CLUSTER_BINDING_MISMATCH")
     if any(len(values) != len(set(values)) for values in (used, slot_numbers, orders)):
@@ -246,13 +240,8 @@ def derive_pm_slots(ranking, *, envelopes, plan_clusters, free_slots):
         if row['cluster']!=plan_clusters.get(pid):raise ValueError('PM_CLUSTER_BINDING_MISMATCH')
         seen.add(pid);ordered.append(row)
     counts=Counter();primary=[]
-    from ..runtime.news_data_limits import main_position_allowed
-    by_id={e.plan_id:e for e in envelopes}
-    main_order=([r for r in ordered if main_position_allowed(by_id[r['plan_id']],1)]
-        +[r for r in ordered if not main_position_allowed(by_id[r['plan_id']],1)])
-    for row in main_order:
-        if (len(primary)<free_slots and counts[row['cluster']]<PM_PRIMARY_CLUSTER_CAP
-                and main_position_allowed(by_id[row['plan_id']],len(primary)+1)):
+    for row in ordered:
+        if len(primary)<free_slots and counts[row['cluster']]<PM_PRIMARY_CLUSTER_CAP:
             primary.append(row);counts[row['cluster']]+=1
     primary_ids={r['plan_id'] for r in primary}
     backup=[r for r in ordered if r['plan_id'] not in primary_ids]

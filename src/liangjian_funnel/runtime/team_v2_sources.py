@@ -150,12 +150,11 @@ def meeting_plan_facts(rows):
     """
     fields=('source_run_id','strategy_profile','strategy_version','primary_theme','theme_id',
         'trigger_low','trigger_high','trigger_zone','entry_reference_zone','stop_level',
-        'reward_risk','stop_distance_pct','invalidation_distance_from_low_pct','team_plan_geometry',
         'invalidation_level','daily_invalidation','no_chase','no_chase_price','first_resistance',
         'pressure_reduce_price','reference_price','reference_price_as_of','plan_expiry',
         'market_regime','market_environment','risk_unit','max_batches','plan_priority',
         'A2_UNAVAILABLE','A2_REVIEW_DEGRADED','PATTERN_B','SERVER_FALLBACK','degradation_tags',
-        'DATA_LIMITED','source_data_limits','NEWS_DATA_LIMITED','news_source_health_checked','news_source_health_evidence',
+        'DATA_LIMITED','source_data_limits',
         'plan_priority_rank','priority_reasons','trading_plan_brief','trade_plan_brief','trade_brief',
         'handoff_notes','what_would_change_my_mind','supporting_refs','opposing_refs',
         'opposing_search_scope','confirmation_conditions','a4_required_entry_rules',

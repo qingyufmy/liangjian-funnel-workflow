@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync,mkdirSync,readFileSync,readdirSync,rmSync,copyFileSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,readFileSync,readdirSync,rmSync,cpSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve,dirname,basename} from 'node:path';
 import {createHash} from 'node:crypto';
@@ -43,11 +43,7 @@ test('dashboard projection keeps real zero different from missing; T1 and fields
  expect(()=>applyDashboard(emptyState(),{status:'MISSING_SOURCE'})).toThrow();
 });
 test('nonempty mixed-day positions never close the shared paper read transaction before NAV/orders/fills',()=>{
- const copy=mkdtempSync(join(tmpdir(),'team-ui-dashboard-held-'));
- mkdirSync(join(copy,'state/team_v2'),{recursive:true});
- // Copy this fixture's three closed SQLite files explicitly. Windows Node cpSync
- // can terminate the worker in its native recursive directory-copy path.
- for(const file of ['state/workflow.sqlite3','state/team_v2/paper.db','state/team_v2/model.db'])copyFileSync(join(root,file),join(copy,file));
+ const copy=mkdtempSync(join(tmpdir(),'team-ui-dashboard-held-'));cpSync(root,copy,{recursive:true});
  try{
   execFileSync(python,['-B','-c',`import sqlite3,sys
 from pathlib import Path

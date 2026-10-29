@@ -63,11 +63,8 @@ def validate_risk_premarket(output,catalog,*,required_envelope,envelopes,engine_
     adjustments=output.get('envelope_adjustments');seen=[]
     if not isinstance(adjustments,list):issue('ENVELOPE_DOMAIN_INVALID');adjustments=[]
     for row in adjustments:
-        if (not isinstance(row,Mapping) or not item({k:v for k,v in row.items() if k!='gap_review'},
-                {'plan_id','adjustment','reason_code','what_would_change_my_mind'}|REFS)):
+        if not item(row,{'plan_id','adjustment','reason_code','what_would_change_my_mind'}|REFS):
             issue('ADJUSTMENT_FIELDS_INVALID');continue
-        if 'gap_review' in row and (not isinstance(row['gap_review'],str) or row['gap_review'] not in {'KEEP_WITH_GAP','DOWNGRADE','REJECT'}):
-            issue('GAP_REVIEW_ENUM_INVALID')
         pid=row['plan_id'];action=row['adjustment']
         if not isinstance(pid,str) or pid not in by_id:issue('ENVELOPE_DOMAIN_INVALID');continue
         seen.append(pid)

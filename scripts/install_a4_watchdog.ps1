@@ -14,9 +14,6 @@ foreach ($a4Path in @($a4Python, $a4Script, $a4Webhook)) {
 }
 $a4PythonWindowless = Join-Path $a4Root '.venv\Scripts\pythonw.exe'
 if (-not (Test-Path -LiteralPath $a4PythonWindowless)) { throw 'pythonw.exe is required for hidden execution' }
-$a4WindowlessGuard = Join-Path $a4Root 'scripts\check_watchdog_windowless.py'
-& $a4Python $a4WindowlessGuard
-if ($LASTEXITCODE -ne 0) { throw 'Watchdog pin child windowless verification failed; existing task unchanged' }
 $a4Action = New-ScheduledTaskAction -Execute $a4PythonWindowless -Argument ('"' + $a4Script + '"') -WorkingDirectory $a4Root
 $a4Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
 $a4Principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited

@@ -35,8 +35,6 @@ def fixture(tmp_path, *, trade_date='2026-10-19'):
         reference_price_as_of=source_day+'T15:00:00+08:00',trigger_low=9.8,trigger_high=10.1,
         stop_level=9,no_chase=10.2,first_resistance=14,minimum_reward_risk=2.5,
         cluster_label='bank',market_regime='ROTATION_NO_MAINLINE',
-        news_source_health_checked=True,news_source_health_evidence=dict(status='AVAILABLE',
-            source_health_sha256='0'*64,snapshot_hash='1'*64),
         plan_expiry=source_day+'T15:00:00+08:00')
     with closing(sqlite3.connect(settings.state_db_path)) as db,db:
         db.execute('CREATE TABLE execution_plans(plan_id TEXT PRIMARY KEY,lane_id TEXT,symbol TEXT,status TEXT,valid_from TEXT,expires_at TEXT,payload_json TEXT)')

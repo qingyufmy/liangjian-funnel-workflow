@@ -79,7 +79,6 @@ def build_technical_aggregates(
     *,
     minimum_reward_risk: float = 2.0,
     max_stop_distance_pct: float = 0.06,
-    minimum_stop_geometry: bool = False,
 ) -> dict[str, Any]:
     """Build the deterministic ``KLINE_PATTERNS`` and ``PRICE_LEVELS`` maps.
 
@@ -98,7 +97,6 @@ def build_technical_aggregates(
             future=future,
             minimum_reward_risk=minimum_reward_risk,
             max_stop_distance_pct=max_stop_distance_pct,
-            minimum_stop_geometry=minimum_stop_geometry,
         ),
     }
 
@@ -114,7 +112,6 @@ def build_price_levels(
     *,
     minimum_reward_risk: float = 2.0,
     max_stop_distance_pct: float = 0.06,
-    minimum_stop_geometry: bool = False,
 ) -> dict[str, Any]:
     """Build only the daily closed-bar A3 price-level projection.
 
@@ -128,7 +125,6 @@ def build_price_levels(
         future=_future_bar(snapshot),
         minimum_reward_risk=minimum_reward_risk,
         max_stop_distance_pct=max_stop_distance_pct,
-        minimum_stop_geometry=minimum_stop_geometry,
     )
 
 
@@ -240,7 +236,6 @@ def _build_price_levels(
     future: OHLCVBar | None,
     minimum_reward_risk: float,
     max_stop_distance_pct: float,
-    minimum_stop_geometry: bool = False,
 ) -> dict[str, Any]:
     base = _base(snapshot, available=False, reason_code="NO_CLOSED_BARS")
     base.update({field: None for field in _PRICE_FIELDS})
@@ -352,12 +347,6 @@ def _build_price_levels(
             if value is not None and value < trigger_zone["low"]
         ]
         invalidation = _price(max(floor_candidates, default=trigger_zone["low"] - atr))
-    if minimum_stop_geometry and trigger_zone is not None and invalidation is not None:
-        from .plan_stop_geometry import minimum_stop, POLICY
-        original_invalidation=invalidation
-        invalidation=minimum_stop(trigger_zone['low'],trigger_zone['high'],invalidation)
-        base['stop_geometry_policy']=dict(version=POLICY,m1=.01,m2=.02,
-            total_distance_denominator='trigger_zone.high',original_invalidation=original_invalidation)
     if trigger_zone is not None and invalidation is not None and trigger_zone["high"] > invalidation:
         risk = trigger_zone["high"] - invalidation
         stop_distance = _number(risk / trigger_zone["high"])
@@ -407,9 +396,7 @@ def _build_price_levels(
         "available": True,
         "reason_code": "OK" if not missing else "PARTIAL_SAMPLE",
         "missing_fields": missing,
-        "planning_ready": (not planning_missing and (price_discovery or resistance is not None)
-                           and (not minimum_stop_geometry or (reward_risk is not None and reward_risk>=minimum_reward_risk
-                                and stop_distance is not None and stop_distance<=max_stop_distance_pct))),
+        "planning_ready": not planning_missing and (price_discovery or resistance is not None),
         "planning_missing_fields": planning_missing,
         "planning_provenance": "DAILY_ONLY",
         "level_provenance": {

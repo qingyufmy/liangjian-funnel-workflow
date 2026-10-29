@@ -106,20 +106,6 @@ def deployment_host():
     return root,alias
 
 
-class _WindowlessPinSubprocess:
-    """Keep the audited pin checks, without consoles from a pythonw parent."""
-
-    def __getattr__(self, name):
-        return getattr(subprocess, name)
-
-    def check_output(self, *args, **kwargs):
-        kwargs['creationflags'] = (
-            kwargs.get('creationflags', 0)
-            | getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-        )
-        return subprocess.check_output(*args, **kwargs)
-
-
 def pinned_ssh_options():
     import importlib.util
     config=json.loads((Path(__file__).resolve().parents[1]/'config/deployment_host.json').read_text(encoding='utf8'))
@@ -128,8 +114,6 @@ def pinned_ssh_options():
         raise ValueError('WATCHDOG_PIN_MODULE_HASH_CONFLICT')
     spec=importlib.util.spec_from_file_location('watchdog_audited_pin',path)
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-    # Bind only the imported module; leave archived source and subprocess global.
-    module.subprocess = _WindowlessPinSubprocess()
     return module.ssh_options()
 
 
