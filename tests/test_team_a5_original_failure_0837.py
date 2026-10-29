@@ -95,8 +95,9 @@ def test_same_actual_context_existing_configured_budget_reaches_controlled_strea
     if input_limit==1024:
         from liangjian_funnel.runtime.team_v2_review import TeamA5ContextError
         from contextlib import closing
-        with pytest.raises(TeamA5ContextError) as caught:run_team_review(**args,**kwargs)
-        assert not seen and caught.value.diagnostics['input_token_limit']==1024
+        degraded=run_team_review(**args,**kwargs)
+        assert not seen and degraded['status']=='A5_DEGRADED_TRUNCATED_FACTS_ONLY'
+        assert degraded['deterministic_review']['context_budget']['input_token_limit']==1024
         with closing(kwargs['store']._connect()) as db:
             original=db.execute('select body_json from control_minute_context where decision_id=?',('a5-request:'+context['run_id'],)).fetchone()
             assert original and len(json.loads(original[0])['messages'])==2
@@ -135,10 +136,11 @@ def test_oversize_is_counted_before_building_full_messages(tmp_path,monkeypatch)
     monkeypatch.setattr(team_v2_a5_projection,'project_review_facts',lambda facts:(facts,{'controlled_uncompressed':True}))
     monkeypatch.setattr(repository,'prepare_messages',lambda *a,**k:(_ for _ in ()).throw(AssertionError('OVERSIZED_REQUEST_CONSTRUCTED')))
     args={k:v for k,v in context.items() if k!='prompt_hashes'};store=TeamMeetingStore(tmp_path/'team.db')
-    with pytest.raises(TeamA5ContextError) as caught:
-        run_team_review(**args,trade_date='2026-10-27',review_kind='POST_CLOSE',clock=lambda:datetime.fromisoformat(context['required_envelope']['as_of']),
+    result=run_team_review(**args,trade_date='2026-10-27',review_kind='POST_CLOSE',clock=lambda:datetime.fromisoformat(context['required_envelope']['as_of']),
             review_id=context['run_id'],allow_model_call=True,repository=repository,client=object(),journal=object(),store=store)
-    assert caught.value.diagnostics['phase']=='PRE_CONSTRUCTION_CONTEXT_BUDGET' and caught.value.diagnostics['request_chars']>250000
+    assert result['status']=='A5_DEGRADED_TRUNCATED_FACTS_ONLY'
+    diagnostic=result['deterministic_review']['context_budget']
+    assert diagnostic['phase']=='PRE_CONSTRUCTION_CONTEXT_BUDGET'and diagnostic['request_chars']>250000
     with closing(store._connect()) as db:
         assert db.execute('select count(*) from control_minute_context where decision_id=?',('a5-context-estimate:'+context['run_id'],)).fetchone()[0]==1
         assert db.execute('select count(*) from control_minute_context where decision_id=?',('a5-request:'+context['run_id'],)).fetchone()[0]==0
