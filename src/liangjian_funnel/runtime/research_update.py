@@ -260,25 +260,31 @@ def research_update_times(snapshot, calendar):
     proof = validate_research_capture_proof(base.data.get(KEY), captured_at=base.as_of,
         calendar=calendar, now=now, source_trade_date=binding.source_trade_date)
     _require(object_hash(base.data) == binding.snapshot_hash, 'CLOCK_BASE_HASH_CHANGED')
+    return replay_snapshot_clock_chain(snapshot, base, proof, now=now)
+
+
+def replay_snapshot_clock_chain(snapshot, base, proof, *, now, require=_require):
+    """Verify original producer recipes against a content-addressed root."""
+    from .publication_receipt import PublicationReceiptBuilder, object_hash
     prior = dict(snapshot_id=base.snapshot_id, snapshot_hash=base.snapshot_hash,
         as_of=aware(base.as_of).isoformat(), data=base.data)
     nodes = snapshot.proof_chain
-    _require(isinstance(nodes, (list, tuple)) and len(nodes) <= 32, 'CLOCK_CHAIN_INVALID')
+    require(isinstance(nodes, (list, tuple)) and len(nodes) <= 32, 'CLOCK_CHAIN_INVALID')
     seen = {base.snapshot_id}
     for node in nodes:
-        _require(isinstance(node, Mapping) and node.get('schema_version') == 'research-snapshot-recipe/1'
+        require(isinstance(node, Mapping) and node.get('schema_version') == 'research-snapshot-recipe/1'
             and node.get('status') == 'CAPTURED' and node.get('parent_snapshot_id') == prior['snapshot_id']
             and node.get('parent_snapshot_hash') == prior['snapshot_hash']
             and node.get('parent_as_of') == prior['as_of'], 'CLOCK_PARENT_CONFLICT')
         recipe, delta = node.get('hash_recipe'), node.get('data_recipe')
-        _require(isinstance(recipe, Mapping) and isinstance(delta, Mapping)
+        require(isinstance(recipe, Mapping) and isinstance(delta, Mapping)
             and object_hash(recipe) == node.get('snapshot_hash'), 'CLOCK_RECIPE_HASH_CONFLICT')
         kind = node.get('recipe_kind')
         parent_key = 'source_hash' if kind == 'A2_ROTATION_POLICY' else 'base_snapshot_hash'
-        _require(recipe.get(parent_key) == prior['snapshot_hash'], 'CLOCK_RECIPE_PARENT_CONFLICT')
+        require(recipe.get(parent_key) == prior['snapshot_hash'], 'CLOCK_RECIPE_PARENT_CONFLICT')
         reasons = set()
         expected, tag = PublicationReceiptBuilder._snapshot_transform(kind, prior, recipe, reasons)
-        _require(not reasons and expected is not None and tag is not None, 'CLOCK_TRANSFORM_INVALID')
+        require(not reasons and expected is not None and tag is not None, 'CLOCK_TRANSFORM_INVALID')
         if delta.get('operation') == 'SHALLOW_OVERLAY' and set(delta) == {'operation', 'overlay'} and isinstance(delta['overlay'], Mapping):
             derived = {**prior['data'], **delta['overlay']}
         elif kind == 'A2_STOCK_NEWS' and set(delta) == {'NEWS_HEAT_SNAPSHOT', 'A2_STOCK_NEWS_SCOPE'}:
@@ -290,20 +296,20 @@ def research_update_times(snapshot, calendar):
             derived = expected
         else:
             raise ValueError('RESEARCH_UPDATE_CLOCK_DATA_RECIPE_INVALID')
-        _require(object_hash(derived) == object_hash(expected), 'CLOCK_DATA_RECIPE_CONFLICT')
+        require(object_hash(derived) == object_hash(expected), 'CLOCK_DATA_RECIPE_CONFLICT')
         expected_id = (prior['snapshot_id'] + ':rotation-policy' if kind == 'A2_ROTATION_POLICY'
             else f"{prior['snapshot_id']}:{tag}:{node['snapshot_hash'][:12]}")
         stamp = aware(node.get('as_of'))
-        _require(node.get('snapshot_id') == expected_id and expected_id not in seen,
+        require(node.get('snapshot_id') == expected_id and expected_id not in seen,
             'CLOCK_CHILD_ID_CONFLICT')
-        _require(stamp <= now and (stamp >= aware(prior['as_of']) if kind == 'A2_STOCK_NEWS'
+        require(stamp <= now and (stamp >= aware(prior['as_of']) if kind == 'A2_STOCK_NEWS'
             else stamp == aware(prior['as_of'])), 'CLOCK_CHRONOLOGY_INVALID')
         seen.add(expected_id)
         prior = dict(snapshot_id=expected_id, snapshot_hash=node['snapshot_hash'],
             as_of=stamp.isoformat(), data=expected)
-    _require(snapshot.snapshot_id == prior['snapshot_id'] and snapshot.snapshot_hash == prior['snapshot_hash']
+    require(snapshot.snapshot_id == prior['snapshot_id'] and snapshot.snapshot_hash == prior['snapshot_hash']
         and aware(snapshot.as_of).isoformat() == prior['as_of']
         and object_hash(snapshot.data) == object_hash(prior['data']), 'CLOCK_TERMINAL_CONFLICT')
-    _require(snapshot.data.get(KEY) == proof
+    require(snapshot.data.get(KEY) == proof
         and snapshot.data.get('MARKET_DATA_AS_OF') == proof['source_market_close_at'], 'CLOCK_MARKET_CONFLICT')
     return aware(snapshot.as_of), aware(proof['source_market_close_at'])

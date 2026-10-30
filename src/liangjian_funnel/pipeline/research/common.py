@@ -20,7 +20,7 @@ import time
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, field
 from datetime import date, datetime
 from pathlib import Path
 from types import MappingProxyType
@@ -455,6 +455,8 @@ class FrozenInputSnapshot(Mapping[str, Any]):
     as_of: Any = None
     # Audit sidecar only: never enters data, content hash or model input.
     proof_chain: tuple[Mapping[str, Any], ...] = ()
+    # Invocation-local original only; excluded from model payload and stage hashes.
+    capture_root: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data", MappingProxyType(dict(self.data)))
@@ -516,6 +518,14 @@ class StageAudit:
         }
 
 
+def _capture_root(snapshot):
+    if snapshot.capture_root is not None:
+        return snapshot.capture_root
+    if not snapshot.proof_chain and 'CLOSED_SESSION_CAPTURE' in snapshot.data:
+        return snapshot
+    return None
+
+
 def _capture_snapshot_recipe(
     parent: FrozenInputSnapshot,
     result: FrozenInputSnapshot,
@@ -543,7 +553,8 @@ def _capture_snapshot_recipe(
         "hash_recipe": original_recipe,
         "data_recipe": _jsonable(data_recipe),
     }
-    return replace(result, proof_chain=(*parent.proof_chain, node))
+    return replace(result, proof_chain=(*parent.proof_chain, node),
+        capture_root=_capture_root(parent))
 
 
 def _unproven_snapshot(snapshot: FrozenInputSnapshot, reason: str) -> FrozenInputSnapshot:
@@ -2853,7 +2864,7 @@ class ResearchPipeline:
         if result is None:
             return snapshot
         if isinstance(result, FrozenInputSnapshot):
-            frozen = _freeze_snapshot(result)
+            frozen = replace(_freeze_snapshot(result), capture_root=_capture_root(snapshot))
             return frozen if frozen.proof_chain else _unproven_snapshot(frozen, "CUSTOM_FROZEN_SNAPSHOT_RECIPE_MISSING")
         if isinstance(result, Mapping):
             # A full wrapper can be returned by a data adapter.  Otherwise the
@@ -2872,6 +2883,7 @@ class ResearchPipeline:
                     snapshot_hash=snapshot_hash,
                     as_of=as_of,
                     proof_chain=tuple(result.get("proof_chain") or ()),
+                    capture_root=_capture_root(snapshot),
                 )
                 return frozen if frozen.proof_chain else _unproven_snapshot(frozen, "FULL_WRAPPER_RECIPE_MISSING")
             merged = dict(snapshot.data)
@@ -2901,7 +2913,7 @@ class ResearchPipeline:
             raise ResearchPipelineError("STAGE_SNAPSHOT_ENRICHMENT_INVALID") from exc
         if not isinstance(coerced, FrozenInputSnapshot):
             raise ResearchPipelineError("STAGE_SNAPSHOT_ENRICHMENT_INVALID")
-        frozen = _freeze_snapshot(coerced)
+        frozen = replace(_freeze_snapshot(coerced), capture_root=_capture_root(snapshot))
         return frozen if frozen.proof_chain else _unproven_snapshot(frozen, "CUSTOM_OBJECT_RECIPE_MISSING")
 
     def _checkpoint_key(
@@ -4505,6 +4517,7 @@ def _restrict_snapshot_to_symbols(
         snapshot_hash=snapshot.snapshot_hash,
         as_of=snapshot.as_of,
         proof_chain=snapshot.proof_chain,
+        capture_root=snapshot.capture_root,
     )
     return _unproven_snapshot(restricted, "SCOPE_RESTRICT_HASH_PRESERVING_PROJECTION")
 
@@ -8751,6 +8764,7 @@ def _freeze_snapshot(snapshot: FrozenInputSnapshot) -> FrozenInputSnapshot:
         snapshot_hash=snapshot.snapshot_hash,
         as_of=snapshot.as_of,
         proof_chain=snapshot.proof_chain,
+        capture_root=snapshot.capture_root,
     )
 
 

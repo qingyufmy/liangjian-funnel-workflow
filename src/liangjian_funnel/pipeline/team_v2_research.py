@@ -13,7 +13,7 @@ import time
 from ..runtime.team_v2_plan_review import plan_review_inputs, run_plan_review
 from ..runtime.team_v2_store import canonical
 from .team_v2_model import team_call_binding
-from .team_v2_research_time import research_times
+from .team_v2_research_time import research_times, research_input_failure
 
 
 def _hash(value):
@@ -183,9 +183,10 @@ class TeamResearchAdapter:
                 deadline_monotonic=(parent_start+float(pipeline.settings.research_close_deadline_seconds))
                     if parent_start is not None else None, **context)
         except ValueError as exc:
-            # Only finite local contract codes are exposed; no provider details.
-            safe = str(exc) if str(exc).startswith(('TEAM_', 'A3_', 'CONTROL_', 'MODEL_')) else 'TEAM_RESEARCH_INPUT_INVALID'
-            return pipeline._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, safe)
+            from dataclasses import replace
+            safe, failure = research_input_failure(exc, snapshot)
+            return replace(pipeline._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, safe),
+                diagnostics={'input_failure': failure})
         with closing(self.journal._connect()) as db:
             captured_metrics = [db.execute('SELECT latency_ms,provider_attempts FROM model_calls WHERE call_id=?',
                 (call,)).fetchone() for call in result.get('team_call_ids',['A3:PLAN_REVIEW:'+identity])]

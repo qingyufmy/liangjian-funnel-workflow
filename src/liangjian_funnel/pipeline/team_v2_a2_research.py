@@ -15,7 +15,7 @@ from .team_v2_a2_score import freeze_theme_scores,canonicalize_team_scores
 from .team_v2_contract import TeamValidation
 from .team_v2_model import team_call_binding
 from .team_v2_a1_research import _hash
-from .team_v2_research_time import research_times
+from .team_v2_research_time import research_times, research_input_failure
 from .team_v2_a2_recovery import bind_a2_retry_feedback, drop_focused_rotation, validation_feedback
 from .team_v2_prompts import _VERSIONS as PROMPT_VERSIONS
 from .a2_theme_research import (add_unscored_theme_hypotheses, independent_theme_reviews,
@@ -261,7 +261,8 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
     try:
         source,market_source=research_times(snapshot,adapter.calendar)
     except ValueError as exc:
-        return blocked(str(exc))
+        code, failure = research_input_failure(exc, snapshot)
+        return blocked(code, {'input_failure': failure})
     symbols=set(upstream_symbols if projection_symbols is None else projection_symbols)
     try:
         snapshot=prepare_a2_snapshot(adapter,snapshot,set(upstream_symbols),upstream_output=upstream_output)
