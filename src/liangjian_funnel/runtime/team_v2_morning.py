@@ -50,7 +50,7 @@ def _envelopes(rows):
     return tuple(result)
 
 
-def _freeze_engine(settings,store,source,now,calendar,directory,clock):
+def _freeze_engine(settings,store,source,now,calendar,directory,clock,authorization=None):
     previous=store.load_morning_engine(ACCOUNT,source['trade_date'])
     if previous is not None:
         if (previous['source']['plan_rowset_sha256']!=source['plan_rowset_sha256']
@@ -70,7 +70,20 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
     limits=first_day_limits(limits,first_policy,now=now)
     broker=create_broker('local_paper',database=directory/'paper.db',paper_config=settings.root/'config/paper_broker.yaml',
         risk_config=settings.root/'config/risk_limits.yaml',clock=lambda:now,calendar=calendar,run_id='morning-engine:'+source['trade_date'])
-    broker.open_risk_day(source['trade_date']);snapshot=broker.planning_snapshot()
+    if authorization is None:
+        broker.open_risk_day(source['trade_date']);snapshot=broker.planning_snapshot()
+    else:
+        snapshot=broker.planning_snapshot()
+        basis=snapshot.get('risk_day')
+        if basis is None:
+            if time(9,25)<=now.time().replace(tzinfo=None)<time(9,30):
+                raise ValueError('MORNING_RISK_DAY_CREATION_AFTER0925_1201')
+            # At/after09:30 retain the native PAPER_RISK_DAY_OPEN_TIME_INVALID.
+            broker.open_risk_day(source['trade_date']);snapshot=broker.planning_snapshot()
+        else:
+            opened=datetime.fromisoformat(basis['opened_at']).astimezone(TZ)
+            if opened.date()!=now.date()or opened.time().replace(tzinfo=None)>=time(9,30)or opened>now:
+                raise ValueError('MORNING_RISK_DAY_BASELINE_UNPROVEN_1201')
     if broker.reconcile()['status']!='MATCH':raise ValueError('BROKER_RECONCILE_MISMATCH')
     account=snapshot['account'];basis=snapshot['risk_day']
     plans=tuple(decode_plan(p) for p in source['plans']);by_id={p.plan_id:p for p in plans}
@@ -86,7 +99,8 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
     view=AccountRisk(D(account['nav']),D(account['cash']),D(basis['day_open_nav']),
         max(D(snapshot['peak_nav']),D(account['nav'])),D(account['frozen']),
         hard_halt=bool(snapshot['global_halt'] or basis['halt_reason_codes']))
-    envelopes=tuple(build_planning_envelope(p,view,tuple(positions),limits,now=now,regime=source['market_regime']) for p in plans)
+    planning_args={}if authorization is None else dict(window_authorization=authorization,window_source=source)
+    envelopes=tuple(build_planning_envelope(p,view,tuple(positions),limits,now=now,regime=source['market_regime'],**planning_args) for p in plans)
     envelopes=tuple(probe_envelope(e,first_policy,now=now,probe_multiplier=limits.probe_multiplier) for e in envelopes)
     from .news_data_limits import morning_news_facts,cap_news_envelopes
     news_facts=morning_news_facts(meeting_plan_facts(source['plan_rows']))
@@ -127,16 +141,20 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
         seed_freshness=seed_freshness,
         news_plan_facts=news_facts,
         authority='PLANNING_ONLY_NOT_EXECUTION_PERMISSION')
+    if authorization is not None:body['morning_window_authorization']=dict(authorization)
     return store.record_morning_engine(ACCOUNT,source['trade_date'],body)
 
 
-def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
+def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None,authorization=None):
     if stage not in WINDOWS:raise ValueError('MORNING_STAGE_INVALID')
     clock=clock or (lambda:datetime.now(TZ));now=stamp(clock());day=now.date().isoformat()
     calendar=calendar or ExchangeTradingCalendar()
     if calendar.is_trading_day(now.date()) is not True:return dict(status='NOOP',reason_code='NON_TRADING_DAY')
+    if authorization is not None:
+        from .morning_window_authority import morning_deadline
+        morning_deadline(day,'2026-10-29',authorization=authorization,now=now)
     start,end=WINDOWS[stage]
-    if not start<=now.time().replace(tzinfo=None)<end:return dict(status='NOOP',reason_code='MORNING_STAGE_WINDOW_MISSED')
+    if authorization is None and not start<=now.time().replace(tzinfo=None)<end:return dict(status='NOOP',reason_code='MORNING_STAGE_WINDOW_MISSED')
     # Source access is always RO, including the dependent stages' binding check.
     from .reviewed_batch_natural import read_natural_candidate,candidate_planning_source
     candidate=read_natural_candidate(settings,day=day)
@@ -156,13 +174,16 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
                 'emotion_baseline_reason_code':emotion.get('reason_code')} if emotion is not None else {}))
     source=(candidate_planning_source(settings,candidate,now=now,calendar=calendar) if candidate is not None
         else read_planning_scope(settings,now=now,calendar=calendar))
+    from .morning_window_authority import morning_deadline
+    deadline=morning_deadline(day,source.get('source_trade_date'),authorization=authorization,source=source,now=now)
     directory=_directory(settings)
     if stage!='engine' and not (directory/'team.db').is_file():
         return dict(status='BLOCKED',reason_code='MORNING_ENGINE_MISSING')
     store=TeamMeetingStore(directory/'team.db')
-    if stage=='engine':return _freeze_engine(settings,store,source,now,calendar,directory,clock)
+    if stage=='engine':return _freeze_engine(settings,store,source,now,calendar,directory,clock,authorization=authorization)
     frozen=store.load_morning_engine(ACCOUNT,day)
     if frozen is None:return dict(status='BLOCKED',reason_code='MORNING_ENGINE_MISSING')
+    if frozen.get('morning_window_authorization')!=authorization:return dict(status='BLOCKED',reason_code='MORNING_WINDOW_AUTHORITY_CHANGED')
     if source['plan_rowset_sha256']!=frozen['source']['plan_rowset_sha256']:
         return dict(status='BLOCKED',reason_code='MORNING_PLAN_ROWS_CHANGED')
     if candidate is not None and any(source.get(key)!=frozen['source'].get(key)
@@ -222,6 +243,9 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
         risk_policy=load_risk_policy(settings.root)
         common.update(timeout_seconds=risk_policy['timeout_seconds'],max_output_tokens=risk_output_budget(
             risk_policy,len(meeting_plans),len(frozen['cluster_caps']),settings.model_max_output_tokens))
+        if authorization is not None:
+            common['timeout_seconds']=min(common['timeout_seconds'],max(0,(deadline-clock()).total_seconds()-2))
+            common.update(window_authorization=authorization,window_source=frozen['source'])
         result=run_risk_premarket(**common,meeting_id=risk_meeting,call_id=risk_call,
             engine_utilization_cap=D(frozen['engine_utilization_cap']),capacity_slots=frozen['capacity_slots'],
             cluster_caps=frozen['cluster_caps'],unready_plan_ids={e.plan_id for e in envelopes if not e.eligible},
@@ -261,7 +285,7 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
         fallback_enabled=False if candidate is not None else pm_policy['fallback_enabled'],fallback_priority_order=tuple(priority_order(meeting_plans)),
         max_new_entries=limits.max_new_entries,max_positions=limits.max_positions,
         geometry_plan_ids=geometry_ids,geometry_audit=geometry_audit,a6_validated=result.status=='READY',
-        deadline_at=datetime.combine(now.date(),time(8,45),TZ),
+        deadline_at=deadline,window_authorization=authorization,
         a6_degraded_conservative=result.status=='DEGRADED' and result.consecutive_failures==1)
     if candidate is not None:
         if (pm.get('status')!='READY' or pm.get('model_validated') is not True

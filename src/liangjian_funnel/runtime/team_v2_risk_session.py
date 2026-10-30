@@ -23,12 +23,19 @@ from ..pipeline.team_v2_contract import TeamValidation
 def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,account_id,run_id,model,
         trade_date,source_trade_date,clock,required_envelope,replacements,envelopes,
         engine_utilization_cap,capacity_slots,cluster_caps,unready_plan_ids,limits,
-        timeout_seconds,max_output_tokens,allow_model_call=False,quota_context=None):
+        timeout_seconds,max_output_tokens,allow_model_call=False,quota_context=None,
+        window_authorization=None,window_source=None):
     if not allow_model_call:raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
     now=clock()
+    window_end=None
+    if window_authorization is not None:
+        from .morning_window_authority import morning_deadline
+        if window_source is None:raise ValueError('A6_MORNING_AUTHORITY_SOURCE_REQUIRED')
+        window_end=morning_deadline(trade_date,source_trade_date,authorization=window_authorization,
+            source=window_source,now=now)
     if (not isinstance(now,datetime) or now.utcoffset() is None
             or now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()!=trade_date
-            or now.astimezone(ZoneInfo('Asia/Shanghai')).time().replace(tzinfo=None)>=time(9,30)
+            or (now.astimezone(ZoneInfo('Asia/Shanghai')).time().replace(tzinfo=None)>=time(9,30) if window_end is None else now>=window_end)
             or any(e.trade_date!=trade_date or e.purpose!='PLANNING' for e in envelopes)
             or source_trade_date>trade_date):
         raise ValueError('A6_PREMARKET_WINDOW_INVALID')
@@ -46,6 +53,7 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
         capacity_slots=capacity_slots,cluster_caps=dict(cluster_caps),unready_plan_ids=sorted(unready_plan_ids),
         timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens)
     if quota_context is not None:context['server_cluster_capacity']=quota_context
+    if window_authorization is not None:context['window_authorization']=window_authorization
     context_hash=hashlib.sha256(canonical(context).encode()).hexdigest()
     values.update(RISK_SESSION='PREMARKET',ENGINE_ENVELOPES=[asdict(e) for e in envelopes],
         RISK_LIMITS=dict(policy=asdict(limits),engine_upper_bounds=context,session_binding_sha256=context_hash))
@@ -131,6 +139,7 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
             provider_issues=outcome.validation.issues
         except ValueError as exc:
             if str(exc) not in {'TEAM_MODEL_CALL_FAILED','TEAM_MODEL_RESULT_INVALID'}:raise
+    if window_end is not None and clock()>=window_end:raise ValueError('A6_PREMARKET_WINDOW_INVALID')
     if quota_context is not None and output is not None:
         # Keep the existing arithmetic-only diagnostic for historical consumers.
         # It is never PM/CAS authority; the new proof below is independently checked.

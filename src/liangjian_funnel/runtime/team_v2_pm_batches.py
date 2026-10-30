@@ -33,16 +33,19 @@ def aggregate_pm_outputs(outputs,*,catalog,plan_refs,context):
 
 def run_pm_batches(*,run_one,arguments,all_values,shortlist,plan_refs):
     args=dict(arguments);store=args['store'];clock=args['clock'];day=args['trade_date']
-    deadline=args.get('deadline_at') or datetime.combine(datetime.fromisoformat(day).date(),time(8,45),TZ)
+    from .morning_window_authority import morning_deadline
+    authorized=morning_deadline(day,args['source_trade_date'],authorization=args.get('window_authorization'))
+    deadline=args.get('deadline_at') or authorized
     if (deadline.utcoffset() is None or deadline.astimezone(TZ).date().isoformat()!=day
-            or deadline>datetime.combine(datetime.fromisoformat(day).date(),time(8,45),TZ)):
+            or deadline>authorized):
         raise ValueError('PM_BATCH_DEADLINE_INVALID')
     ids=shortlist['selected_plan_ids'];capacity=2*args['max_positions']
     batches=[ids[i:i+capacity] for i in range(0,len(ids),capacity)]
     signature=digest(dict(source_input=all_values,shortlist=shortlist,account_id=args['account_id'],
         run_id=args['run_id'],call_id=args['call_id'],source_day=args['source_trade_date'],day=day,
         envelopes=[asdict(e) for e in args['envelopes']],clusters=args['plan_clusters'],free_slots=args['free_slots'],
-        baseline=args['baseline_range'],utilization_cap=args['utilization_cap'],deadline=deadline.isoformat()))
+        baseline=args['baseline_range'],utilization_cap=args['utilization_cap'],deadline=deadline.isoformat(),
+        **({'window_authorization':args['window_authorization']}if args.get('window_authorization')is not None else {})))
     previous=store.load_pm(args['meeting_id'],input_sha256=signature)
     if previous is not None:return previous
     pool=ThreadPoolExecutor(max_workers=len(batches),thread_name_prefix='pm-frozen-batch')
@@ -121,6 +124,7 @@ def run_pm_batches(*,run_one,arguments,all_values,shortlist,plan_refs):
         model_validation_scope='REVIEWED_BATCHES_ONLY',review_completeness='PARTIAL_TIME_BUDGET' if unreviewed else 'COMPLETE',
         reason_codes=['PM_BATCH_FAILED'] if failed else ['PM_NOT_REVIEWED_TIME_BUDGET'] if unreviewed else [],
         batch_audit=dict(version='pm-batches/1',deadline_at=deadline.isoformat(),parallel=True,capacity=capacity,
+            **({'window_authorization':dict(args['window_authorization'])}if args.get('window_authorization')is not None else {}),
             cutoff_observed_at=clock().isoformat(),
             expected_plan_ids=ids,batches=audit,reviewed_plan_ids=[pid for pid in ids if pid in reviewed],
             unreviewed_plan_ids=unreviewed,actual_call_ids=[row['call_id'] for row in audit if row['call_id'] in {r['call_id'] for r in futures.values()}],
