@@ -3411,6 +3411,7 @@ class WorkflowApplication:
         same_day_recovery: bool = False,
         auction_refresh: bool = False,
         frozen_a2_stock_news: BoundObject | None = None,
+        closed_recovery_resume=None,
         regeneration=None,
         _research_update=None,
     ) -> dict[str, Any]:
@@ -3436,9 +3437,23 @@ class WorkflowApplication:
                 and not allow_non_trading_source and frozen_a2_stock_news is None):
             raise WorkflowError('MARKET_DATA_AS_OF_REQUIRES_NEXT_SESSION_PREP')
         formal_close_session = None
+        if closed_recovery_resume is not None:
+            from .runtime.closed_recovery_resume import require_arguments,require_window
+            require_arguments(closed_recovery_resume,slot=normalized_slot,as_of=as_of,
+                historical_replay=historical_replay,comparison_run=comparison_run,
+                primary_only=primary_only,from_active_a1=from_active_a1,publish_plans=publish_plans,
+                record_runtime=record_runtime,run_id=run_id_override,snapshot_id=snapshot_id,
+                snapshot_expected_hash=snapshot_expected_hash,active_a1_generation_id=active_a1_generation_id,
+                regeneration=regeneration,research_update=_research_update,frozen_a2_stock_news=frozen_a2_stock_news,
+                target_trade_date=target_trade_date,market_data_as_of=market_data_as_of,
+                schedule_comparison=schedule_comparison,allow_non_trading_source=allow_non_trading_source,
+                auction_refresh=auction_refresh,same_day_recovery=same_day_recovery,models=models,
+                primary_lane_ids=primary_lane_ids)
+            formal_close_session=require_window(closed_recovery_resume,self.trading_calendar,now=current)
+            market_data_as_of=formal_close_session.market_close
         if (normalized_slot=='close' and as_of is None and regeneration is None and frozen_a2_stock_news is None
                 and not historical_replay and not comparison_run and target_trade_date is None
-                and not allow_non_trading_source and _research_update is None):
+                and not allow_non_trading_source and _research_update is None and closed_recovery_resume is None):
             from .runtime.calendar import closed_research_session
             formal_close_session=closed_research_session(current,self.trading_calendar)
             if current.date()!=formal_close_session.source_trade_date:
@@ -3621,7 +3636,11 @@ class WorkflowApplication:
         _progress_stdout(progress.snapshot())
         if (configured_team_research is True and normalized_slot=='close' and publish_plans
                 and record_runtime and not historical_replay and not comparison_run and not auction_refresh):
-            self._ensure_daily_a1(datetime.now(SHANGHAI) if regeneration is not None or formal_close_session is not None else current)
+            if closed_recovery_resume is None:
+                self._ensure_daily_a1(datetime.now(SHANGHAI) if regeneration is not None or formal_close_session is not None else current)
+            else:
+                from .runtime.closed_recovery_resume import require_generation
+                require_generation(self,closed_recovery_resume,now=datetime.now(SHANGHAI))
             # The natural close must actually consume the just-verified daily
             # pointer. An explicit older sealed ID is not a freshness bypass.
             daily_active=self.a1_registry.get_active_generation()
@@ -3638,7 +3657,10 @@ class WorkflowApplication:
                 # snapshot.  A close without a current A1 must fail closed
                 # rather than doing work that could be mistaken for an
                 # implicit A1 refresh.
-                if _research_update is not None:
+                if closed_recovery_resume is not None:
+                    from .runtime.closed_recovery_resume import require_generation
+                    active_a1_generation=require_generation(self,closed_recovery_resume,now=datetime.now(SHANGHAI))
+                elif _research_update is not None:
                     from .runtime.research_update import require_active_generation
                     active_a1_generation = require_active_generation(self, _research_update)
                 elif active_a1_generation_id:
@@ -3667,7 +3689,10 @@ class WorkflowApplication:
                 _progress_stdout(progress.snapshot())
                 raise WorkflowError(exc.reason_code) from exc
         try:
-            if _research_update is not None:
+            if closed_recovery_resume is not None:
+                from .runtime.closed_recovery_resume import load_seed
+                prepared=load_seed(self,closed_recovery_resume,now=datetime.now(SHANGHAI))
+            elif _research_update is not None:
                 from .runtime.research_update import load_bound_seed
                 prepared = load_bound_seed(self, _research_update, now=datetime.now(SHANGHAI))
                 market_data_as_of = _aware(datetime.fromisoformat(
@@ -3745,6 +3770,10 @@ class WorkflowApplication:
         if close_budget is not None:close_budget.enter_research()
         run_id = run_id_override or f"{current.date()}-{normalized_slot}-{prepared.snapshot.snapshot_hash[:12]}"
         stage_enricher = self._stage_snapshot_enricher
+        if closed_recovery_resume is not None:
+            from .pipeline.research_overlay_resume import make_a2_stock_news_enricher
+            stage_enricher=make_a2_stock_news_enricher(proof=closed_recovery_resume.news,
+                prepared_snapshot=prepared.snapshot,expected_base_hash=snapshot_expected_hash,fallback=stage_enricher)
         if frozen_a2_stock_news is not None:
             from .pipeline.research_overlay_resume import make_a2_stock_news_enricher
             stage_enricher=make_a2_stock_news_enricher(proof=frozen_a2_stock_news,
@@ -3866,8 +3895,13 @@ class WorkflowApplication:
             regeneration_raw_pass=require_raw_research_pass(result,primary_lane_id)
             require_regeneration_publication_window(regeneration,self.trading_calendar,now=datetime.now(SHANGHAI))
         if formal_close_session is not None:
-            from .runtime.calendar import closed_research_session
-            final_session=closed_research_session(datetime.now(SHANGHAI),self.trading_calendar)
+            if closed_recovery_resume is not None:
+                from .runtime.closed_recovery_resume import load_seed,require_window
+                load_seed(self,closed_recovery_resume,now=datetime.now(SHANGHAI),prepared=prepared)
+                final_session=require_window(closed_recovery_resume,self.trading_calendar,now=datetime.now(SHANGHAI))
+            else:
+                from .runtime.calendar import closed_research_session
+                final_session=closed_research_session(datetime.now(SHANGHAI),self.trading_calendar)
             if final_session.source_trade_date!=formal_close_session.source_trade_date:
                 raise WorkflowError('CLOSE_RESEARCH_SOURCE_SESSION_CHANGED')
         if _research_update is not None:
