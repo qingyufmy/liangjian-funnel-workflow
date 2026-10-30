@@ -114,10 +114,6 @@ def validate_bundle(body):
             or source.get('trade_date') != body['trade_date'] or source.get('lane_id') != body['lane_id']
             or not isinstance(source.get('plan_rows'), list)):
         _fail('REVIEWED_BATCH_ENGINE_SCOPE_INVALID')
-    if body.get('morning_window_authorization')is not None or engine.get('morning_window_authorization')is not None:
-        from .morning_window_authority import morning_deadline
-        if body.get('morning_window_authorization')!=engine.get('morning_window_authorization'):_fail('REVIEWED_BATCH_MORNING_AUTHORITY_CONFLICT')
-        morning_deadline(body['trade_date'],source.get('source_trade_date'),authorization=engine['morning_window_authorization'],source=source)
     source_rows = source['plan_rows']
     if hashlib.sha256(canonical(source_rows).encode()).hexdigest() != source.get('plan_rowset_sha256'):
         _fail('REVIEWED_BATCH_ENGINE_ROWSET_CONFLICT')
@@ -216,11 +212,7 @@ def commit_reviewed_batch_switch(store, scope_id, *, expected_old_rows_sha256,
         if hashlib.sha256(stored['body_json'].encode()).hexdigest() != stored['bundle_sha256']:
             _fail('REVIEWED_BATCH_HASH_CONFLICT')
         body = validate_bundle(json.loads(stored['body_json']))
-        deadline=datetime.combine(wall.date(),time(9,26),wall.tzinfo)
-        if body.get('morning_window_authorization')is not None:
-            from .morning_window_authority import morning_deadline
-            deadline=morning_deadline(body['trade_date'],body['engine']['source'].get('source_trade_date'),authorization=body['morning_window_authorization'],source=body['engine']['source'])
-        if wall.date().isoformat() != body['trade_date'] or wall>=deadline:
+        if wall.date().isoformat() != body['trade_date'] or wall.time().replace(tzinfo=None) >= time(9, 26):
             _fail('REVIEWED_BATCH_PRE_AUCTION_WINDOW_CLOSED')
         pointer = db.execute('SELECT * FROM active_reviewed_batch_scope WHERE account_id=? AND trade_date=?',
             (body['account_id'], body['trade_date'])).fetchone()

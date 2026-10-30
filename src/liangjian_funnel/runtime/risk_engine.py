@@ -349,26 +349,19 @@ def build_risk_envelope(plan: PlanRisk, account: AccountRisk, positions: tuple[P
 def build_planning_envelope(plan: PlanRisk, account: AccountRisk, positions: tuple[PositionRisk, ...],
                             limits: RiskLimits, *, now: datetime, regime: str,
                             cluster_signals_today: int = 0, high_conviction: bool = False,
-                            a6_tightened: bool = False, window_authorization=None,
-                            window_source=None) -> RiskEnvelope:
+                            a6_tightened: bool = False) -> RiskEnvelope:
     """Prospective capacity for the morning meeting, NEVER a trading permission.
 
     No plan is activated or repriced. Reference-price size is provisional;
     execution must build a fresh current-quote envelope after morning review.
     """
-    planning_deadline=None
-    if window_authorization is not None:
-        from .morning_window_authority import morning_deadline
-        if window_source is None:raise ValueError('PLANNING_MORNING_AUTHORITY_SOURCE_REQUIRED')
-        planning_deadline=morning_deadline(now.date().isoformat(),window_source['source_trade_date'],
-            authorization=window_authorization,source=window_source,now=now)
     return _build_envelope(plan, account, positions, limits, now=now, regime=regime,
         cluster_signals_today=cluster_signals_today, high_conviction=high_conviction,
-        a6_tightened=a6_tightened, action="BUY_SIGNAL", purpose="PLANNING",planning_deadline=planning_deadline)
+        a6_tightened=a6_tightened, action="BUY_SIGNAL", purpose="PLANNING")
 
 
 def _build_envelope(plan, account, positions, limits, *, now, regime, cluster_signals_today,
-                     high_conviction, a6_tightened, action, purpose,planning_deadline=None):
+                     high_conviction, a6_tightened, action, purpose):
     if type(high_conviction) is not bool or type(a6_tightened) is not bool:
         raise ValueError("RISK_FLAG_INVALID")
     now = _aware(now); reasons: list[str] = []
@@ -381,7 +374,7 @@ def _build_envelope(plan, account, positions, limits, *, now, regime, cluster_si
     if _aware(plan.expires_at).date() != now.date(): reasons.append("PLAN_DATE_MISMATCH")
     if planning and plan.valid_from is not None and (_aware(plan.valid_from).date() != now.date() or plan.valid_from >= plan.expires_at):
         reasons.append("PLAN_DATE_MISMATCH")
-    if planning and (now.time().replace(tzinfo=None) >= time(9, 30) if planning_deadline is None else now>=planning_deadline):
+    if planning and now.time().replace(tzinfo=None) >= time(9, 30):
         reasons.append("PLANNING_WINDOW_CLOSED")
     if not plan.tradable: reasons.append("NOT_TRADABLE")
     if not plan.data_ready: reasons.append("DATA_NOT_READY")

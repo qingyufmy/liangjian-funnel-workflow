@@ -137,10 +137,6 @@ def _a6(team, models, *, meeting_id, scope_id, account_id, day, engine):
     captured, raw, catalog = _original_call(models, call_id=row['source_call_id'], role='A6', session='PREMARKET',
         day=day, source_day=source['source_trade_date'], rowset_sha=source['plan_rowset_sha256'], risk_sha=engine['risk_limits_sha256'], allow_effective_a6=team.execute(
             "SELECT 1 FROM control_minute_context WHERE decision_id=?",('a6-effective-review:'+meeting_id,)).fetchone() is not None)
-    if engine.get('morning_window_authorization') is not None:
-        from .morning_window_authority import morning_deadline
-        cutoff=morning_deadline(day,source['source_trade_date'],authorization=engine['morning_window_authorization'],source=source)
-        _require(datetime.fromisoformat(captured['captured_at'])<cutoff,'A6_CAPTURE_AFTER_DEADLINE')
     from .a6_effective_review import rebuild_effective_review
     effective, effective_proof = rebuild_effective_review(team, meeting_id=meeting_id,
         captured=captured, raw=raw, catalog=catalog, engine=engine)
@@ -167,11 +163,10 @@ def _a6(team, models, *, meeting_id, scope_id, account_id, day, engine):
     return result, evidence, captured['run_id']
 
 
-def _pm_deadline_in_session(deadline,day,*,authorization=None,source=None):
+def _pm_deadline_in_session(deadline,day):
     if not isinstance(deadline,datetime) or deadline.utcoffset() is None:return False
     local=deadline.astimezone(ZoneInfo('Asia/Shanghai'))
-    from .morning_window_authority import morning_deadline
-    cutoff=morning_deadline(day,source.get('source_trade_date')if source else None,authorization=authorization,source=source)
+    cutoff=datetime.fromisoformat(day+'T08:45:00+08:00')
     return local.date().isoformat()==day and local<=cutoff
 
 
@@ -197,7 +192,7 @@ def _pm(team, models, *, meeting_id, scope_id, account_id, day, engine, risk, re
         and result.get('server_projection', {}).get('raw_output_sha256') == captured['output_hash'], 'PM_MODEL_INPUT_OR_RAW_CONFLICT')
     if result.get('deadline_audit'):
         deadline=datetime.fromisoformat(result['deadline_audit']['deadline_at'])
-        _require(_pm_deadline_in_session(deadline,day,authorization=result['deadline_audit'].get('window_authorization'),source=source) and engine.get('morning_window_authorization')==result['deadline_audit'].get('window_authorization') and datetime.fromisoformat(captured['captured_at'])<deadline,
+        _require(_pm_deadline_in_session(deadline,day) and datetime.fromisoformat(captured['captured_at'])<deadline,
             'PM_CAPTURE_AFTER_DEADLINE')
     plan_refs = _catalog_plans(catalog, source['plan_rows'], complete=False)
     from .team_v2_morning import _envelopes
@@ -241,7 +236,7 @@ def _pm_batches(team,models,*,row,result,scope_id,account_id,day,engine,risk,rev
     _require(audit.get('version')=='pm-batches/1' and audit.get('parallel') is True
         and audit.get('expected_plan_ids')==expected and audit.get('capacity')==capacity,'PM_BATCH_DOMAIN_CONFLICT')
     deadline=datetime.fromisoformat(audit['deadline_at'])
-    _require(_pm_deadline_in_session(deadline,day,authorization=audit.get('window_authorization'),source=source) and engine.get('morning_window_authorization')==audit.get('window_authorization'),'PM_BATCH_DEADLINE_CONFLICT')
+    _require(_pm_deadline_in_session(deadline,day),'PM_BATCH_DEADLINE_CONFLICT')
     groups=[expected[i:i+capacity] for i in range(0,len(expected),capacity)]
     batches=audit.get('batches',[])
     _require(len(batches)==len(groups),'PM_BATCH_PARTITION_CONFLICT')
@@ -370,7 +365,6 @@ def build_reviewed_batch_evidence(*, isolated_root=None, review_root=None, sourc
             if natural is not None:
                 body.update(review_source_namespace='NATURAL_MORNING',natural_candidate=dict(scope_id=scope_id,
                     body_sha256=natural['body_sha256'],revision=natural['revision']))
-            if engine.get('morning_window_authorization')is not None:body['morning_window_authorization']=engine['morning_window_authorization']
             from .reviewed_batch_switch import validate_bundle
             return validate_bundle(body)
     except sqlite3.Error as exc:
