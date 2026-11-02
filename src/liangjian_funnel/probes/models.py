@@ -25,12 +25,12 @@ class ModelProbe:
         self.settings = settings
         self.transport = transport
 
-    def run(self, *, now: datetime | None = None) -> CapabilityReport:
+    def run(self, *, now: datetime | None = None, models: tuple[str, ...] = ALL_MODELS) -> CapabilityReport:
         current = now or datetime.now(ZoneInfo(self.settings.timezone))
         if self.settings.model_api_key is None:
             checks = tuple(
                 CapabilityCheck(name=model, status=CapabilityStatus.BLOCKED, reason_code="MODEL_API_KEY_MISSING")
-                for model in ALL_MODELS
+                for model in models
             )
             return CapabilityReport(provider="MODEL_GATEWAY", generated_at=current, overall_status=CapabilityStatus.BLOCKED, checks=checks)
         key = self.settings.model_api_key.get_secret_value()
@@ -41,7 +41,7 @@ class ModelProbe:
             trust_env=False,
             headers={"Authorization": f"Bearer {key}", "Accept": "application/json", "Content-Type": "application/json"},
         ) as client:
-            checks = tuple(self._probe_model(client, model) for model in ALL_MODELS)
+            checks = tuple(self._probe_model(client, model) for model in models)
         overall = CapabilityStatus.PASS if all(check.status is CapabilityStatus.PASS for check in checks) else CapabilityStatus.BLOCKED
         return CapabilityReport(provider="MODEL_GATEWAY", generated_at=current, overall_status=overall, checks=checks)
 

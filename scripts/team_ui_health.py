@@ -185,6 +185,7 @@ def ops_history(root,day):
     return dict(status='AVAILABLE',events=events,captured_at=captured,reason=None,source_basis='OPS_ATTESTED_ORIGINAL_METADATA_NOT_API_REPLAY')
 
 def project_health(root,day,connect):
+    root = root.resolve()
     meetings=meeting_events(root,day,connect)
     try:logs=node_events(root,day)
     except (OSError,ValueError,TypeError):logs=dict(status='MISSING_SOURCE',events=[],complete=False,reason='NODE_LOG_UNREADABLE')

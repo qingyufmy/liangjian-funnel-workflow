@@ -67,6 +67,7 @@ class SourceDatabaseMissing(FileNotFoundError):
 
 
 def connect(root, relative):
+    root = root.resolve()
     try:
         path = (root / relative).resolve(strict=True)
     except FileNotFoundError:

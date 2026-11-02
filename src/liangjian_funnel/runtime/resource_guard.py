@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -57,7 +58,7 @@ def measure_resources(path: str | Path) -> ResourceSnapshot:
     peak = _peak_rss_raw()
     # Linux reports KiB; macOS reports bytes. Windows does not expose this
     # module path in production, but retain a conservative conversion.
-    peak_mb = peak / (1024 * 1024) if peak > 10**9 else peak / 1024
+    peak_mb = _rss_mb(peak)
     mem_available, swap_used = _linux_memory()
     return ResourceSnapshot(
         rss_current_mb=current_rss,
@@ -97,7 +98,13 @@ def _current_rss_mb() -> float:
         return resident_pages * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
     except (OSError, ValueError, IndexError, AttributeError):
         peak = _peak_rss_raw()
-        return peak / (1024 * 1024) if peak > 10**9 else peak / 1024
+        return _rss_mb(peak)
+
+
+def _rss_mb(raw: float) -> float:
+    # Units depend on the OS, never on the size of the process. A small Mac
+    # process otherwise appears 1024 times larger and blocks every A1 run.
+    return raw / (1024 * 1024 if sys.platform == 'darwin' else 1024)
 
 
 def _peak_rss_raw() -> float:

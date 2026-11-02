@@ -44,6 +44,7 @@ def git_head(root):
     raise ValueError('RUNTIME_HEAD_UNKNOWN')
 
 def read_runtime_receipt(root,query):
+    root = root.resolve()
     missing={'status':'UNVERIFIED','missing_reason':'RUNTIME_RECEIPT_UNAVAILABLE'}
     try:
         runtime=query.get('_runtime') or {};pid=runtime.get('pid');ticks=runtime.get('process_start_ticks')

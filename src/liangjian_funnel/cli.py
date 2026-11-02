@@ -790,7 +790,11 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
     if args.command in {"probe-hithink", "probe-all"}:
         reports.append(HithinkProbe(active).run())
     if args.command in {"probe-models", "probe-all"}:
-        reports.append(ModelProbe(active).run())
+        # Gate configured production roles; legacy transport-only models must
+        # not block an otherwise healthy DeepSeek deployment.
+        models = tuple(dict.fromkeys((*active.research_models, active.review_model,
+                                      active.monitor_model, active.team_intraday_model)))
+        reports.append(ModelProbe(active).run(models=models))
     if args.command in {"probe-mootdx", "probe-all"}:
         reports.append(MootdxProbe(active).run())
     active.output_dir.mkdir(parents=True, exist_ok=True)
