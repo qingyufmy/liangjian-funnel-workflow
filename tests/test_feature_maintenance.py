@@ -242,12 +242,12 @@ def test_full_maintenance_fails_before_generation_write_when_watermark_blocks(
     assert not settings.feature_store_db_path.exists()
 
 
-@pytest.mark.parametrize("percent,allowed", [(4.99,False),(5.00,True),(5.01,True)])
+@pytest.mark.parametrize("percent,allowed", [(1.99,False),(2.00,True),(2.01,True)])
 def test_full_maintenance_uses_configured_ratio_boundary(tmp_path, monkeypatch, percent, allowed):
     from decimal import Decimal
     import shutil
     settings = _settings(tmp_path)
-    total = 200 * 1024**3
+    total = 500 * 1024**3
     free = int(Decimal(total) * Decimal(str(percent)) / 100)
     monkeypatch.setattr(shutil, "disk_usage", lambda _: SimpleNamespace(
         total=total, used=total-free, free=free))

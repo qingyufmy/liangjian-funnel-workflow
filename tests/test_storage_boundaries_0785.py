@@ -12,17 +12,17 @@ def _resources(*, ratio, free_mb):
     return ResourceSnapshot(100,100,2048,0,free_mb,ratio,10)
 
 
-@pytest.mark.parametrize('ratio,allowed', [('0.0499',False),('0.0500',True),('0.0501',True)])
-def test_separate_existing_guards_at_five_percent(tmp_path,ratio,allowed):
-    total=200*1024**3
+@pytest.mark.parametrize('ratio,allowed', [('0.0199',False),('0.0200',True),('0.0201',True)])
+def test_separate_existing_guards_at_two_percent(tmp_path,ratio,allowed):
+    total=500*1024**3
     free=int(Decimal(total)*Decimal(ratio))
     watermark=evaluate_disk_watermark(tmp_path,
         usage=SimpleNamespace(total=total,used=total-free,free=free))
     assert watermark.full_rebuild_allowed is allowed
     assert watermark.incremental_write_allowed is allowed
     assert watermark.research_write_allowed is allowed
-    assert watermark.as_dict()['thresholds']['critical_free_percent']==5.0
-    assert watermark.as_dict()['thresholds']['block_free_percent']==5.0
+    assert watermark.as_dict()['thresholds']['critical_free_percent']==2.0
+    assert watermark.as_dict()['thresholds']['block_free_percent']==2.0
     decision=evaluate_resources(tmp_path,
         probe=lambda _: _resources(ratio=float(ratio),free_mb=free/1024**2))
     assert decision.allowed is allowed

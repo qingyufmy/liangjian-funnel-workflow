@@ -27,7 +27,7 @@ from liangjian_funnel.settings import Settings
 
 
 def _usage(free_percent: float) -> SimpleNamespace:
-    total = 100 * 1024 * 1024 * 1024
+    total = 1000 * 1024 * 1024 * 1024
     free = int(total * free_percent / 100)
     return SimpleNamespace(total=total, used=total - free, free=free)
 
@@ -42,9 +42,9 @@ def _usage(free_percent: float) -> SimpleNamespace:
         (12.0, "WARNING", True, True, True),
         (10.0, "WARNING", True, True, True),
         (9.0, "WARNING", True, True, True),
-        (4.99, "BLOCKED", False, False, False),
-        (5.00, "WARNING", True, True, True),
-        (5.01, "WARNING", True, True, True),
+        (1.99, "BLOCKED", False, False, False),
+        (2.00, "WARNING", True, True, True),
+        (2.01, "WARNING", True, True, True),
     ),
 )
 def test_disk_watermark_contract(
@@ -64,8 +64,8 @@ def test_disk_watermark_contract(
     assert result.read_only_allowed is True
     assert result.as_dict()["thresholds"] == {
         "warning_free_percent": 25.0,
-        "critical_free_percent": 5.0,
-        "block_free_percent": 5.0,
+        "critical_free_percent": 2.0,
+        "block_free_percent": 2.0,
         "full_rebuild_min_free_bytes": 5 * 1024 * 1024 * 1024,
     }
 
