@@ -19,12 +19,31 @@ from .rotation_theme import build_membership_snapshot, unavailable_membership_sn
 SOURCE = 'HITHINK_THS_API'
 
 
-def maintain_configured_references(settings, *, now):
+def maintain_configured_references(settings, *, now, override_expires_at=None,
+                                   override_reason=None, override_run_id=None):
     """Use the existing off-hours maintenance schedule; never A4's hot path."""
     if getattr(settings, 'rotation_membership_source', 'EASTMONEY') != 'LOCAL_REFERENCE':
         return {'status': 'NOOP', 'reason_code': 'LOCAL_REFERENCE_NOT_ENABLED'}
     from datetime import time
-    if now.weekday() < 5 and time(6) <= now.time().replace(tzinfo=None) < time(16, 30):
+    from zoneinfo import ZoneInfo
+    now = aware(now).astimezone(ZoneInfo('Asia/Shanghai'))
+    audit = None
+    supplied = any(v is not None for v in (override_expires_at, override_reason, override_run_id))
+    if supplied:
+        valid = (isinstance(override_expires_at, datetime) and override_expires_at.tzinfo is not None
+                 and override_expires_at.utcoffset() is not None
+                 and isinstance(override_reason, str) and 1 <= len(override_reason.strip()) <= 500
+                 and isinstance(override_run_id, str)
+                 and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', override_run_id))
+        if not valid:
+            return {'status': 'BLOCKED', 'reason_code': 'REFERENCE_OVERRIDE_INVALID'}
+        expiry = override_expires_at.astimezone(ZoneInfo('Asia/Shanghai'))
+        if expiry.date() != now.date() or not 360 <= (expiry-now).total_seconds() <= 3600:
+            return {'status': 'BLOCKED', 'reason_code': 'REFERENCE_OVERRIDE_WINDOW_INVALID'}
+        audit = {'run_id': override_run_id, 'reason': override_reason.strip(),
+                 'claimed_at': now.isoformat(), 'expires_at': expiry.isoformat(),
+                 'scope': 'ONE_MAINTENANCE_INVOCATION', 'default_gate_unchanged': True}
+    if now.weekday() < 5 and time(6) <= now.time().replace(tzinfo=None) < time(16, 30) and audit is None:
         return {'status': 'BLOCKED', 'reason_code': 'REFERENCE_REFRESH_TRADING_PREPARATION_PROTECTED'}
     import subprocess
     import sys
@@ -33,19 +52,39 @@ def maintain_configured_references(settings, *, now):
     command = [sys.executable, str(settings.root / 'scripts/collect_hithink_board_references.py'),
         '--env-root', str(settings.root), '--output-dir', str(directory), '--bindings', str(bindings),
         '--registry', str(settings.rotation_theme_registry_path), '--max-requests', '100', '--deadline-seconds', '300']
+    # The collector defaults to SHADOW for standalone probes. Native maintenance
+    # must identify its real scope, including the one-use approval receipt.
+    command += ['--execution-scope', 'PRODUCTION_MAINTENANCE']
+    if audit is not None:
+        receipt = settings.root / 'outputs' / f't8-reference-override-{override_run_id}.json'
+        try:
+            receipt.parent.mkdir(parents=True, exist_ok=True)
+            with receipt.open('x', encoding='utf-8') as handle:
+                json.dump(audit, handle, ensure_ascii=False, indent=2)
+        except FileExistsError:
+            return {'status': 'BLOCKED', 'reason_code': 'REFERENCE_OVERRIDE_ALREADY_CONSUMED'}
+        except OSError:
+            return {'status': 'BLOCKED', 'reason_code': 'REFERENCE_OVERRIDE_AUDIT_FAILED'}
+        command += ['--maintenance-receipt', str(receipt)]
+        audit = {**audit, 'receipt': str(receipt)}
+    def outcome(value):
+        return {**value, 'override': audit} if audit else value
     try:
-        result = subprocess.run(command, cwd=settings.root, capture_output=True, text=True, timeout=360)
+        import os
+        env = {k: v for k, v in os.environ.items() if not k.upper().endswith('_PROXY')}
+        env['TZ'] = 'Asia/Shanghai'
+        result = subprocess.run(command, cwd=settings.root, capture_output=True, text=True, timeout=360, env=env)
         # Never persist stderr: transport diagnostics could contain credentials.
         summary = json.loads(result.stdout)
         ready = (result.returncode == 0 and summary.get('qualified_themes') == summary.get('theme_count')
                  and isinstance(summary.get('theme_count'), int) and summary['theme_count'] > 0)
-        return {'status': 'READY' if ready else 'DEGRADED', 'reason_code': 'OK' if ready else 'REFERENCE_REFRESH_INCOMPLETE',
+        return outcome({'status': 'READY' if ready else 'DEGRADED', 'reason_code': 'OK' if ready else 'REFERENCE_REFRESH_INCOMPLETE',
                 'exit_code': result.returncode, 'qualified_themes': summary.get('qualified_themes'),
-                'theme_count': summary.get('theme_count'), 'requests': summary.get('requests'), 'report': summary.get('report')}
+                'theme_count': summary.get('theme_count'), 'requests': summary.get('requests'), 'report': summary.get('report')})
     except subprocess.TimeoutExpired:
-        return {'status': 'BLOCKED', 'reason_code': 'REFERENCE_REFRESH_DEADLINE_EXCEEDED'}
+        return outcome({'status': 'BLOCKED', 'reason_code': 'REFERENCE_REFRESH_DEADLINE_EXCEEDED'})
     except (OSError, ValueError, TypeError):
-        return {'status': 'BLOCKED', 'reason_code': 'REFERENCE_REFRESH_FAILED'}
+        return outcome({'status': 'BLOCKED', 'reason_code': 'REFERENCE_REFRESH_FAILED'})
 
 
 def binding_components(binding):

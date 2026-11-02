@@ -24,6 +24,8 @@ def main():
     p.add_argument('--max-requests', type=int, default=40)
     p.add_argument('--deadline-seconds', type=int, default=180)
     p.add_argument('--catalog-only', action='store_true')
+    p.add_argument('--execution-scope', choices=('SHADOW', 'PRODUCTION_MAINTENANCE'), default='SHADOW')
+    p.add_argument('--maintenance-receipt', type=Path)
     args = p.parse_args()
     if not 1 <= args.refresh_days <= 14 or not 1 <= args.max_requests <= 100 or args.deadline_seconds <= 0:
         p.error('invalid bounded refresh policy')
@@ -69,8 +71,10 @@ def main():
                 else:
                     audits.append({'board_id': code, 'failure': 'REFERENCE_CATALOG_UNAVAILABLE'})
     projected = load_rotation_references(args.output_dir, bindings, sorted(known), as_of=now())
-    report = {'observed_at': now().isoformat(), 'execution_scope': 'SHADOW',
-        'production_publish_forbidden': True, 'requests': calls, 'attempts': audits,
+    report = {'observed_at': now().isoformat(), 'execution_scope': args.execution_scope,
+        'production_publish_forbidden': args.execution_scope == 'SHADOW',
+        'maintenance_receipt': str(args.maintenance_receipt) if args.maintenance_receipt else None,
+        'requests': calls, 'attempts': audits,
         'bindings_hash': digest(bindings), 'catalog_counts': {k: len(v.get('records', [])) for k,v in catalogs.items()},
         'theme_count': len(known), 'qualified_theme_count': sum(v['available'] for v in projected.values()),
         'unavailable_themes': {k: v['reason_code'] for k,v in projected.items() if not v['available']},

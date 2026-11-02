@@ -29,7 +29,8 @@ def test_maintenance_is_bounded_off_hours_and_cannot_hide_partial_refresh(tmp_pa
     assert blocked['status'] == 'BLOCKED' and not calls
     partial = maintain_configured_references(settings, now=NOW.replace(hour=3))
     assert partial['status'] == 'DEGRADED'
-    assert calls[0][1]['timeout'] == 360 and calls[0][0][-1] == '300'
+    assert calls[0][1]['timeout'] == 360
+    assert calls[0][0][calls[0][0].index('--deadline-seconds')+1] == '300'
 
 
 def test_explicit_composite_requires_every_component_and_preserves_lineage(tmp_path):
