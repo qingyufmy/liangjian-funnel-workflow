@@ -390,12 +390,24 @@ class A1CoverageLedger:
             except Exception:
                 connection.rollback()
                 raise
-            placeholders = ",".join("?" for _ in keys)
+            # Full-market runs produce more keys than SQLITE_MAX_VARIABLE_NUMBER
+            # (32766 on stock builds).  Stage them in a connection-local temp
+            # table so the projection query keeps its exact IN/ORDER BY
+            # semantics without one bound variable per key.
+            connection.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS _a1_coverage_record_keys(coverage_key TEXT PRIMARY KEY)"
+            )
+            connection.execute("DELETE FROM temp._a1_coverage_record_keys")
+            connection.executemany(
+                "INSERT OR IGNORE INTO temp._a1_coverage_record_keys(coverage_key) VALUES (?)",
+                ((key,) for key in keys),
+            )
             rows = connection.execute(
-                f"SELECT * FROM a1_coverage_projection WHERE coverage_key IN ({placeholders}) "
-                "ORDER BY symbol,dataset,field,report_period,source_version",
-                keys,
+                "SELECT * FROM a1_coverage_projection WHERE coverage_key IN "
+                "(SELECT coverage_key FROM temp._a1_coverage_record_keys) "
+                "ORDER BY symbol,dataset,field,report_period,source_version"
             ).fetchall()
+            connection.execute("DROP TABLE temp._a1_coverage_record_keys")
         return tuple(dict(row) for row in rows)
 
     def get(self, coverage_key: str) -> dict[str, Any] | None:
