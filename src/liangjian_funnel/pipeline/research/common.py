@@ -4481,6 +4481,25 @@ def _restrict_snapshot_to_symbols(
     for key in ("RISK_EVENTS", "DISCLOSURE_EVENTS"):
         value = data.get(key)
         if isinstance(value, Mapping):
+            # Official event snapshots wrap symbol rows in ``by_symbol``.
+            # Treating the wrapper keys as symbols silently erased both
+            # catalyst evidence and hard-risk events on incremental runs.
+            by_symbol = value.get("by_symbol")
+            if isinstance(by_symbol, Mapping):
+                projected = dict(value)
+                projected["by_symbol"] = {
+                    str(symbol): item
+                    for symbol, item in by_symbol.items()
+                    if str(symbol).strip().upper() in allowed
+                }
+                confirmed = value.get("query_confirmed_symbols")
+                if isinstance(confirmed, list):
+                    projected["query_confirmed_symbols"] = [
+                        symbol for symbol in confirmed
+                        if str(symbol).strip().upper() in allowed
+                    ]
+                data[key] = projected
+                continue
             records = value.get("records")
             if isinstance(records, Sequence) and not isinstance(records, (str, bytes, bytearray)):
                 projected = dict(value)
