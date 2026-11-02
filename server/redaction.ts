@@ -5,6 +5,7 @@ const PRIVATE_CONTENT_KEY = /^(?:reasoning(?:_content)?|thinking(?:_content)?|ch
 
 export function redactText(value: string, maxLength = 16_384): string {
   let redacted = value;
+  redacted = redacted.replace(/(?:https?:\/\/)?open\.(?:feishu\.cn|larksuite\.com)\/open-apis\/bot\/v2\/hook\/[^\s<>"']+/gi, "[REDACTED_WEBHOOK]");
   redacted = redacted.replace(/(authorization\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi, "$1[REDACTED]");
   redacted = redacted.replace(/(bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[REDACTED]");
   redacted = redacted.replace(/\bsk-[A-Za-z0-9][A-Za-z0-9_-]*/g, "sk-[REDACTED]");

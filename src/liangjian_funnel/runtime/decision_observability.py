@@ -19,6 +19,7 @@ from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit, urlunsplit
 
 from ..pipeline.outcomes import JobLifecycleState, OpportunityState
+from ..redaction import redact_text
 
 
 OBSERVABILITY_SCHEMA_VERSION = "decision-observability/1.0.0"
@@ -279,7 +280,7 @@ def redact_observability(value: Any) -> Any:
             if lowered in _SECRET_KEYS or any(token in lowered for token in ("credential", "private_key")):
                 result[key] = "[REDACTED]"
             elif lowered in {"url", "uri", "endpoint"} and isinstance(raw_value, str):
-                result[key] = _without_query(raw_value)[:500]
+                result[key] = redact_text(_without_query(raw_value))[:500]
             else:
                 result[key] = redact_observability(raw_value)
         return result
@@ -288,7 +289,7 @@ def redact_observability(value: Any) -> Any:
     if isinstance(value, str):
         if value.lower().startswith("bearer "):
             return "[REDACTED]"
-        return value[:1000]
+        return redact_text(value)[:1000]
     if value is None or isinstance(value, (bool, int, float)):
         return value
     return str(value)[:1000]

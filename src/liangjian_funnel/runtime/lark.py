@@ -16,7 +16,7 @@ from .state import NOTIFICATION_CARD_COLORS
 _PREFIX = "/open-apis/bot/v2/hook/"
 _TOKEN = re.compile(r"^[^/?#\\]+$")
 _SECRET = re.compile(r"\b(?:sk|ghp|xoxb|xapp)-[A-Za-z0-9_-]{12,}\b", re.I)
-_WEBHOOK = re.compile(r"open\.larksuite\.com/open-apis/bot/v2/hook", re.I)
+_WEBHOOK = re.compile(r"open\.(?:feishu\.cn|larksuite\.com)/open-apis/bot/v2/hook", re.I)
 
 
 class LarkConfigurationError(ValueError):
@@ -57,7 +57,7 @@ def _validate(value: Any) -> str:
         raise LarkConfigurationError("LARK_WEBHOOK_INVALID_FORMAT") from None
     if parsed.scheme.lower() != "https":
         raise LarkConfigurationError("LARK_WEBHOOK_HTTPS_REQUIRED")
-    if host is None or host.lower() != "open.larksuite.com":
+    if host is None or host.lower() not in {"open.feishu.cn", "open.larksuite.com"}:
         raise LarkConfigurationError("LARK_WEBHOOK_INVALID_HOST")
     if port is not None or parsed.username is not None or parsed.password is not None:
         raise LarkConfigurationError("LARK_WEBHOOK_INVALID_AUTHORITY")

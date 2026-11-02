@@ -9,9 +9,14 @@ SECRET_PATTERN = re.compile(
     r"(?i)((?<![a-z0-9_-])sk-[a-z0-9_-]{8,}|bearer\s+[a-z0-9._-]{8,}|x-api-key\s*[:=]\s*\S+)"
 )
 SENSITIVE_KEYS = {"authorization", "x-api-key", "api_key", "apikey", "token", "secret"}
+WEBHOOK_PATTERN = re.compile(
+    r"(?:https?://)?open\.(?:feishu\.cn|larksuite\.com)/open-apis/bot/v2/hook/[^\s<>\"']+",
+    re.I,
+)
 
 
 def redact_text(value: str) -> str:
+    value = WEBHOOK_PATTERN.sub("[REDACTED_WEBHOOK]", value)
     return SECRET_PATTERN.sub("[REDACTED]", value)
 
 

@@ -20,6 +20,8 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
+from ..redaction import WEBHOOK_PATTERN
+
 
 SCHEMA_VERSION = 3
 DEFAULT_BATCH_SIZE = 500
@@ -80,6 +82,7 @@ def _sanitize(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_sanitize(item) for item in value]
     if isinstance(value, str):
+        value = WEBHOOK_PATTERN.sub("[REDACTED_WEBHOOK]", value)
         query_redacted = _QUERY_SECRET_RE.sub(r"\1[REDACTED]", value)
         return _SECRET_VALUE_RE.sub(r"\g<prefix>[REDACTED]", query_redacted)
     return value

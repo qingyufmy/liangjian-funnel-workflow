@@ -35,7 +35,7 @@ function validateWebhookUrl(value: unknown): string {
   const match = LARK_WEBHOOK_PATH.exec(parsed.pathname);
   if (
     parsed.protocol !== "https:"
-    || parsed.hostname !== "open.larksuite.com"
+    || !["open.feishu.cn", "open.larksuite.com"].includes(parsed.hostname)
     || parsed.port
     || parsed.username
     || parsed.password
