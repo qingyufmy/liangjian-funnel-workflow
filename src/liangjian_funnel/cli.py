@@ -1326,9 +1326,14 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                     ),
                 )
             if args.same_day_recovery:
+                # A new frozen source is a new run. Reusing the old daily ID
+                # overwrites audit paths while workflow_runs keeps its first
+                # snapshot_hash on conflict. Retain all previous receipts.
+                from hashlib import sha256
+                recovery_source = sha256(args.snapshot_id.encode()).hexdigest()[:12]
                 research_kwargs.update(
                     from_active_a1=True,
-                    run_id_override=f"same-day-recovery-{historical_as_of.date().isoformat()}",
+                    run_id_override=f"same-day-recovery-{historical_as_of.date().isoformat()}-{recovery_source}",
                     same_day_recovery=True,
                 )
             payload = application.run_research(args.slot, **research_kwargs)

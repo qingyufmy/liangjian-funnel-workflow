@@ -1014,9 +1014,17 @@ class WorkflowApplication:
         # observation.  Before the close, the latest completed session is
         # loaded instead; a missing current-date response never falls back to
         # an older file under a new date.
+        # A live pre-open snapshot has no closed-session capture proof. Its
+        # attention source must therefore be observed today; daily technical
+        # history and rotation retain the latest closed market identity.
+        hot100_trade_date = observation_date
+        if (closed_session_source_date is None and market_data_as_of is None
+                and self.trading_calendar.is_trading_day(current.date())
+                and current.strftime("%H:%M") < "09:26"):
+            hot100_trade_date = current.date()
         eastmoney_hot100 = collect_eastmoney_hot100(
             as_of=market_current,
-            expected_trade_date=observation_date,
+            expected_trade_date=hot100_trade_date,
             cache_dir=self.settings.fact_store_dir / "eastmoney_hot100" / "auction" if auction_refresh else self.settings.fact_store_dir / "eastmoney_hot100",
             **({"force_refresh": True} if auction_refresh else {}),
         )
