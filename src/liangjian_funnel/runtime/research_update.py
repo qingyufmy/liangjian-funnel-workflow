@@ -265,6 +265,14 @@ def research_update_times(snapshot, calendar):
 
 def replay_snapshot_clock_chain(snapshot, base, proof, *, now, require=_require):
     """Verify original producer recipes against a content-addressed root."""
+    replay_snapshot_recipes(snapshot, base, now=now, require=require)
+    require(snapshot.data.get(KEY) == proof
+        and snapshot.data.get('MARKET_DATA_AS_OF') == proof['source_market_close_at'], 'CLOCK_MARKET_CONFLICT')
+    return aware(snapshot.as_of), aware(proof['source_market_close_at'])
+
+
+def replay_snapshot_recipes(snapshot, base, *, now, require=_require):
+    """Replay producer recipes without assigning a market-session authority."""
     from .publication_receipt import PublicationReceiptBuilder, object_hash
     prior = dict(snapshot_id=base.snapshot_id, snapshot_hash=base.snapshot_hash,
         as_of=aware(base.as_of).isoformat(), data=base.data)
@@ -310,6 +318,3 @@ def replay_snapshot_clock_chain(snapshot, base, proof, *, now, require=_require)
     require(snapshot.snapshot_id == prior['snapshot_id'] and snapshot.snapshot_hash == prior['snapshot_hash']
         and aware(snapshot.as_of).isoformat() == prior['as_of']
         and object_hash(snapshot.data) == object_hash(prior['data']), 'CLOCK_TERMINAL_CONFLICT')
-    require(snapshot.data.get(KEY) == proof
-        and snapshot.data.get('MARKET_DATA_AS_OF') == proof['source_market_close_at'], 'CLOCK_MARKET_CONFLICT')
-    return aware(snapshot.as_of), aware(proof['source_market_close_at'])

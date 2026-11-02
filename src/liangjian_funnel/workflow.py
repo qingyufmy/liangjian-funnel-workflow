@@ -3850,8 +3850,11 @@ class WorkflowApplication:
             )
             from contextlib import nullcontext
             from .runtime.research_update import research_time_context
+            from .runtime.same_day_recovery_time import recovery_time_context
             with (research_time_context(self, _research_update, prepared, clock=lambda: datetime.now(SHANGHAI))
-                    if _research_update is not None else nullcontext()):
+                    if _research_update is not None else
+                    recovery_time_context(prepared, self.trading_calendar, clock=lambda: datetime.now(SHANGHAI))
+                    if same_day_recovery else nullcontext()):
                 if from_active_a1:
                     result = pipeline.run_from_active_a1(
                         prepared.snapshot,
@@ -3924,6 +3927,9 @@ class WorkflowApplication:
             if summary_calendar is not None
             else current.date()
         )
+        if same_day_recovery:
+            from .runtime.same_day_recovery_time import require_window
+            require_window(datetime.now(SHANGHAI), self.trading_calendar)
         publication = (
             self._publish_plans(
                 result,

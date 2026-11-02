@@ -4,6 +4,10 @@ from zoneinfo import ZoneInfo
 
 
 def research_times(snapshot, calendar):
+    from ..runtime.same_day_recovery_time import recovery_times
+    recovery = recovery_times(snapshot, calendar)
+    if recovery is not None:
+        return recovery
     from ..runtime.research_update import research_update_times
     updated = research_update_times(snapshot, calendar)
     if updated is not None:
