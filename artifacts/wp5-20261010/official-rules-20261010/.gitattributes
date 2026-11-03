@@ -1,0 +1,5 @@
+# Preserve approved reference bytes for locked SHA256 validation.
+receipt.json -text
+sse-notice.html -text
+szse-rules.pdf -text
+szse-notice.html -text

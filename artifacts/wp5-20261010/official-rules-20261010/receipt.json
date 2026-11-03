@@ -1,0 +1,47 @@
+{
+  "schema_version": "official-rule-observation/1",
+  "rows": [
+    {
+      "url": "https://www.sse.com.cn/lawandrules/sselawsrules2025/fund/trading/c/c_20260424_10817739.shtml",
+      "request_started_at": "2026-10-10T09:11:38.188716+08:00",
+      "observed_at": "2026-10-10T09:11:38.490609+08:00",
+      "http_status": 200,
+      "final_url": "https://www.sse.com.cn/lawandrules/sselawsrules2025/fund/trading/c/c_20260424_10817739.shtml",
+      "content_type": "text/html",
+      "bytes": 35032,
+      "sha256": "12886b912a2160c03c414d2b56ff67c772b18e3247f2c97fc2dfcd185b6e0a33",
+      "path": "sse-notice.html",
+      "status": "RAW_RESPONSE_ARCHIVED"
+    },
+    {
+      "url": "https://docs.static.szse.cn/www/lawrules/rule/trade/current/W020260424690713155663.pdf",
+      "request_started_at": "2026-10-10T09:11:38.491106+08:00",
+      "observed_at": "2026-10-10T09:11:39.409166+08:00",
+      "http_status": 200,
+      "final_url": "https://docs.static.szse.cn/www/lawrules/rule/trade/current/W020260424690713155663.pdf",
+      "content_type": "application/pdf",
+      "bytes": 282084,
+      "sha256": "9b66f8b0db70f84a25ef1ccb4ee2351001724e408117552d75f6d8993483c586",
+      "path": "szse-rules.pdf",
+      "status": "RAW_RESPONSE_ARCHIVED"
+    },
+    {
+      "url": "https://investor.szse.cn/lawrules/rule/trade/t20260424_620190.html",
+      "request_started_at": "2026-10-10T09:11:39.410163+08:00",
+      "observed_at": "2026-10-10T09:11:39.874425+08:00",
+      "http_status": 200,
+      "final_url": "https://investor.szse.cn/lawrules/rule/trade/t20260424_620190.html",
+      "content_type": "text/html",
+      "bytes": 19302,
+      "sha256": "0dcb0971ac96123f369178ce8f5397d948190d41281175694664de1d1dd4dce5",
+      "path": "szse-notice.html",
+      "status": "RAW_RESPONSE_ARCHIVED"
+    }
+  ],
+  "rule_source_effective_date": "2026-07-06",
+  "latest_revision_absence_proven": false,
+  "future_no_change_proven": false,
+  "rule_constant_modified": false,
+  "interpretation": "Content observation and known published effective date only; no inference that rules cannot change through Oct16.",
+  "source": "Public official SSE/SZSE notices already inspected via web; a cached index is not an exhaustive revision ledger."
+}
