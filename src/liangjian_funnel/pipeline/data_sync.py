@@ -387,7 +387,7 @@ class HithinkIncrementalSynchronizer:
                             endpoint, symbol, status="FAILED", reason=reason
                         )
 
-                cached = self.cache.query_financial_facts(symbol, dataset=dataset)
+                cached = self.cache.query_financial_facts(symbol, dataset=dataset, as_of=current)
                 if not cached:
                     failures.setdefault(symbol, []).append(f"{dataset}:CACHE_EMPTY")
                     continue

@@ -397,3 +397,26 @@ def test_successful_but_stale_daily_response_remains_failed_and_retry_is_bounded
     for symbol in symbols:
         assert "DAILY:LATEST_CLOSED_DAY_MISSING" in result.failures[symbol]
         assert cache.get_sync_state("HITHINK_DAILY_1D", symbol)["status"] == "FAILED"
+
+
+def test_t9_future_cached_income_is_filtered_before_projection(tmp_path):
+    from liangjian_funnel.workflow import _compact_fundamental_rows
+    cache = LocalFactCache(tmp_path / 'facts.sqlite3')
+    future = NOW + timedelta(days=1)
+    cache.upsert_financial_facts([{
+        'symbol': '600519.SH', 'dataset': 'INCOME', 'report_period': '2026Q3',
+        'published_at': future, 'fetched_at': future,
+        'payload': {'fiscal_year': 2026, 'fiscal_period': 'Q3',
+                    'period_end_ms': int(future.timestamp()*1000),
+                    'report_date_ms': int(future.timestamp()*1000),
+                    'operating_income': 999},
+    }])
+    captured=[]
+    def project(rows):
+        captured.extend(rows)
+        return _compact_fundamental_rows(rows)
+    sync=HithinkIncrementalSynchronizer(cache, progress_every=1)
+    result=sync.sync(FakeClient(), ['600519.SH'], as_of=NOW, fundamental_projector=project)
+    assert '600519.SH' in result.fundamental
+    assert not any(r.get('operating_income')==999 for r in captured)
+    assert len(cache.query_financial_facts('600519.SH',dataset='INCOME'))==2

@@ -42,6 +42,8 @@ _A1_DEFAULT_WEIGHTS: dict[str, float] = {
     "catalyst_confirmation": 0.15,
     "valuation_expectation_gap": 0.10,
 }
+# HALF_YEAR_FUNDAMENTAL remains a persisted route ID for sealed-generation
+# compatibility. The gate and evidence identify the actual latest report period.
 _A1_SELECTION_BASES: tuple[str, ...] = (
     "LLM_REVIEWED",
     "DETERMINISTIC_SCORE",
@@ -401,7 +403,7 @@ def screen_a1(
         data_quality += 10.0 if raw_evidence_available else 0.0
         data_quality += 15.0 if structured_exposure_available else 0.0
         financial_quality, financial_details = _financial_quality(fundamental)
-        half_year_support = _latest_half_year_support(
+        half_year_support = _latest_report_support(
             fundamental,
             as_of=snapshot_as_of,
         )
@@ -515,14 +517,14 @@ def screen_a1(
         elif half_year_confirmed:
             # The strict monthly route is allowed to use exact sector-index
             # membership as the company-to-direction binding when the frozen
-            # H1 statements independently confirm positive, non-declining
+            # Latest disclosed statements independently confirm positive, non-declining
             # revenue and attributable profit.  The missing narrative
             # disclosure remains visible below, but it is not a second veto
             # on the same already-proven monthly membership relationship.
             # Keep the row provisional so every qualified company still has
             # to win the deterministic per-sector Top-N ranking.
             status = "LOCAL_CANDIDATE"
-            reason_codes.append("A1_HALF_YEAR_FUNDAMENTAL_CONFIRMED")
+            reason_codes.append("A1_LATEST_REPORT_FUNDAMENTAL_CONFIRMED")
         elif not raw_evidence_available:
             status = "LOCAL_MONITOR"
             reason_codes.append("A1_MAIN_BUSINESS_EVIDENCE_MISSING")
@@ -643,12 +645,13 @@ def screen_a1(
                 "minimum_score": round(minimum_financial_quality, 4),
                 "supported": (monthly_chain_only and half_year_support.get("supported") is True)
                     or financial_quality >= minimum_financial_quality,
-                "support_basis": "DISCLOSED_HALF_YEAR" if monthly_chain_only and half_year_support.get("supported") is True else "INDICATOR_SCORE",
+                "support_basis": ("DISCLOSED_HALF_YEAR" if half_year_support.get("fiscal_period") == "Q2" else "DISCLOSED_LATEST_REPORT") if monthly_chain_only and half_year_support.get("supported") is True else "INDICATOR_SCORE",
                 "indicator_score_supported": financial_quality >= minimum_financial_quality,
                 "indicator_period_verified": False,
                 "coverage_ratio": round(financial_coverage, 6),
                 "features": financial_details,
-                "latest_half_year": half_year_support,
+                "latest_report": half_year_support,
+                "latest_half_year": half_year_support,  # Legacy alias; inspect fiscal_period.
             },
             "half_year_support": half_year_support,
             "financial_subfactor_coverage": round(financial_coverage, 6),
@@ -4862,7 +4865,7 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
                 if research_route == "BROKER_GOLD_DIRECT"
                 else "FUNDAMENTAL_BASELINE_RESEARCH_COVERAGE"
                 if research_route == "FUNDAMENTAL_BASELINE"
-                else "MONTHLY_THEME_AND_HALF_YEAR_GROWTH_CONFIRMED"
+                else "MONTHLY_THEME_AND_LATEST_REPORT_GROWTH_CONFIRMED"
                 if research_route == "HALF_YEAR_FUNDAMENTAL"
                 else "MONTHLY_THEME_AND_DISCLOSED_BUSINESS_MAPPING_CONFIRMED"
             ),
@@ -4871,7 +4874,7 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
                 if research_route == "BROKER_GOLD_DIRECT"
                 else "FUNDAMENTAL_BASELINE_FINANCIAL_OR_LIQUIDITY_FACTS_DETERIORATE"
                 if research_route == "FUNDAMENTAL_BASELINE"
-                else "HALF_YEAR_GROWTH_REVERSES_OR_MONTHLY_THEME_WEAKENS"
+                else "LATEST_REPORT_GROWTH_REVERSES_OR_MONTHLY_THEME_WEAKENS"
                 if research_route == "HALF_YEAR_FUNDAMENTAL"
                 else "MONTHLY_THEME_WEAKENS_OR_DISCLOSED_BUSINESS_TRANSMISSION_FAILS"
             ),
@@ -5282,23 +5285,21 @@ def _financial_quality(value: Mapping[str, Any]) -> tuple[float, dict[str, float
     return sum(scores) / len(scores), features
 
 
-def _latest_half_year_support(
+def _latest_report_support(
     fundamental: Mapping[str, Any],
     *,
     as_of: str | None,
 ) -> dict[str, Any]:
-    """Verify the latest disclosed H1 result from frozen income statements.
+    """Compare the latest disclosed cumulative report with the prior-year period.
 
-    This deliberately bypasses the generic indicator projection: that feed
-    does not carry a reporting period and may repeat the same latest value.
-    The comparison therefore uses one deduplicated Q2 income row for the
-    latest fiscal year and the corresponding Q2 row for the prior year.
+    Select the period before testing growth; a weak Q3 must never fall back
+    to a strong H1. Unperiodized vendor indicators cannot establish this gate.
     """
 
     statements = fundamental.get("statements")
     income = statements.get("INCOME") if isinstance(statements, Mapping) else None
     if not isinstance(income, Sequence) or isinstance(income, (str, bytes, bytearray)):
-        return {"supported": False, "reason_code": "A1_HALF_YEAR_INCOME_MISSING"}
+        return {"supported": False, "reason_code": "A1_LATEST_REPORT_INCOME_MISSING"}
 
     cutoff_ms: int | None = None
     if as_of:
@@ -5310,9 +5311,12 @@ def _latest_half_year_support(
         except ValueError:
             cutoff_ms = None
 
-    by_year: dict[int, Mapping[str, Any]] = {}
+    by_period: dict[tuple[int, str], Mapping[str, Any]] = {}
     for row in income:
-        if not isinstance(row, Mapping) or str(row.get("fiscal_period") or "").upper() != "Q2":
+        if not isinstance(row, Mapping):
+            continue
+        period = str(row.get("fiscal_period") or "").upper()
+        if period not in {"Q1", "Q2", "Q3", "Q4"}:
             continue
         year_value = _number(row.get("fiscal_year"))
         if year_value is None:
@@ -5321,20 +5325,22 @@ def _latest_half_year_support(
         report_ms = _number(row.get("report_date_ms"))
         if cutoff_ms is not None and report_ms is not None and int(report_ms) > cutoff_ms:
             continue
-        current = by_year.get(year)
+        current = by_period.get((year, period))
         if current is None or (_number(current.get("report_date_ms")) or 0.0) < (report_ms or 0.0):
-            by_year[year] = row
-    if not by_year:
-        return {"supported": False, "reason_code": "A1_HALF_YEAR_NOT_DISCLOSED"}
+            by_period[(year, period)] = row
+    if not by_period:
+        return {"supported": False, "reason_code": "A1_LATEST_REPORT_NOT_DISCLOSED"}
 
-    fiscal_year = max(by_year)
-    current = by_year[fiscal_year]
-    previous = by_year.get(fiscal_year - 1)
+    fiscal_year, fiscal_period = max(by_period)
+    current = by_period[(fiscal_year, fiscal_period)]
+    previous = by_period.get((fiscal_year - 1, fiscal_period))
     if previous is None:
         return {
             "supported": False,
             "fiscal_year": fiscal_year,
-            "reason_code": "A1_HALF_YEAR_COMPARATIVE_MISSING",
+            "fiscal_period": fiscal_period,
+            "period_basis": "CUMULATIVE_YTD",
+            "reason_code": "A1_LATEST_REPORT_COMPARATIVE_MISSING",
         }
     revenue = _number(current.get("operating_income"))
     profit = _number(current.get("parent_holder_net_profit"))
@@ -5344,7 +5350,9 @@ def _latest_half_year_support(
         return {
             "supported": False,
             "fiscal_year": fiscal_year,
-            "reason_code": "A1_HALF_YEAR_CORE_METRICS_MISSING",
+            "fiscal_period": fiscal_period,
+            "period_basis": "CUMULATIVE_YTD",
+            "reason_code": "A1_LATEST_REPORT_CORE_METRICS_MISSING",
         }
 
     revenue_growth = _year_over_year_growth(revenue, previous_revenue)
@@ -5358,7 +5366,8 @@ def _latest_half_year_support(
     return {
         "supported": supported,
         "fiscal_year": fiscal_year,
-        "fiscal_period": "Q2",
+        "fiscal_period": fiscal_period,
+        "period_basis": "CUMULATIVE_YTD",
         "report_date_ms": int(_number(current.get("report_date_ms")) or 0) or None,
         "operating_income": revenue,
         "parent_holder_net_profit": profit,
@@ -5367,12 +5376,17 @@ def _latest_half_year_support(
         "operating_income_yoy_pct": revenue_growth,
         "parent_holder_net_profit_yoy_pct": profit_growth,
         "reason_code": (
-            "A1_HALF_YEAR_REVENUE_AND_PROFIT_GROWTH_CONFIRMED"
+            "A1_LATEST_REPORT_REVENUE_AND_PROFIT_GROWTH_CONFIRMED"
             if supported
-            else "A1_HALF_YEAR_GROWTH_NOT_CONFIRMED"
+            else "A1_LATEST_REPORT_GROWTH_NOT_CONFIRMED"
         ),
         "source": "COMPANY_FUNDAMENTALS.INCOME",
     }
+
+
+def _latest_half_year_support(fundamental: Mapping[str, Any], *, as_of: str | None) -> dict[str, Any]:
+    """Legacy entry point; the evidence now explicitly identifies the latest period."""
+    return _latest_report_support(fundamental, as_of=as_of)
 
 
 def _year_over_year_growth(current: float, previous: float) -> float | None:

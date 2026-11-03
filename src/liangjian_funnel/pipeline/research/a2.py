@@ -1909,10 +1909,13 @@ def _compact_a2_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
     fundamental = item.get("fundamental_support")
     if isinstance(fundamental, Mapping):
         result["fundamental_supported"] = fundamental.get("supported")
-        latest = fundamental.get("latest_half_year")
+        latest = fundamental.get("latest_report") or fundamental.get("latest_half_year")
         if isinstance(latest, Mapping):
-            result["half_year_revenue_yoy"] = latest.get("operating_income_yoy_pct")
-            result["half_year_profit_yoy"] = latest.get("parent_holder_net_profit_yoy_pct")
+            result["report_fiscal_year"] = latest.get("fiscal_year")
+            result["report_fiscal_period"] = latest.get("fiscal_period")
+            result["report_period_basis"] = latest.get("period_basis")
+            result["report_revenue_yoy"] = latest.get("operating_income_yoy_pct")
+            result["report_profit_yoy"] = latest.get("parent_holder_net_profit_yoy_pct")
     return {key: value for key, value in result.items() if value is not None}
 
 

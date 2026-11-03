@@ -32,7 +32,7 @@ def counterexample_selection_audit(candidate, technical):
     pool = str(candidate.get("pool") or "")
     if pool in {"A1_MONITOR", "A1_REJECTED"}:
         support = a1.get("fundamental_support") or {}
-        half_year = support.get("latest_half_year") or {}
+        half_year = support.get("latest_report") or support.get("latest_half_year") or {}
         status = "观察池" if pool == "A1_MONITOR" else "淘汰池"
         parts.append(f"A1原时点处于{status}")
         if support:
@@ -46,7 +46,7 @@ def counterexample_selection_audit(candidate, technical):
                 else:
                     parts.append("基本面支持门槛未满足")
         if half_year and half_year.get("supported") is False:
-            parts.append("最新半年报收入或归母净利润增长未确认")
+            parts.append("最新已披露报告期收入或归母净利润增长未确认")
         missing = a1.get("missing_factors") or []
         if missing:
             labels = {

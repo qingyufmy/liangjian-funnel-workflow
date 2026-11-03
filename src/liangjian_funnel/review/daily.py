@@ -1385,7 +1385,7 @@ def _a1_market_universe(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
             seen.add(symbol)
             selection = _json_mapping(item.get("a1_selection_evidence"))
             fundamental = _json_mapping(item.get("fundamental_support"))
-            half_year = _json_mapping(fundamental.get("latest_half_year"))
+            half_year = _json_mapping(fundamental.get("latest_report") or fundamental.get("latest_half_year"))
             disclosed = _json_mapping(item.get("disclosed_business_match"))
             result.append({
                 "symbol": symbol,
@@ -1413,7 +1413,7 @@ def _a1_market_universe(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
                         "coverage_ratio": fundamental.get("coverage_ratio"),
                         "latest_half_year": {key: half_year.get(key) for key in (
                             "fiscal_year", "fiscal_period", "operating_income_yoy_pct",
-                            "parent_holder_net_profit_yoy_pct", "reason_code", "supported",
+                            "parent_holder_net_profit_yoy_pct", "reason_code", "supported", "period_basis",
                         )},
                     },
                     "disclosed_business_match": {key: disclosed.get(key) for key in (

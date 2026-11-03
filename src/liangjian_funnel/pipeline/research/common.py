@@ -8238,7 +8238,7 @@ def _compact_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
         }
     fundamental = result.get("fundamental_support")
     if isinstance(fundamental, Mapping):
-        latest = fundamental.get("latest_half_year")
+        latest = fundamental.get("latest_report") or fundamental.get("latest_half_year")
         result["fundamental_support"] = {
             key: fundamental.get(key)
             for key in ("coverage_ratio", "minimum_score", "score", "supported")
@@ -8250,10 +8250,12 @@ def _compact_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
                 for key in (
                     "fiscal_year", "fiscal_period", "operating_income_yoy_pct",
                     "parent_holder_net_profit_yoy_pct", "supported", "reason_code",
-                    "report_date_ms", "source",
+                    "report_date_ms", "source", "period_basis",
                 )
                 if key in latest
             }
+    if isinstance(result.get("fundamental_support"), dict) and "latest_half_year" in result["fundamental_support"]:
+        result["fundamental_support"]["latest_report"] = result["fundamental_support"]["latest_half_year"]
     for key in (
         "reason_codes",
     ):
