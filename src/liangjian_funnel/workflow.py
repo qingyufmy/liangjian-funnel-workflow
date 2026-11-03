@@ -10497,11 +10497,13 @@ def _compact_fundamental_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
         },
     }
     for dataset in ("INCOME", "BALANCE", "CASH_FLOW"):
-        ordered = select_statement_periods(grouped.get(dataset, ()),limit=4)
+        ordered = select_statement_periods(
+            grouped.get(dataset, ()), limit=4, retain_previous_quarter=dataset == "INCOME",
+        )
         fields = _COMPACT_FUNDAMENTAL_FIELDS[dataset]
         result["statements"][dataset] = [
             {key: item.get(key) for key in fields if key in item}
-            for item in ordered[:4]
+            for item in ordered
         ]
     indicators = sorted(
         grouped.get("INDICATORS", ()),

@@ -1414,6 +1414,7 @@ def _a1_market_universe(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
                         "latest_half_year": {key: half_year.get(key) for key in (
                             "fiscal_year", "fiscal_period", "operating_income_yoy_pct",
                             "parent_holder_net_profit_yoy_pct", "reason_code", "supported", "period_basis",
+                            "cumulative_ytd", "single_quarter", "reason_codes",
                         )},
                     },
                     "disclosed_business_match": {key: disclosed.get(key) for key in (

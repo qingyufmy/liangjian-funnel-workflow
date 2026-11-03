@@ -8250,7 +8250,7 @@ def _compact_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
                 for key in (
                     "fiscal_year", "fiscal_period", "operating_income_yoy_pct",
                     "parent_holder_net_profit_yoy_pct", "supported", "reason_code",
-                    "report_date_ms", "source", "period_basis",
+                    "report_date_ms", "source", "period_basis", "cumulative_ytd", "single_quarter", "reason_codes",
                 )
                 if key in latest
             }

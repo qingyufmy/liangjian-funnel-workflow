@@ -5,7 +5,9 @@ import json
 import math
 
 
-def select_statement_periods(rows: Sequence[Mapping], limit: int = 4) -> list[Mapping]:
+def select_statement_periods(
+    rows: Sequence[Mapping], limit: int = 4, *, retain_previous_quarter: bool = False,
+) -> list[Mapping]:
     ordered = sorted(rows, key=lambda r: (r.get('period_end_ms') or 0,r.get('report_date_ms') or 0),reverse=True)
     distinct = []
     seen = set()
@@ -21,6 +23,18 @@ def select_statement_periods(rows: Sequence[Mapping], limit: int = 4) -> list[Ma
                     and r.get('fiscal_period') == current.get('fiscal_period')),None)
         if prior and prior not in kept:
             kept[-1]=prior
+        # Keep the original window and add only real subtraction operands.
+        # With a four-row window this is bounded by six, including prior year.
+        quarter = current.get('fiscal_period')
+        year = current.get('fiscal_year')
+        if retain_previous_quarter and quarter in {'Q2', 'Q3', 'Q4'} and isinstance(year, int):
+            previous_quarter = f'Q{int(quarter[1]) - 1}'
+            for operand_year in (year, year - 1):
+                operand = next((r for r in distinct if r.get('fiscal_year') == operand_year
+                                and r.get('fiscal_period') == previous_quarter), None)
+                if operand is not None and operand not in kept:
+                    kept.append(operand)
+        kept.sort(key=lambda r: (r.get('period_end_ms') or 0, r.get('report_date_ms') or 0), reverse=True)
     return kept
 
 

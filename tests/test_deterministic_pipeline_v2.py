@@ -340,6 +340,8 @@ def test_a1_strict_monthly_chain_accepts_disclosed_h1_double_growth_without_quot
     snapshot["MAIN_BUSINESS_EVIDENCE"][symbol] = {"available": False, "evidence": []}
     snapshot["COMPANY_FUNDAMENTALS"][symbol]["statements"] = {
         "INCOME": [
+            {"fiscal_year": 2026, "fiscal_period": "Q1", "report_date_ms": 1777507200000, "operating_income": 40.0, "parent_holder_net_profit": 4.0},
+            {"fiscal_year": 2025, "fiscal_period": "Q1", "report_date_ms": 1746000000000, "operating_income": 40.0, "parent_holder_net_profit": 4.0},
             {
                 "fiscal_year": 2026,
                 "fiscal_period": "Q2",
@@ -388,7 +390,7 @@ def test_a1_strict_monthly_chain_accepts_disclosed_h1_double_growth_without_quot
     assert [row["symbol"] for row in increment["active_research_pool"]] == [symbol]
     assert increment["active_research_pool"][0]["daily_verified_increment"]["evidence_hash"]
     unsupported = deepcopy(snapshot)
-    unsupported["COMPANY_FUNDAMENTALS"][symbol]["statements"]["INCOME"][0]["parent_holder_net_profit"] = 8.0
+    unsupported["COMPANY_FUNDAMENTALS"][symbol]["statements"]["INCOME"][2]["parent_holder_net_profit"] = 8.0
     rejected_increment = recheck_a1_discovery(discovery, unsupported)
     assert not rejected_increment["active_research_pool"]
     assert rejected_increment["early_discovery"]["evidence_recheck_symbols"] == [symbol]
@@ -405,6 +407,8 @@ def test_a1_strict_monthly_chain_missing_business_and_unsupported_h1_stays_monit
     snapshot["MAIN_BUSINESS_EVIDENCE"][symbol] = {"available": False, "evidence": []}
     snapshot["COMPANY_FUNDAMENTALS"][symbol]["statements"] = {
         "INCOME": [
+            {"fiscal_year": 2026, "fiscal_period": "Q1", "report_date_ms": 1777507200000, "operating_income": 40.0, "parent_holder_net_profit": 4.0},
+            {"fiscal_year": 2025, "fiscal_period": "Q1", "report_date_ms": 1746000000000, "operating_income": 40.0, "parent_holder_net_profit": 4.0},
             {
                 "fiscal_year": 2026,
                 "fiscal_period": "Q2",
@@ -445,6 +449,8 @@ def test_a1_strict_monthly_chain_caps_overlapping_sector_union_without_quota_fil
         snapshot["MAIN_BUSINESS_EVIDENCE"][symbol] = {"available": False, "evidence": []}
         snapshot["COMPANY_FUNDAMENTALS"][symbol]["statements"] = {
             "INCOME": [
+                {"fiscal_year": 2026, "fiscal_period": "Q1", "report_date_ms": 1777507200000, "operating_income": 40.0, "parent_holder_net_profit": 4.0},
+                {"fiscal_year": 2025, "fiscal_period": "Q1", "report_date_ms": 1746000000000, "operating_income": 40.0, "parent_holder_net_profit": 4.0},
                 {
                     "fiscal_year": 2026,
                     "fiscal_period": "Q2",

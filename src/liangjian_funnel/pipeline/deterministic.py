@@ -5290,7 +5290,7 @@ def _latest_report_support(
     *,
     as_of: str | None,
 ) -> dict[str, Any]:
-    """Compare the latest disclosed cumulative report with the prior-year period.
+    """Require cumulative and single-quarter growth for the latest disclosed period.
 
     Select the period before testing growth; a weak Q3 must never fall back
     to a strong H1. Unperiodized vendor indicators cannot establish this gate.
@@ -5334,52 +5334,66 @@ def _latest_report_support(
     fiscal_year, fiscal_period = max(by_period)
     current = by_period[(fiscal_year, fiscal_period)]
     previous = by_period.get((fiscal_year - 1, fiscal_period))
-    if previous is None:
-        return {
-            "supported": False,
-            "fiscal_year": fiscal_year,
-            "fiscal_period": fiscal_period,
-            "period_basis": "CUMULATIVE_YTD",
-            "reason_code": "A1_LATEST_REPORT_COMPARATIVE_MISSING",
-        }
-    revenue = _number(current.get("operating_income"))
-    profit = _number(current.get("parent_holder_net_profit"))
-    previous_revenue = _number(previous.get("operating_income"))
-    previous_profit = _number(previous.get("parent_holder_net_profit"))
-    if None in {revenue, profit, previous_revenue, previous_profit}:
-        return {
-            "supported": False,
-            "fiscal_year": fiscal_year,
-            "fiscal_period": fiscal_period,
-            "period_basis": "CUMULATIVE_YTD",
-            "reason_code": "A1_LATEST_REPORT_CORE_METRICS_MISSING",
-        }
+    metrics = ("operating_income", "parent_holder_net_profit")
 
-    revenue_growth = _year_over_year_growth(revenue, previous_revenue)
-    profit_growth = _year_over_year_growth(profit, previous_profit)
-    supported = bool(
-        revenue > 0
-        and profit > 0
-        and revenue >= previous_revenue
-        and profit >= previous_profit
-    )
+    def compare(current_values, prior_values, *, basis, reason=None):
+        evidence = {"period_basis": basis, "fiscal_year": fiscal_year,
+                    "prior_fiscal_year": fiscal_year - 1, "fiscal_period": fiscal_period}
+        for key in metrics:
+            now, prior = current_values.get(key), prior_values.get(key)
+            evidence[key] = now
+            evidence[f"prior_{key}"] = prior
+            evidence[f"{key}_yoy_pct"] = (
+                _year_over_year_growth(now, prior) if now is not None and prior is not None else None
+            )
+        complete = all(evidence[k] is not None and evidence[f"prior_{k}"] is not None for k in metrics)
+        evidence["supported"] = complete and all(
+            evidence[k] > 0 and evidence[k] >= evidence[f"prior_{k}"] for k in metrics
+        )
+        evidence["reason_code"] = reason or (
+            f"A1_LATEST_REPORT_{basis}_GROWTH_CONFIRMED" if evidence["supported"]
+            else f"A1_LATEST_REPORT_{basis}_GROWTH_NOT_CONFIRMED" if complete
+            else "A1_LATEST_REPORT_CORE_METRICS_MISSING"
+        )
+        return evidence
+
+    current_values = {k: _number(current.get(k)) for k in metrics}
+    prior_values = {k: _number(previous.get(k)) if previous is not None else None for k in metrics}
+    cumulative = compare(current_values, prior_values, basis="CUMULATIVE_YTD",
+                         reason="A1_LATEST_REPORT_COMPARATIVE_MISSING" if previous is None else None)
+    single_current, single_prior = dict(current_values), dict(prior_values)
+    single_reason = None
+    operand_period = None
+    if fiscal_period != "Q1":
+        operand_period = f"Q{int(fiscal_period[1]) - 1}"
+        current_operand = by_period.get((fiscal_year, operand_period))
+        prior_operand = by_period.get((fiscal_year - 1, operand_period))
+        if current_operand is None or prior_operand is None or previous is None:
+            single_reason = "A1_LATEST_REPORT_SINGLE_QUARTER_COMPARATIVE_MISSING"
+        for values, operand in ((single_current, current_operand), (single_prior, prior_operand)):
+            for key in metrics:
+                operand_value = _number(operand.get(key)) if operand is not None else None
+                values[key] = values[key] - operand_value if values[key] is not None and operand_value is not None else None
+    single = compare(single_current, single_prior, basis="SINGLE_QUARTER", reason=single_reason)
+    single["subtracted_fiscal_period"] = operand_period
+    # Keep cumulative flat fields for sealed-generation readers; explicit bases
+    # carry the independent verdicts and every subtraction input.
+    if operand_period is not None:
+        single["subtraction_operands"] = {
+            "current_year": {k: current_operand.get(k) for k in (*metrics, "fiscal_year", "fiscal_period", "report_date_ms")} if current_operand is not None else None,
+            "prior_year": {k: prior_operand.get(k) for k in (*metrics, "fiscal_year", "fiscal_period", "report_date_ms")} if prior_operand is not None else None,
+        }
+    supported = cumulative["supported"] and single["supported"]
+    failed = [e["reason_code"] for e in (cumulative, single) if not e["supported"]]
     return {
+        **cumulative,
         "supported": supported,
-        "fiscal_year": fiscal_year,
-        "fiscal_period": fiscal_period,
-        "period_basis": "CUMULATIVE_YTD",
+        "period_basis": "CUMULATIVE_AND_SINGLE_QUARTER",
         "report_date_ms": int(_number(current.get("report_date_ms")) or 0) or None,
-        "operating_income": revenue,
-        "parent_holder_net_profit": profit,
-        "prior_operating_income": previous_revenue,
-        "prior_parent_holder_net_profit": previous_profit,
-        "operating_income_yoy_pct": revenue_growth,
-        "parent_holder_net_profit_yoy_pct": profit_growth,
-        "reason_code": (
-            "A1_LATEST_REPORT_REVENUE_AND_PROFIT_GROWTH_CONFIRMED"
-            if supported
-            else "A1_LATEST_REPORT_GROWTH_NOT_CONFIRMED"
-        ),
+        "cumulative_ytd": cumulative,
+        "single_quarter": single,
+        "reason_codes": failed,
+        "reason_code": failed[0] if failed else "A1_LATEST_REPORT_REVENUE_AND_PROFIT_GROWTH_CONFIRMED",
         "source": "COMPANY_FUNDAMENTALS.INCOME",
     }
 

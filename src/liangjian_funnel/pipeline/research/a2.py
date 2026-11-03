@@ -1916,6 +1916,10 @@ def _compact_a2_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
             result["report_period_basis"] = latest.get("period_basis")
             result["report_revenue_yoy"] = latest.get("operating_income_yoy_pct")
             result["report_profit_yoy"] = latest.get("parent_holder_net_profit_yoy_pct")
+            for basis in ("cumulative_ytd", "single_quarter"):
+                evidence = latest.get(basis)
+                if isinstance(evidence, Mapping):
+                    result[f"report_{basis}"] = dict(evidence)
     return {key: value for key, value in result.items() if value is not None}
 
 
