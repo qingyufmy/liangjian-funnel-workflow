@@ -1,0 +1,59 @@
+# Tony 2026-10-26 confirmed definitions; research only, no runtime consumer.
+schema_version: market-state-config/1
+version: '2026-10-29.2'
+authority: SHADOW_ONLY
+enabled: false
+timezone: Asia/Shanghai
+indices: [SSE, SZSE, CYB, HS300, CSI1000, KC50]
+daily:
+  ma_periods: [5, 10, 20, 60]
+  slope_lag: 5
+  slope_formula: MA_CURRENT_DIV_MA_LAG_MINUS_ONE
+  return_periods: [5, 20, 60]
+  distance_periods: [20, 60]
+  minimum_history_bars: 130
+  arrangement:
+    BULL: {ma_order: [5, 10, 20, 60], comparison: GT}
+    BEAR: {ma_order: [5, 10, 20, 60], comparison: LT}
+    otherwise: MIXED
+  trend_short:
+    UP: {close_vs_ma: [20, GT], slope_vs_zero: [20, GT], ma_order: [5, 10, 20], comparison: GT}
+    DOWN: {close_vs_ma: [20, LT], slope_vs_zero: [20, LT], ma_order: [5, 10, 20], comparison: LT}
+    otherwise: RANGE
+  trend_mid:
+    MID_UP: {close_vs_ma: [60, GT], slope_vs_zero: [60, GT]}
+    MID_DOWN: {close_vs_ma: [60, LT], slope_vs_zero: [60, LT]}
+    otherwise: MID_FLAT
+weekly:
+  ma_periods: [5, 10, 20]
+  slope_lag: 2
+  exclude_partial_from_indicators: true
+turnover:
+  definition: INDEX_AMOUNT_SSE_PLUS_SZSE
+  source_status: UNVERIFIED
+  source_id: null
+  amount_unit: null
+  mean_excludes_current: true
+  ratio_periods: [5, 20]
+  expand_gte: '1.20'
+  shrink_lte: '0.80'
+  crosscheck_warning_threshold: null # Appendix A: pending, do not invent 3% approval.
+numeric:
+  arithmetic: Decimal
+  comparison: UNROUNDED
+  price_decimals: 2
+  other_decimals: 4
+missing_policy: DATA_BLOCK
+dk:
+  status: SELF_RESEARCH_PENDING
+  enabled: false
+  formula: SSL_SMA
+  period: 20
+  comparison_periods: [10, 20, 30]
+  label: 自研、非站点同款
+  site_anchor: NOT_REPRODUCIBLE_CLOSED
+  canonical_source: TENCENT
+  historical_comparison_source: EASTMONEY_SEPARATE
+  mix_sources: false
+  authority: CLAUDE_T2_1144_20261029
+  # Definition only. DK2 pure function, evaluation and six-index output remain pending.

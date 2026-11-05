@@ -1,0 +1,203 @@
+{
+  "schema": "dk-audit-curated-historical-evidence/1",
+  "warning": "历史保全摘要已按保全manifest重验SHA；本轮未携带/重放原始行情，不能据此独立重算历史值；无真实成交证明。",
+  "snapshot_commit": "8d3d6dda445a5a0d0116b21fddeab4d171888983",
+  "independent_index_audit": {
+    "original_relative_path": "artifacts/track2/20261030/t2-followup-r1/dk-six-indices-independent-audit-v1.json",
+    "original_summary_sha256": "ad6c1fbef9d9982b8652b638d1ad447f85e7c65a753c383a35f65f9c09b35549",
+    "status": "PASSED",
+    "authority": "SHADOW_ONLY",
+    "checks": [
+      {
+        "key": "SSE",
+        "period": 10,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 8,
+        "complete_warmed_sessions": 4,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "SSE",
+        "period": 20,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 3,
+        "complete_warmed_sessions": 2,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "SSE",
+        "period": 30,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 1,
+        "complete_warmed_sessions": 1,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "SZSE",
+        "period": 10,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 9,
+        "complete_warmed_sessions": 4,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "SZSE",
+        "period": 20,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 3,
+        "complete_warmed_sessions": 2,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "SZSE",
+        "period": 30,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 1,
+        "complete_warmed_sessions": 1,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "CYB",
+        "period": 10,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 7,
+        "complete_warmed_sessions": 4,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "CYB",
+        "period": 20,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 3,
+        "complete_warmed_sessions": 2,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "CYB",
+        "period": 30,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 1,
+        "complete_warmed_sessions": 1,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "HS300",
+        "period": 10,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 11,
+        "complete_warmed_sessions": 4,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "HS300",
+        "period": 20,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 3,
+        "complete_warmed_sessions": 2,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "HS300",
+        "period": 30,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 1,
+        "complete_warmed_sessions": 1,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "CSI1000",
+        "period": 10,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 7,
+        "complete_warmed_sessions": 4,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "CSI1000",
+        "period": 20,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 3,
+        "complete_warmed_sessions": 2,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "CSI1000",
+        "period": 30,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 1,
+        "complete_warmed_sessions": 1,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "KC50",
+        "period": 10,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 7,
+        "complete_warmed_sessions": 4,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "KC50",
+        "period": 20,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 3,
+        "complete_warmed_sessions": 2,
+        "historical_20_sessions": "UNCOVERED"
+      },
+      {
+        "key": "KC50",
+        "period": 30,
+        "bars": 106,
+        "points_checked": 106,
+        "events": 1,
+        "complete_warmed_sessions": 1,
+        "historical_20_sessions": "UNCOVERED"
+      }
+    ],
+    "capture_days": 1,
+    "five_day_acceptance": "NOT_COMPLETED",
+    "actual_plan_stocks": "UNPROVEN_WAITING_T1",
+    "raw_market_files_in_this_export": false
+  },
+  "historical_targeted_tests": {
+    "original_summary_sha256": "8670471736b74ee7bc9064d20db9da518d9c9f4ccc5aa98f9d2f1e6b058a4824",
+    "tests_passed": 321,
+    "test_file_count": 18,
+    "scope": "整个轨道二的18个测试文件；不能说是321项DK专测",
+    "status": "PASSED_TARGETED_ONLY"
+  },
+  "review_index": {
+    "original_summary_sha256": "961f8e910ac92c0a6766911558af08de3bb82085468f549cc5d53b560eb1e047",
+    "head": "8d3d6dda445a5a0d0116b21fddeab4d171888983",
+    "deployed": false,
+    "outstanding": {
+      "plan_stock_scope": "UNPROVEN_WAITING_T1",
+      "h_full": "NOT_RUN",
+      "r_full": "NOT_RUN",
+      "runtime_40_10_10": "NOT_RUN",
+      "three_business_batches": "NOT_RUN",
+      "d5": "UNPROVEN",
+      "current_f7_d8": "UNPROVEN_OLD_CAPTURE_AND_CONTROLLED_P1_ONLY",
+      "final_accept": "NOT_RECEIVED",
+      "dk20days": "UNCOVERED_SHORT_WINDOW",
+      "dk5capture_days": "NOT_COMPLETED_ACTUAL_DAYS_1"
+    }
+  }
+}

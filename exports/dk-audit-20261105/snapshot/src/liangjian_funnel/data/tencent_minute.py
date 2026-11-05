@@ -1,0 +1,374 @@
+"""Bounded Tencent quote/minute fallback for the intraday control plane.
+
+The public Tencent endpoint is used only when the primary MootDX minute feed
+cannot satisfy a small intraday request.  It never replaces the long-history
+contract owned by MootDX and it never submits orders.  Every returned row is
+normalized into the same immutable :class:`MinuteBar` contract.
+"""
+
+from __future__ import annotations
+from ..runtime.close_stage_budget import source_get
+
+import re
+from collections.abc import Callable, Mapping
+from datetime import datetime, timedelta
+from typing import Any
+import math
+from zoneinfo import ZoneInfo
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .mootdx import FetchResult, MinuteBar, MootdxAdapter, NodeAttempt, map_symbol
+
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
+TENCENT_HOST = "ifzq.gtimg.cn"
+TENCENT_SOURCE_ID = f"TENCENT:{TENCENT_HOST}"
+TENCENT_MAX_BARS = 320
+_QUOTE_TIMESTAMP = re.compile(r"^\d{14}$")
+
+
+class TencentMarketDataError(RuntimeError):
+    """Stable, payload-free error raised by the Tencent normalizer."""
+
+    def __init__(self, reason_code: str):
+        self.reason_code = reason_code
+        super().__init__(reason_code)
+
+
+class MarketQuote(BaseModel):
+    """One timestamped, provider-owned auction/realtime quote."""
+
+    model_config = ConfigDict(frozen=True)
+
+    symbol: str
+    name: str = ""
+    quote_time: datetime
+    price: float = Field(gt=0)
+    open: float = Field(gt=0)
+    previous_close: float = Field(gt=0)
+    volume: float = Field(ge=0)
+    amount: float = Field(ge=0)
+    source_id: str = TENCENT_SOURCE_ID
+
+    @model_validator(mode="after")
+    def valid_quote(self):
+        if self.quote_time.tzinfo is None or self.quote_time.utcoffset() is None:
+            raise ValueError("QUOTE_TIMEZONE_REQUIRED")
+        if not all(math.isfinite(value) for value in (
+            self.price, self.open, self.previous_close, self.volume, self.amount)):
+            raise ValueError("QUOTE_VALUES_NOT_FINITE")
+        return self
+
+
+class QuoteResult(BaseModel):
+    """Fail-closed quote result used by the 09:26 auction review."""
+
+    model_config = ConfigDict(frozen=True)
+
+    symbol: str
+    quote: MarketQuote | None = None
+    reason_code: str
+    complete: bool = False
+    request_started_at: datetime | None = None
+    response_received_at: datetime | None = None
+    source_attempts: tuple[dict[str, Any], ...] = ()
+    transport_error_type: str | None = None
+
+
+JsonFetcher = Callable[[str, Mapping[str, str], float], Any]
+TextFetcher = Callable[[str, Mapping[str, str], float], str]
+
+
+def _provider_symbol(symbol: str) -> str:
+    mapped = map_symbol(symbol)
+    return ("sh" if mapped.exchange == "SH" else "sz") + mapped.code
+
+
+def _default_json_fetcher(url: str, params: Mapping[str, str], timeout: float) -> Any:
+    import requests
+
+    response = source_get(
+        url,
+        params=dict(params),
+        timeout=(min(5.0, timeout), timeout),
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; LiangjianResearch/2.0)",
+            "Referer": "https://gu.qq.com/",
+        },
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def _default_text_fetcher(url: str, params: Mapping[str, str], timeout: float) -> str:
+    import requests
+
+    response = source_get(
+        url,
+        params=dict(params),
+        timeout=(min(5.0, timeout), timeout),
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; LiangjianResearch/2.0)",
+            "Referer": "https://gu.qq.com/",
+        },
+    )
+    response.raise_for_status()
+    response.encoding = "gbk"
+    return response.text
+
+
+class TencentIntradayAdapter:
+    """Small-window 1m/5m and auction-quote adapter.
+
+    Tencent's endpoint exposes at most 320 recent bars.  Requests above that
+    bound deliberately fail so the source can never masquerade as the long
+    A3 history provider.
+    """
+
+    def __init__(
+        self,
+        *,
+        json_fetcher: JsonFetcher | None = None,
+        text_fetcher: TextFetcher | None = None,
+        timeout_seconds: float = 12.0,
+    ) -> None:
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        self.json_fetcher = json_fetcher or _default_json_fetcher
+        self.text_fetcher = text_fetcher or _default_text_fetcher
+        self.timeout_seconds = timeout_seconds
+
+    def fetch_bars(
+        self,
+        symbol: str,
+        interval: str,
+        required_bars: int,
+        *,
+        as_of: datetime | None = None,
+    ) -> FetchResult:
+        requested = required_bars if isinstance(required_bars, int) and not isinstance(required_bars, bool) else -1
+        if requested <= 0:
+            return self._result(symbol, interval, max(0, requested), (), "INVALID_REQUIRED_BARS")
+        if interval not in {"1m", "5m"}:
+            return self._result(symbol, interval, requested, (), "INVALID_INTERVAL")
+        if requested > TENCENT_MAX_BARS:
+            return self._result(symbol, interval, requested, (), "TENCENT_REQUEST_TOO_LARGE")
+        cutoff = as_of or datetime.now(SHANGHAI)
+        if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+            return self._result(symbol, interval, requested, (), "INVALID_AS_OF")
+        cutoff = cutoff.astimezone(SHANGHAI)
+        try:
+            provider = _provider_symbol(symbol)
+            payload = self.json_fetcher(
+                f"https://{TENCENT_HOST}/appstock/app/kline/mkline",
+                {"param": f"{provider},m{interval[:-1]},,{TENCENT_MAX_BARS}"},
+                self.timeout_seconds,
+            )
+            rows = self._rows(payload, provider, interval)
+            bars = tuple(
+                bar
+                for bar in (self._bar(symbol, interval, row) for row in rows)
+                if bar.bar_end <= cutoff and not (interval == "1m" and bar.bar_end.time().strftime("%H%M") == "0930")
+            )
+            unique = {}
+            for bar in bars:
+                previous = unique.get(bar.bar_end)
+                if previous is not None and previous != bar:
+                    return self._result(symbol, interval, requested, (), "TENCENT_DUPLICATE_BAR_CONFLICT")
+                unique[bar.bar_end] = bar
+            ordered = tuple(sorted(unique.values(), key=lambda item: item.bar_end))
+        except (TencentMarketDataError, TypeError, ValueError, KeyError):
+            return self._result(symbol, interval, requested, (), "TENCENT_RESPONSE_INVALID")
+        except Exception as exc:
+            return self._result(symbol, interval, requested, (), "TENCENT_REQUEST_FAILED").model_copy(
+                update={"transport_error_type": type(exc).__name__})
+        if len(ordered) < requested:
+            return self._result(symbol, interval, requested, ordered, "TENCENT_INSUFFICIENT_BARS")
+        return self._result(symbol, interval, requested, ordered[-requested:], "OK", complete=True)
+
+    def fetch_quote(
+        self,
+        symbol: str,
+        *,
+        as_of: datetime | None = None,
+        max_age_seconds: float = 180.0,
+    ) -> QuoteResult:
+        cutoff = as_of or datetime.now(SHANGHAI)
+        if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+            return QuoteResult(symbol=str(symbol), reason_code="INVALID_AS_OF")
+        cutoff = cutoff.astimezone(SHANGHAI)
+        try:
+            provider = _provider_symbol(symbol)
+            raw = self.text_fetcher(
+                "https://qt.gtimg.cn/q",
+                {"q": provider},
+                self.timeout_seconds,
+            )
+            quote = self._quote(raw, symbol)
+        except (TencentMarketDataError, TypeError, ValueError, KeyError):
+            return QuoteResult(symbol=str(symbol), reason_code="TENCENT_QUOTE_INVALID")
+        except Exception as exc:
+            return QuoteResult(symbol=str(symbol), reason_code="TENCENT_QUOTE_REQUEST_FAILED",
+                               transport_error_type=type(exc).__name__)
+        # The scheduler rounds its decision time to a minute.  Permit the
+        # provider timestamp to fall inside that same minute, but never accept
+        # another trade date or a stale prior snapshot.
+        if quote.quote_time.date() != cutoff.date():
+            return QuoteResult(symbol=quote.symbol, quote=quote, reason_code="QUOTE_TRADE_DATE_MISMATCH")
+        age = cutoff - quote.quote_time
+        if age > timedelta(seconds=max_age_seconds) or age < -timedelta(seconds=59):
+            return QuoteResult(symbol=quote.symbol, quote=quote, reason_code="QUOTE_NOT_CURRENT")
+        if quote.volume <= 0:
+            return QuoteResult(symbol=quote.symbol, quote=quote, reason_code="QUOTE_ZERO_VOLUME")
+        return QuoteResult(symbol=quote.symbol, quote=quote, reason_code="OK", complete=True)
+
+    @staticmethod
+    def _rows(payload: Any, provider: str, interval: str) -> list[Any]:
+        if not isinstance(payload, Mapping):
+            raise TencentMarketDataError("TENCENT_RESPONSE_INVALID")
+        data = payload.get("data")
+        item = data.get(provider) if isinstance(data, Mapping) else None
+        rows = item.get(f"m{interval[:-1]}") if isinstance(item, Mapping) else None
+        if not isinstance(rows, list):
+            raise TencentMarketDataError("TENCENT_RESPONSE_INVALID")
+        return rows
+
+    @staticmethod
+    def _bar(symbol: str, interval: str, row: Any) -> MinuteBar:
+        if not isinstance(row, (list, tuple)) or len(row) < 6:
+            raise TencentMarketDataError("TENCENT_BAR_INVALID")
+        stamp = datetime.strptime(str(row[0]), "%Y%m%d%H%M").replace(tzinfo=SHANGHAI)
+        open_value = float(row[1])
+        close_value = float(row[2])
+        high_value = float(row[3])
+        low_value = float(row[4])
+        # Tencent reports STAR-market volume in shares, other supported
+        # equities in lots. Both must meet the same TDX shares contract.
+        volume = float(row[5]) * (1.0 if map_symbol(symbol).code.startswith(("688", "689")) else 100.0)
+        # Tencent's final field is not consistently documented across
+        # securities.  A same-unit OHLCV notional preserves a valid VWAP
+        # without pretending that the field is authoritative turnover.
+        amount = max(0.0, volume * ((open_value + high_value + low_value + close_value) / 4.0))
+        return MinuteBar(
+            symbol=symbol,
+            interval=interval,
+            bar_end=stamp,
+            open=open_value,
+            high=high_value,
+            low=low_value,
+            close=close_value,
+            volume=volume,
+            amount=amount,
+            source_id=TENCENT_SOURCE_ID,
+            volume_unit="shares",
+            amount_kind="ohlc_estimate",
+            normalizer_version="tencent-equity-minute-v3",
+            provider_bar_end=stamp,
+        )
+
+    @staticmethod
+    def _quote(raw: str, symbol: str) -> MarketQuote:
+        mapped = map_symbol(symbol)
+        provider = _provider_symbol(symbol)
+        match = re.search(r'\bv_' + re.escape(provider) + r'\s*=\s*"([^"]*)"', str(raw or ""))
+        if not match:
+            raise TencentMarketDataError("TENCENT_QUOTE_INVALID")
+        fields = match.group(1).split("~")
+        if len(fields) <= 37 or not _QUOTE_TIMESTAMP.fullmatch(fields[30].strip()):
+            raise TencentMarketDataError("TENCENT_QUOTE_INVALID")
+        if fields[2].strip() != mapped.code:
+            raise TencentMarketDataError("TENCENT_QUOTE_SYMBOL_MISMATCH")
+        return MarketQuote(
+            symbol=map_symbol(symbol).canonical,
+            name=fields[1].strip(),
+            quote_time=datetime.strptime(fields[30].strip(), "%Y%m%d%H%M%S").replace(tzinfo=SHANGHAI),
+            price=float(fields[3]),
+            previous_close=float(fields[4]),
+            open=float(fields[5]),
+            volume=max(0.0, float(fields[6] or 0)) * (1.0 if map_symbol(symbol).code.startswith(("688", "689")) else 100.0),
+            amount=max(0.0, float(fields[37] or 0)) * 10000.0,
+        )
+
+    @staticmethod
+    def _result(
+        symbol: str,
+        interval: str,
+        requested: int,
+        bars: tuple[MinuteBar, ...],
+        reason: str,
+        *,
+        complete: bool = False,
+    ) -> FetchResult:
+        return FetchResult(
+            symbol=str(symbol).strip().upper(),
+            interval=interval,
+            requested_bars=max(0, requested),
+            returned_bars=len(bars),
+            bars=bars,
+            server=f"{TENCENT_HOST}:443" if bars else None,
+            attempts=(
+                NodeAttempt(
+                    server=f"{TENCENT_HOST}:443",
+                    pages=1,
+                    returned_bars=len(bars),
+                    reason_code=reason,
+                ),
+            ),
+            reason_code=reason,
+            complete=complete,
+        )
+
+
+class ResilientIntradayAdapter:
+    """Tencent-first intraday reads with MootDX as the independent fallback.
+
+    Long-history shortages retain a bounded native Tencent tail. This is
+    explicitly partial; the existing history-cache grid owns completeness.
+    This ordering avoids
+    spending most of the one-minute A4 deadline waiting for currently
+    unreachable public TDX nodes when the bounded Tencent window is healthy.
+    """
+
+    def __init__(self, primary: MootdxAdapter, fallback: TencentIntradayAdapter):
+        self.primary = primary
+        self.fallback = fallback
+
+    def fetch_bars(self, symbol: str, interval: str, required_bars: int, *, as_of: datetime | None = None) -> FetchResult:
+        if required_bars <= TENCENT_MAX_BARS and interval in {"1m", "5m"}:
+            tencent = self.fallback.fetch_bars(symbol, interval, required_bars, as_of=as_of)
+            if tencent.complete:
+                return tencent
+        primary=self.primary.fetch_bars(symbol, interval, required_bars, as_of=as_of)
+        if (primary.complete or type(required_bars) is not int or required_bars<=TENCENT_MAX_BARS
+                or interval not in {'1m','5m'}):return primary
+        tail=self.fallback.fetch_bars(symbol,interval,TENCENT_MAX_BARS,as_of=as_of)
+        if not tail.bars:return primary
+        merged={bar.bar_end:bar for bar in primary.bars}
+        for bar in tail.bars:
+            previous=merged.get(bar.bar_end)
+            if previous is not None and previous.model_dump(exclude={'source_id'})!=bar.model_dump(exclude={'source_id'}):
+                return primary.model_copy(update={'reason_code':'LONG_HISTORY_PROVIDER_BAR_CONFLICT','complete':False})
+            if previous is None:merged[bar.bar_end]=bar
+        bars=tuple(merged[key] for key in sorted(merged))[-required_bars:]
+        return FetchResult(symbol=symbol,interval=interval,requested_bars=required_bars,
+            returned_bars=len(bars),bars=bars,server=tail.server,attempts=primary.attempts+tail.attempts,
+            source_attempts=primary.source_attempts+tail.source_attempts,
+            request_started_at=primary.request_started_at or tail.request_started_at,
+            response_received_at=tail.response_received_at,
+            reason_code='LONG_HISTORY_PARTIAL_TENCENT_WINDOW',complete=False)
+
+    def fetch_quote(self, symbol: str, *, as_of: datetime | None = None, max_age_seconds: float = 180.0) -> QuoteResult:
+        return self.fallback.fetch_quote(symbol, as_of=as_of, max_age_seconds=max_age_seconds)
+
+
+__all__ = [
+    "MarketQuote",
+    "QuoteResult",
+    "ResilientIntradayAdapter",
+    "TENCENT_HOST",
+    "TENCENT_MAX_BARS",
+    "TENCENT_SOURCE_ID",
+    "TencentIntradayAdapter",
+    "TencentMarketDataError",
+]

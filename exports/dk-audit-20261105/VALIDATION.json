@@ -1,0 +1,151 @@
+{
+  "schema": "dk-export-offline-validation/1",
+  "exit_code": 0,
+  "snapshot_commit": "8d3d6dda445a5a0d0116b21fddeab4d171888983",
+  "snapshot_pins_verified": 48,
+  "network_attempt_count": 0,
+  "network_attempts": [],
+  "production_writes": 0,
+  "vm_calls": 0,
+  "model_calls": 0,
+  "evidence_class": "CONTROLLED_TESTS_NOT_REAL_TRADES_OR_20_DAY_MARKET_REPLAY",
+  "versions": {
+    "pytest": "9.1.1",
+    "pydantic": "2.13.4",
+    "PyYAML": "6.0.3",
+    "exchange-calendars": "4.13.2",
+    "tzdata": "2026.3"
+  },
+  "observed_at_utc": "2026-11-05T06:31:33.504077+00:00",
+  "tests": {
+    "tests": 114,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "junit_sha256": "03029ae12d08a65d7af91ae80091354ad54024ef2febf0007856b4566e0f0853",
+  "owned_scratch_removed": true,
+  "project_wrapper_conclusion_sha256": "2930c7645cf0594340a635eb2d59b871e9c9c060c60805f0ca16adeb35cf4b64",
+  "existing_test_files": 7,
+  "packaging_test_files": 1,
+  "packaging_checks": 3,
+  "source_manifest_sha256": "e95d65c3537dd806aa0d1641a8c7638651755e5b48be8361134cbc2f95b5578e",
+  "historical_test_pin_comparison": [
+    {
+      "original_relative_path": "src/liangjian_funnel/market_state/bars15m.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "src/liangjian_funnel/market_state/calendar.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "src/liangjian_funnel/market_state/config.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "src/liangjian_funnel/market_state/contract.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "src/liangjian_funnel/market_state/dk_archive.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "src/liangjian_funnel/market_state/dk_shadow.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "src/liangjian_funnel/market_state/dk_sources.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "src/liangjian_funnel/market_state/index_trend.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "src/liangjian_funnel/market_state/ssl.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "src/liangjian_funnel/market_state/tencent_daily.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "src/liangjian_funnel/market_state/tencent_indices.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "src/liangjian_funnel/market_state/__init__.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "config/market_state.yaml",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "config/market_indices.yaml",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "tests/test_market_state_bars15m.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "tests/test_market_state_ssl.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "tests/test_market_state_dk_shadow.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "tests/test_market_state_dk_archive.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "tests/test_market_state_dk_sources.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "tests/test_market_state_config.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "tests/test_market_state_tencent_indices.py",
+      "equals_historical_test_pin": true
+    },
+    {
+      "original_relative_path": "scripts/track2_archive_dk.py",
+      "equals_historical_test_pin": true
+    }
+  ],
+  "raw_market_replay_this_run": "NOT_PERFORMED_NO_MARKET_DATA_PACKAGED",
+  "platform_tested": "Windows x64 / Python 3.11; other machine must rerun",
+  "local_command": "python D:/dev_A股/.local-test-maintenance/current/local_test_cleanup.py --root D:/dev_A股/.codex_tmp/dk-export-20261105 --run python exports/dk-audit-20261105/run_offline_tests.py --result NEW_RESULT_JSON --junit NEW_JUNIT_XML",
+  "actual_command_argv": [
+    "D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe",
+    "-B",
+    "-X",
+    "utf8",
+    "D:/dev_A股/.local-test-maintenance/current/local_test_cleanup.py",
+    "--root",
+    "D:/dev_A股/.codex_tmp/dk-export-20261105",
+    "--run",
+    "D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe",
+    "-B",
+    "-X",
+    "utf8",
+    "D:/dev_A股/.codex_tmp/dk-export-20261105/exports/dk-audit-20261105/run_offline_tests.py",
+    "--result",
+    "D:/dev_A股/.codex_tmp/dk-audit-evidence-20261105/offline-result-final.json",
+    "--junit",
+    "D:/dev_A股/.codex_tmp/dk-audit-evidence-20261105/offline-junit-final.xml"
+  ],
+  "owned_run_id": "run-20261105T063131226303",
+  "whitespace_check": {
+    "new_packaging_and_docs": "PASS",
+    "preserved_source_note": "git diff --check reports an existing blank line at EOF in snapshot/src/liangjian_funnel/__init__.py:4; preserved byte-identically, not reformatted",
+    "snapshot_hashes_verified": 48
+  }
+}

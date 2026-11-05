@@ -1,0 +1,321 @@
+{
+  "schema": "dk-export-package-sha256/1",
+  "self_excluded": true,
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 37,
+      "sha256": "2f8655b175d0eadb9c16fefd7459a50de38f40f118cd89ada54075f41f91a03c"
+    },
+    {
+      "path": "bootstrap.py",
+      "bytes": 1075,
+      "sha256": "dff926637b8a0288f0be2e95ec363f670aeb8f23607df050ed78523cb8bf02d2"
+    },
+    {
+      "path": "CALLABLES.json",
+      "bytes": 6679,
+      "sha256": "df30095c1786173f15d594ca6b9fca0b5a50d97261956650fad6d325c7b1c57b"
+    },
+    {
+      "path": "checks/test_export_example.py",
+      "bytes": 1804,
+      "sha256": "da160404a1bdfbbcf5d50c7b80d389f5adc662f56efeb7dbf610700a70dac1bd"
+    },
+    {
+      "path": "examples/replay_closed_bars.py",
+      "bytes": 2239,
+      "sha256": "b7061110ff28a82f315752e3fb5fbd16a4948b656347758e4a2f844a4587332b"
+    },
+    {
+      "path": "FILES.md",
+      "bytes": 14634,
+      "sha256": "ca962fba50e6ece5884f91e13b601da0bc4d3da4aa505a40038a6640b7db2c85"
+    },
+    {
+      "path": "HISTORICAL_EVIDENCE.json",
+      "bytes": 5896,
+      "sha256": "13ea314751de9f00861c021869169db56066cef7d80d3c7c48b8dc224de6d474"
+    },
+    {
+      "path": "LOGIC.md",
+      "bytes": 9215,
+      "sha256": "2bfcfe401179923eed7425731ab2a85550011471cbe300941985b68b9d230bf8"
+    },
+    {
+      "path": "MANIFEST.json",
+      "bytes": 31917,
+      "sha256": "e95d65c3537dd806aa0d1641a8c7638651755e5b48be8361134cbc2f95b5578e"
+    },
+    {
+      "path": "MIGRATION.md",
+      "bytes": 5007,
+      "sha256": "8881f7da66ee1f48f57f1b05cd6f1915a964d5bdd3426e83976f95ab45972f4d"
+    },
+    {
+      "path": "PROVENANCE.md",
+      "bytes": 4945,
+      "sha256": "d6b3fcef1a5d0352620c49060e7d593d65f92a9615a55a2891c020fee1132824"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1773,
+      "sha256": "659f18dd6dacba0b96f43602657587648c98e134014b700fa45fd0626c38b313"
+    },
+    {
+      "path": "reference/definition-0ee9968/config/market_state.yaml",
+      "bytes": 1902,
+      "sha256": "925660af212fe399511b491b93ea412a0628fe1cba9d38e8cc0a7f3416d40660"
+    },
+    {
+      "path": "reference/definition-0ee9968/docs/TRACK2_RULING_1144_DK1_CLOSE_20261029.md",
+      "bytes": 1879,
+      "sha256": "dcbf546ea65d946e1466ddbd6ca64df934dd3d45c2f06b930cfad226c047438e"
+    },
+    {
+      "path": "reference/docs/CODEX_MARKET_STATE_SPEC_MKT1_APPENDIX_A_2026-10-26.md",
+      "bytes": 17867,
+      "sha256": "8c293068ee198b7158c072b03925ac8e1aa8ede82d077bee0f4b4403c15fd44b"
+    },
+    {
+      "path": "reference/docs/CODEX_TRACK2_BRIEF_MKT1_DK_FRONTEND_2026-10-28.md",
+      "bytes": 7104,
+      "sha256": "956004111e3b92c7c2658ab4b31af051c35e80f64b8917059c2ad6c179b37f8d"
+    },
+    {
+      "path": "reference/docs/MKT1_APPENDIX_B_DK_REVERSE_2026-10-26.md",
+      "bytes": 10156,
+      "sha256": "fa4eae8cb169cb792921d9ff3ccc8014c45660a8a5f6449310448785cb8e5ba0"
+    },
+    {
+      "path": "reference/docs/TRACK2_D2_GATE_READINESS_20261030.md",
+      "bytes": 17356,
+      "sha256": "f1bb50f411d7c73369eb81a42635dd669f608b44a2ba395d4a145cc38f94b309"
+    },
+    {
+      "path": "reference/docs/TRACK2_M28_EXECUTION_20261030.md",
+      "bytes": 2364,
+      "sha256": "bf083a9095e875089a75e78181d9740d1766300737f6568732665f62c0e1faed"
+    },
+    {
+      "path": "reference/docs/TRACK2_RULING_1124_EXECUTION_20261029.md",
+      "bytes": 5000,
+      "sha256": "400c5ed6985aab64f5a67bd242f63b21c74f2a226d116fcb6974abd61245280d"
+    },
+    {
+      "path": "reference/docs/TRACK2_RULING_1144_DK1_CLOSE_20261029.md",
+      "bytes": 1879,
+      "sha256": "dcbf546ea65d946e1466ddbd6ca64df934dd3d45c2f06b930cfad226c047438e"
+    },
+    {
+      "path": "reference/scripts/track2_assemble_tencent.py",
+      "bytes": 6852,
+      "sha256": "c58c7d57642ed2d4548231ecaad6cb306bf1dd52dcd9445fd034783524baf837"
+    },
+    {
+      "path": "reference/scripts/track2_close_shadow.py",
+      "bytes": 5206,
+      "sha256": "695f6541269bf970220f4a8b7663d7ea49838c7fdba1cadb8cae13ea92287a68"
+    },
+    {
+      "path": "reference/scripts/track2_collect_dk1.py",
+      "bytes": 10615,
+      "sha256": "03bd3fa1b6be50b13f6e05b99e4114014bd173dbec6eedcfeec7e9760bf64235"
+    },
+    {
+      "path": "reference/scripts/track2_collect_tencent.py",
+      "bytes": 12540,
+      "sha256": "9181f30acb6cf14df50b3f73f3f4933cdd9de1053b0729605e0d7084115986fc"
+    },
+    {
+      "path": "reference/scripts/track2_replay_market_state.py",
+      "bytes": 11377,
+      "sha256": "8216920c25e2a7f9ebb3140968b754d54eb572ad1add56bb550820d27b0e3f26"
+    },
+    {
+      "path": "reference/src/liangjian_funnel/market_state/research_http.py",
+      "bytes": 11243,
+      "sha256": "b6cc841a79f4bf1a9c00208424c8c596637e4f380f65ed90b940adeb7df4cd96"
+    },
+    {
+      "path": "reference/src/liangjian_funnel/market_state/tencent_archive_http.py",
+      "bytes": 5284,
+      "sha256": "578306359b730119bc127f7b90a5fb70a5f11181b4a2258f1ffe82746a0e1b88"
+    },
+    {
+      "path": "reference/src/liangjian_funnel/market_state/tencent_http.py",
+      "bytes": 13271,
+      "sha256": "b72f58bef54f6b1c40c1471fd8119a567f93e1af2ad56f09c5a74b6e6c347be1"
+    },
+    {
+      "path": "requirements-offline.txt",
+      "bytes": 220,
+      "sha256": "f705b45bc2ae834fb278e9e5717c3e4d37208c2a53383ff3946a1b5852d81148"
+    },
+    {
+      "path": "run_offline_tests.py",
+      "bytes": 2542,
+      "sha256": "215652d849e4f5bce4702846f2d7d379c7b5890c483c2b08b49e3c786c4ca5db"
+    },
+    {
+      "path": "snapshot/config/market_indices.yaml",
+      "bytes": 700,
+      "sha256": "c6c9c9b5444a2c8e51642d9f58e2086ab14927de955c672344fe76875a1e1209"
+    },
+    {
+      "path": "snapshot/config/market_state.yaml",
+      "bytes": 2183,
+      "sha256": "88f8ae1d0a368ebf0a73ab179668bc8da2b7d7c1cad93539e60a146c9ec56a32"
+    },
+    {
+      "path": "snapshot/scripts/track2_archive_dk.py",
+      "bytes": 5950,
+      "sha256": "4ffdd3ecd586c980face7f87a776023be51b5e328135bed791701398abac5379"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/__init__.py",
+      "bytes": 77,
+      "sha256": "db2ae6540fd6541bd2a2d86d9b2bdaa80580041f4579a2cce12426fcba24b943"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/data/__init__.py",
+      "bytes": 2978,
+      "sha256": "4a2332bff463cab0a657de4232dba8bd31c4dfda696cc3e2df2b07c53c99a87b"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/data/mootdx.py",
+      "bytes": 35074,
+      "sha256": "cf3bdc9ac0506ac30ca0d4b682247fcc448a2e1ef0bd5c806b2fe409b82f4129"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/data/tencent_minute.py",
+      "bytes": 15545,
+      "sha256": "e0e750a6d6c820439b59e02eb8a85dd03ea8d1f6ee7c97472e11f0b64fb69041"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/market_state/__init__.py",
+      "bytes": 80,
+      "sha256": "cf0dd1748cda26ed1a5bef3707ebf063eb3f8fe6405e6cadf61357310119b282"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/market_state/bars15m.py",
+      "bytes": 9906,
+      "sha256": "0890564308353344b0fca23ee023ad3bfbb117e42ac66f077ed9e6f5e69618bc"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/market_state/calendar.py",
+      "bytes": 695,
+      "sha256": "04e3ae9c77a5af0e950c6a62916b48aa41eee1d3f4ff4b85e2b8da43941180f1"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/market_state/config.py",
+      "bytes": 8175,
+      "sha256": "1aaa0cbf6328e7f0fdd337195ec54551c9dcaa494a6243940f667fffcd343846"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/market_state/contract.py",
+      "bytes": 13099,
+      "sha256": "1d8ab088ae3078e03fbb466d7e67a188f85671907d36465c92f2482a64e79d64"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/market_state/dk_archive.py",
+      "bytes": 4028,
+      "sha256": "395098ca9e06dc99d0e86a3c403caba2cc7e51f7aced61898896b44796fc5d42"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/market_state/dk_shadow.py",
+      "bytes": 10119,
+      "sha256": "81db029b7f02cac4703240fbcfc15537c1c235e2a8523dd5f03c0e70038ba507"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/market_state/dk_sources.py",
+      "bytes": 6836,
+      "sha256": "c9ad3b02efdf85672f796848a66861bde8718a6978c5af35c2d7e98b5c4a7976"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/market_state/index_trend.py",
+      "bytes": 12841,
+      "sha256": "8793836e24790d4986f4c5e55bb9ac6982265dadd5e0df7a0b567f7df4b29863"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/market_state/ssl.py",
+      "bytes": 8335,
+      "sha256": "a0a53b57088316a479933eb37b5c8c60b1589da2d1cd02bff8a32e7e5043d92e"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/market_state/tencent_daily.py",
+      "bytes": 5276,
+      "sha256": "41fe5699fb448df9e9cdfb3e192f040c56b880c96cb46b79a0939e5c97670c56"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/market_state/tencent_indices.py",
+      "bytes": 2767,
+      "sha256": "0c7ddadd5bc04e5bb17348fff41584303974c924dc53ba0cb3a0fa5c6527a13e"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/pipeline/__init__.py",
+      "bytes": 855,
+      "sha256": "7dec053913420f4a5c2d8a6243a6aac4601d8624d4af6e87ba8318b9f9725fed"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/pipeline/emotion_vocabulary.py",
+      "bytes": 933,
+      "sha256": "e3fe3d40d5369550e5c80373fbdfbe6f4dc8ee80e9a7aa5ae540354bdf5841bd"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/runtime/__init__.py",
+      "bytes": 1448,
+      "sha256": "9bd194d20f916f2b4572557d0e428a3f9e76816f358b7d7e2292aaabbc07777c"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/runtime/calendar.py",
+      "bytes": 5299,
+      "sha256": "cf74968c455e0e3db82db51dad1623e2010fd4df18e68f1b929a20731c62b976"
+    },
+    {
+      "path": "snapshot/src/liangjian_funnel/runtime/close_stage_budget.py",
+      "bytes": 9384,
+      "sha256": "c23e6039cd1ed7adefc53ec50c1339c15b8d665ceb4498ba4de6ca0f16721305"
+    },
+    {
+      "path": "snapshot/tests/test_market_state_bars15m.py",
+      "bytes": 7687,
+      "sha256": "a1251fca46e2ea85cc9886bc959e0f30af3986e8a2b4c79541dc4c13d501e315"
+    },
+    {
+      "path": "snapshot/tests/test_market_state_config.py",
+      "bytes": 3222,
+      "sha256": "42afbde7f6bf3edbabbc8f00d79f7eb9f36d6dd88bb913c7ab1c81ed905d5927"
+    },
+    {
+      "path": "snapshot/tests/test_market_state_dk_archive.py",
+      "bytes": 3575,
+      "sha256": "a3d4dc352c6dec67c5390bd18b6df2fd51de904f82f10c8629316be7a708636a"
+    },
+    {
+      "path": "snapshot/tests/test_market_state_dk_shadow.py",
+      "bytes": 5854,
+      "sha256": "bddffa825f7f4dc95cfe57d7f7ca2f6ac58b9e17cfe30df55595a6157c20899a"
+    },
+    {
+      "path": "snapshot/tests/test_market_state_dk_sources.py",
+      "bytes": 3409,
+      "sha256": "7a693a2c78818a09c86626eefb6770b3ba8bacfed0309b614de21c9209f74846"
+    },
+    {
+      "path": "snapshot/tests/test_market_state_ssl.py",
+      "bytes": 6499,
+      "sha256": "051f6f594032be96eae3c32b267325b0279c9b1f1cd355143f794af0267f1bbc"
+    },
+    {
+      "path": "snapshot/tests/test_market_state_tencent_indices.py",
+      "bytes": 2077,
+      "sha256": "04c3e3535a18fa76f31cdc6171119672f5fab1013915f2ef0413a05b285f361d"
+    },
+    {
+      "path": "VALIDATION.json",
+      "bytes": 5520,
+      "sha256": "013144b1f327e00457b5231be9037297b9a4a78b2fe97761c930ee977e2e149a"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+schema_version: market-indices/1
+version: '2026-10-29.1'
+identity_status: PROVIDER_PROBE_PENDING
+indices:
+  SSE: {name: 上证指数, thscode: 000001.SH, tencent_code: sh000001}
+  SZSE: {name: 深证成指, thscode: 399001.SZ, tencent_code: sz399001}
+  CYB: {name: 创业板指, thscode: 399006.SZ, tencent_code: sz399006}
+  HS300: {name: 沪深300, thscode: 000300.SH, tencent_code: sh000300}
+  CSI1000: {name: 中证1000, thscode: 000852.SH, tencent_code: sh000852}
+  KC50: {name: 科创50, thscode: 000688.SH, tencent_code: sh000688}
+# Explicit index identifiers only. Never pass an index through stock map_symbol.
+# Provider codes and names require source evidence before collecting/using facts.

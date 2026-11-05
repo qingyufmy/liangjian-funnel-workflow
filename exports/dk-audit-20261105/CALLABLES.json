@@ -1,0 +1,360 @@
+{
+  "snapshot/src/liangjian_funnel/market_state/bars15m.py": [
+    {
+      "name": "Bar15m",
+      "line": 24,
+      "end_line": 39
+    },
+    {
+      "name": "Day15m",
+      "line": 43,
+      "end_line": 47
+    },
+    {
+      "name": "_time",
+      "line": 50,
+      "end_line": 56
+    },
+    {
+      "name": "_clock",
+      "line": 59,
+      "end_line": 62
+    },
+    {
+      "name": "_number",
+      "line": 65,
+      "end_line": 74
+    },
+    {
+      "name": "compose_15m",
+      "line": 77,
+      "end_line": 171
+    },
+    {
+      "name": "dk_reference_anchor",
+      "line": 174,
+      "end_line": 195
+    }
+  ],
+  "snapshot/src/liangjian_funnel/market_state/calendar.py": [
+    {
+      "name": "market_calendar",
+      "line": 13,
+      "end_line": 17
+    }
+  ],
+  "snapshot/src/liangjian_funnel/market_state/config.py": [
+    {
+      "name": "_UniqueLoader",
+      "line": 14,
+      "end_line": 15
+    },
+    {
+      "name": "_unique_mapping",
+      "line": 18,
+      "end_line": 25
+    },
+    {
+      "name": "read_yaml",
+      "line": 31,
+      "end_line": 39
+    },
+    {
+      "name": "_positive_periods",
+      "line": 42,
+      "end_line": 45
+    },
+    {
+      "name": "load_market_definitions",
+      "line": 48,
+      "end_line": 152
+    },
+    {
+      "name": "index_identity",
+      "line": 155,
+      "end_line": 160
+    }
+  ],
+  "snapshot/src/liangjian_funnel/market_state/contract.py": [
+    {
+      "name": "_date",
+      "line": 28,
+      "end_line": 31
+    },
+    {
+      "name": "_stamp",
+      "line": 34,
+      "end_line": 40
+    },
+    {
+      "name": "PitProof",
+      "line": 43,
+      "end_line": 79
+    },
+    {
+      "name": "SourceInput",
+      "line": 83,
+      "end_line": 86
+    },
+    {
+      "name": "TokenFact",
+      "line": 89,
+      "end_line": 94
+    },
+    {
+      "name": "ComponentFacts",
+      "line": 97,
+      "end_line": 122
+    },
+    {
+      "name": "_closed_component_schema",
+      "line": 125,
+      "end_line": 129
+    },
+    {
+      "name": "MarketStateFacts",
+      "line": 132,
+      "end_line": 146
+    },
+    {
+      "name": "load_vocabulary",
+      "line": 149,
+      "end_line": 188
+    },
+    {
+      "name": "_pairs",
+      "line": 191,
+      "end_line": 197
+    },
+    {
+      "name": "_bad_constant",
+      "line": 200,
+      "end_line": 201
+    },
+    {
+      "name": "_token",
+      "line": 204,
+      "end_line": 221
+    },
+    {
+      "name": "build_market_state",
+      "line": 224,
+      "end_line": 265
+    },
+    {
+      "name": "legacy_projection",
+      "line": 268,
+      "end_line": 274
+    }
+  ],
+  "snapshot/src/liangjian_funnel/market_state/dk_archive.py": [
+    {
+      "name": "bar_identity",
+      "line": 16,
+      "end_line": 17
+    },
+    {
+      "name": "merge_bars",
+      "line": 20,
+      "end_line": 57
+    },
+    {
+      "name": "archive_evaluation",
+      "line": 60,
+      "end_line": 78
+    }
+  ],
+  "snapshot/src/liangjian_funnel/market_state/dk_shadow.py": [
+    {
+      "name": "_equity_prices",
+      "line": 15,
+      "end_line": 45
+    },
+    {
+      "name": "json_value",
+      "line": 48,
+      "end_line": 57
+    },
+    {
+      "name": "canonical_minute_input",
+      "line": 60,
+      "end_line": 79
+    },
+    {
+      "name": "build_dk_shadow",
+      "line": 82,
+      "end_line": 162
+    }
+  ],
+  "snapshot/src/liangjian_funnel/market_state/dk_sources.py": [
+    {
+      "name": "_number",
+      "line": 19,
+      "end_line": 28
+    },
+    {
+      "name": "parse_eastmoney",
+      "line": 31,
+      "end_line": 62
+    },
+    {
+      "name": "parse_tencent",
+      "line": 65,
+      "end_line": 82
+    },
+    {
+      "name": "compare_overlap",
+      "line": 85,
+      "end_line": 123
+    },
+    {
+      "name": "warmup_n_limit",
+      "line": 126,
+      "end_line": 133
+    }
+  ],
+  "snapshot/src/liangjian_funnel/market_state/index_trend.py": [
+    {
+      "name": "number",
+      "line": 22,
+      "end_line": 31
+    },
+    {
+      "name": "render",
+      "line": 34,
+      "end_line": 35
+    },
+    {
+      "name": "_day",
+      "line": 38,
+      "end_line": 41
+    },
+    {
+      "name": "_rows",
+      "line": 44,
+      "end_line": 63
+    },
+    {
+      "name": "append_snapshot_bar",
+      "line": 66,
+      "end_line": 85
+    },
+    {
+      "name": "_ma",
+      "line": 88,
+      "end_line": 90
+    },
+    {
+      "name": "_ratio",
+      "line": 93,
+      "end_line": 94
+    },
+    {
+      "name": "_matches",
+      "line": 97,
+      "end_line": 106
+    },
+    {
+      "name": "_weekly",
+      "line": 109,
+      "end_line": 143
+    },
+    {
+      "name": "index_close_facts",
+      "line": 146,
+      "end_line": 210
+    },
+    {
+      "name": "market_close_facts",
+      "line": 213,
+      "end_line": 227
+    }
+  ],
+  "snapshot/src/liangjian_funnel/market_state/ssl.py": [
+    {
+      "name": "SslEvent",
+      "line": 21,
+      "end_line": 25
+    },
+    {
+      "name": "SslPoint",
+      "line": 29,
+      "end_line": 39
+    },
+    {
+      "name": "SslMemory",
+      "line": 43,
+      "end_line": 53
+    },
+    {
+      "name": "initial_ssl",
+      "line": 56,
+      "end_line": 59
+    },
+    {
+      "name": "_next_end",
+      "line": 62,
+      "end_line": 72
+    },
+    {
+      "name": "ssl_append",
+      "line": 75,
+      "end_line": 126
+    },
+    {
+      "name": "ssl_series",
+      "line": 129,
+      "end_line": 134
+    },
+    {
+      "name": "dk_state",
+      "line": 137,
+      "end_line": 139
+    },
+    {
+      "name": "evaluate_ssl",
+      "line": 142,
+      "end_line": 179
+    }
+  ],
+  "snapshot/src/liangjian_funnel/market_state/tencent_daily.py": [
+    {
+      "name": "daily_request",
+      "line": 21,
+      "end_line": 25
+    },
+    {
+      "name": "parse_quote_fields",
+      "line": 28,
+      "end_line": 35
+    },
+    {
+      "name": "parse_quote_reply",
+      "line": 38,
+      "end_line": 46
+    },
+    {
+      "name": "parse_daily",
+      "line": 49,
+      "end_line": 87
+    },
+    {
+      "name": "decode_payload",
+      "line": 90,
+      "end_line": 98
+    }
+  ],
+  "snapshot/src/liangjian_funnel/market_state/tencent_indices.py": [
+    {
+      "name": "index_request",
+      "line": 14,
+      "end_line": 19
+    },
+    {
+      "name": "parse_index_5m",
+      "line": 22,
+      "end_line": 58
+    }
+  ],
+  "snapshot/src/liangjian_funnel/market_state/__init__.py": []
+}
