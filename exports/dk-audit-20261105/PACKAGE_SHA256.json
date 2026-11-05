@@ -4,8 +4,8 @@
   "files": [
     {
       "path": ".gitattributes",
-      "bytes": 37,
-      "sha256": "2f8655b175d0eadb9c16fefd7459a50de38f40f118cd89ada54075f41f91a03c"
+      "bytes": 8,
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da"
     },
     {
       "path": "bootstrap.py",
@@ -314,8 +314,8 @@
     },
     {
       "path": "VALIDATION.json",
-      "bytes": 5520,
-      "sha256": "013144b1f327e00457b5231be9037297b9a4a78b2fe97761c930ee977e2e149a"
+      "bytes": 5837,
+      "sha256": "fdadf450f9f3bdbb4a44d54105160ffadb25fb64015b04d7b98e2ee7dca18c08"
     }
   ]
 }

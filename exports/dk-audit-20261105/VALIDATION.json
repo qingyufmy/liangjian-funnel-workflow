@@ -147,5 +147,10 @@
     "new_packaging_and_docs": "PASS",
     "preserved_source_note": "git diff --check reports an existing blank line at EOF in snapshot/src/liangjian_funnel/__init__.py:4; preserved byte-identically, not reformatted",
     "snapshot_hashes_verified": 48
+  },
+  "package_transport_validation": {
+    "first_commit_issue": "Git normalized four newly generated JSON files; source DK blobs were unaffected",
+    "correction": "All files in this unique export subtree are -text; full committed-blob SHA verification required",
+    "algorithm_or_test_code_changed": false
   }
 }
